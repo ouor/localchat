@@ -133,8 +133,15 @@ class BrowserEngine @Inject constructor(
         publish()
     }
 
-    /** AI | USER (direct control / give back). Tools waiting in [awaitAiControl] resume on AI. */
+    /**
+     * AI | USER (direct control / give back). Tools waiting in [awaitAiControl] resume on AI. Any thread:
+     * the run loop calls it from a worker (handoff), and [publish] reads WebView state, which is main-only.
+     */
     fun setControl(tabId: Int, control: Control) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { setControl(tabId, control) }
+            return
+        }
         byId[tabId]?.control = control
         publish()
     }
