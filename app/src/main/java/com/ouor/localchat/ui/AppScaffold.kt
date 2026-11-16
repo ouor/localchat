@@ -63,6 +63,15 @@ class AppViewModel @Inject constructor(private val settings: SettingsStore, val 
     /** null until loaded. */
     val onboarded = settings.settings.map { it.onboarded }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     fun markOnboarded() { viewModelScope.launch { settings.update { copy(onboarded = true) } } }
+
+    init {
+        // BUG-12 (P-07): once the first endpoint has models, make the composer's implicit pick the saved default.
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(settings.settings, providers.allVisibleModels) { s, models ->
+                if (s.defaultModel == null) models.maxByOrNull { it.lastUsedAt ?: 0L }?.ref else null
+            }.collect { pick -> if (pick != null) settings.update { if (defaultModel == null) copy(defaultModel = pick) else this } }
+        }
+    }
 }
 
 /** Root: theme, render engine, navigation, drawer / permanent session panel (C-06, architecture 10.3). */

@@ -246,6 +246,7 @@
     <string name="ui_pick_another_file">다른 파일 선택</string>
     <string name="ui_chats">대화</string>
     <string name="ui_attachments">첨부</string>
+    <string name="ui_backup_plain_note">백업은 일반 ZIP 파일이에요. 대화와 첨부는 암호화되지 않고, 비밀번호는 API 키(secrets.enc)에만 적용돼요.</string>
     <string name="ui_include_keys">API 키 포함</string>
     <string name="ui_password">비밀번호</string>
     <string name="ui_password_short">8자 이상</string>
@@ -305,9 +306,9 @@
     <string name="ui_cookies">쿠키</string>
     <string name="ui_cache">캐시</string>
     <string name="ui_site_storage">사이트 저장소</string>
-    <string name="ui_privacy_note">데이터는 이 기기와 선택한 프로바이더로만 전송돼요.</string>
+    <string name="ui_privacy_note">대화와 키는 이 기기에만 저장돼요. 메시지와 첨부는 고른 프로바이더로 보내고, 검색어는 검색 엔진(DuckDuckGo 등)으로, 링크 읽기와 브라우저는 여는 사이트로 요청을 보내요.</string>
     <string name="ui_onboard_title">내 키로 쓰는 AI 채팅</string>
-    <string name="ui_onboard_privacy">대화와 키는 이 기기에만 저장돼요. 요청은 고른 프로바이더로만 가요.</string>
+    <string name="ui_onboard_privacy">대화와 키는 이 기기에만 저장돼요. 메시지는 고른 프로바이더로 가고, 검색·웹 페이지는 검색 엔진과 방문한 사이트에 요청해요.</string>
     <string name="ui_pick_provider">프로바이더 선택</string>
     <string name="ui_custom_endpoint">직접 입력</string>
     <string name="ui_custom_endpoint_sub">OpenAI 호환 서버</string>

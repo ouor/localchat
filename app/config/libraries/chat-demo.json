@@ -1,0 +1,9 @@
+{
+  "uniqueId": "github:deepseek-ai/chat-demo",
+  "artifactVersion": "",
+  "name": "DeepSeek chat-demo",
+  "description": "Upload types, branch rules and DeepSeek history import ported from chat-demo",
+  "website": "https://github.com/deepseek-ai/chat-demo",
+  "developers": [{ "name": "DeepSeek" }],
+  "licenses": ["MIT"]
+}
