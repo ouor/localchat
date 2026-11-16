@@ -29,8 +29,9 @@ class LinkPrefetcher @Inject constructor(
             .filter { it !in alreadyRead && !browser.isSensitive(it) }.take(MAX_LINKS).toList()
         return urls.mapNotNull { url ->
             onReading(url)
-            val tabId = browser.openAiTab(ctx.sessionId, url)
+            var tabId: Int? = null
             try {
+                tabId = browser.openAiTab(ctx.sessionId, url) // Too many tabs throws (AN 1).
                 val outcome = pageText.run(buildJsonObject { put("tabId", tabId) }, ctx)
                 if (outcome.isError) null
                 else attachments.saveText(url, "<untrusted_page_content>\n${outcome.text}\n</untrusted_page_content>")
@@ -39,7 +40,7 @@ class LinkPrefetcher @Inject constructor(
             } catch (_: Exception) {
                 null // Unreadable page: the question goes without it.
             } finally {
-                withContext(NonCancellable) { browser.close(tabId) }
+                tabId?.let { withContext(NonCancellable) { browser.close(it) } }
             }
         }
     }

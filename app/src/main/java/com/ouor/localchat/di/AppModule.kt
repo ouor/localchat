@@ -7,6 +7,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,5 +37,9 @@ object AppModule {
     @Provides
     @Singleton
     @ApplicationScope
-    fun applicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun applicationScope(): CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            // Last line of defence (AN 3): a stray failure in a background job is logged, not fatal.
+            CoroutineExceptionHandler { _, e -> android.util.Log.e("localchat", "uncaught in app scope", e) },
+    )
 }

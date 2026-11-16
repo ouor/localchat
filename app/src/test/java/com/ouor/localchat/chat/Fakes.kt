@@ -71,7 +71,11 @@ class FakeChatStore : ChatStore {
         sessions[sessionId] = s.copy(rootSelectedId = root)
     }
 
+    /** Makes saveNode throw for matching nodes (a broken row, a full disk). */
+    var failSave: (MessageNode) -> Boolean = { false }
+
     override suspend fun saveNode(node: MessageNode) {
+        if (failSave(node)) throw IllegalStateException("disk full")
         // Same rule as SessionRepository: the stored selection pointer wins.
         messages[node.id] = node.copy(selectedChildId = messages[node.id]?.selectedChildId ?: node.selectedChildId)
         saves += node
@@ -149,7 +153,11 @@ class FakeBrowserPort : BrowserPort {
     override fun clearAiActivity(sessionId: String) = Unit
     val opened = mutableListOf<String>()
     val closed = mutableListOf<Int>()
-    override suspend fun openAiTab(sessionId: String, url: String): Int { opened += url; return 40 + opened.size }
+    var openError: Exception? = null
+    override suspend fun openAiTab(sessionId: String, url: String): Int {
+        openError?.let { throw it }
+        opened += url; return 40 + opened.size
+    }
     override suspend fun close(tabId: Int) { closed += tabId }
     override fun isSensitive(url: String) = "bank" in url
     val urls = HashMap<Int, String>()

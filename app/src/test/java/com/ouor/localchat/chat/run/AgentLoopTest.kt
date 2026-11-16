@@ -15,6 +15,7 @@ import com.ouor.localchat.core.model.Draft
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.ReplyStatus
+import com.ouor.localchat.core.model.ChatErrorKind
 import com.ouor.localchat.core.model.TextBlock
 import com.ouor.localchat.core.model.TitleSource
 import com.ouor.localchat.core.model.ToolCallBlock
@@ -400,6 +401,80 @@ class AgentLoopTest {
         assertTrue(second.id != first.id)
         assertEquals("second", ((second.body as MessageBody.Assistant).blocks.single() as TextBlock).text)
         assertEquals(sid, second.sessionId)
+    }
+
+    @Test
+    fun `an unexpected exception in the loop is saved as ERROR instead of escaping`() = runTest {
+        val h = Harness(this)
+        h.llm.scripts.addLast { emit(LlmEvent.TextDelta("half")); throw IllegalStateException("bad row") }
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.ERROR, reply.status)
+        assertEquals(ChatErrorKind.PROTOCOL, reply.error?.kind)
+        assertEquals("half", (reply.blocks.single() as TextBlock).text)
+        assertTrue(h.engine.runs.value.isEmpty())
+    }
+
+    @Test
+    fun `maxSteps 0 from a restored settings file falls back to the default`() = runTest {
+        val tool = FakeTool("open_tab")
+        val h = Harness(this, tools = listOf(tool), maxSteps = 0)
+        h.llm.events(call("c1", "open_tab"), finished("tool_calls"))
+        h.llm.text("done")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
+    }
+
+    @Test
+    fun `link prefetch survives a tab that cannot be opened`() = runTest {
+        val page = FakeTool("page_text")
+        val h = Harness(this, tools = listOf(page), models = FakeModelPort(caps(tools = false)))
+        h.browser.openError = com.ouor.localchat.browser.PageError("Too many tabs")
+        h.llm.text("answer")
+        val sid = h.sendNew("read https://example.com/a")
+        advanceUntilIdle()
+        assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
+        assertEquals(emptyList<Int>(), h.browser.closed)
+        assertEquals(emptyList<String>(), (h.store.messages.values.first { it.body is MessageBody.User }.body as MessageBody.User).attachmentIds)
+    }
+
+    @Test
+    fun `recovery skips a node it cannot save and still finishes`() = runTest {
+        val h = Harness(this, recovered = false)
+        val sid = Ids.new()
+        h.store.sessions[sid] = com.ouor.localchat.core.model.Session(sid, "t", TitleSource.NONE, 0, 0, null, null)
+        for (id in listOf("bad", "good")) {
+            h.store.messages[id] = com.ouor.localchat.core.model.MessageNode(
+                id, sid, null, null, com.ouor.localchat.core.model.Role.ASSISTANT, 0,
+                MessageBody.Assistant(emptyList(), ReplyStatus.STREAMING, model = null, options = GenOptions()),
+            )
+        }
+        h.store.failSave = { it.id == "bad" }
+        h.recovery.run()
+        assertEquals(ReplyStatus.STOPPED, h.store.reply("good").status)
+        assertTrue(h.store.gcCutoff != null)
+    }
+
+    @Test
+    fun `continue that overflows and compacts keeps the text it was continuing`() = runTest {
+        val h = Harness(this)
+        val sid = threeTurns(h)
+        h.llm.events(LlmEvent.TextDelta("Once upon"), finished("length"))
+        h.engine.send(sid, draft("q4"), GenOptions(), TEST_MODEL)
+        advanceUntilIdle()
+        val id = h.store.messages.values.last().id
+        h.llm.events(LlmEvent.Failed(LlmError.ContextOverflow(400, "too long"), partial = false))
+        h.llm.text(" a time")
+        h.llm.results.addLast(LlmResult.Ok("SUMMARY", "stop", null))
+        h.engine.continueReply(id)
+        advanceUntilIdle()
+
+        val reply = h.store.reply(id)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertEquals("Once upon a time", reply.blocks.filterIsInstance<TextBlock>().joinToString("") { it.text })
+        assertEquals("Once upon", h.llm.requests.last().messages.let { it[it.size - 2] }.content!!.jsonPrimitive.content)
     }
 
     @Test

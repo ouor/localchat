@@ -3,6 +3,7 @@ package com.ouor.localchat.chat.run
 import com.ouor.localchat.chat.ChatStore
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.model.MessageBody
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,14 +26,24 @@ class StartupRecovery @Inject constructor(
     suspend fun run() {
         try {
             val now = clock.now()
-            for (node in store.unfinishedAssistants()) {
+            // One bad row must not stop recovery, or the app would crash on every start (AN 3).
+            for (node in guarded { store.unfinishedAssistants() }.orEmpty()) {
                 val body = node.body as? MessageBody.Assistant ?: continue
-                store.saveNode(node.copy(body = StreamCollector.close(body, inFlightCallId = null, now = now, unknownOutcome = true)))
+                guarded { store.saveNode(node.copy(body = StreamCollector.close(body, inFlightCallId = null, now = now, unknownOutcome = true))) }
             }
             // Nothing from the previous process is still being ingested.
-            store.collectAttachmentGarbage(cutoff = now)
+            guarded { store.collectAttachmentGarbage(cutoff = now) }
         } finally {
             done.complete(Unit)
         }
+    }
+
+    private inline fun <T> guarded(block: () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        System.err.println("StartupRecovery: ${e.message}") // shortcut: stderr only, move to a logger when the app has one
+        null
     }
 }

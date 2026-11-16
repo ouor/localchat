@@ -21,6 +21,7 @@ import com.ouor.localchat.chat.context.TokenEstimate
 import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.MessageTree
+import com.ouor.localchat.core.model.AppSettings
 import com.ouor.localchat.core.model.ChatError
 import com.ouor.localchat.core.model.ChatErrorKind
 import com.ouor.localchat.core.model.MessageBody
@@ -69,6 +70,11 @@ class TurnRunner @Inject constructor(
         val turn = Turn(handle, mode)
         try {
             turn.loop()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A broken row, a full disk, a bug: the reply ends as ERROR instead of killing the process (AN 3).
+            turn.fail(e)
         } finally {
             withContext(NonCancellable) { turn.finish() }
         }
@@ -90,6 +96,10 @@ class TurnRunner @Inject constructor(
         }
 
         fun phase(phase: RunPhase) = handle.update { it.copy(phase = phase) }
+
+        fun fail(e: Exception) = publish(
+            body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.PROTOCOL, message = e.message ?: e::class.simpleName)),
+        )
 
         suspend fun save() {
             store.saveNode(node)
@@ -118,7 +128,8 @@ class TurnRunner @Inject constructor(
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
             if (mode == Mode.NEW && body.steps == 0 && !model.caps.toolCalling.value) path = prefetchLinks(path, executor)
-            val maxSteps = prefs.maxSteps
+            // A restored or hand-edited settings file may hold 0 (AN 10).
+            val maxSteps = prefs.maxSteps.takeIf { it > 0 } ?: AppSettings().maxSteps
             var step = if (mode == Mode.CONTINUE) body.blocks.maxOfOrNull { it.step } ?: 0 else body.steps
             var compacted = false
             var askedAt = -1
@@ -151,6 +162,7 @@ class TurnRunner @Inject constructor(
                     request = assemble(path, model, tools, system)
                 }
 
+                val before = body.blocks
                 var terminal: LlmEvent? = null
                 llm.stream(model.target, request).collect { event ->
                     if (event is LlmEvent.Retrying) phase(RunPhase.Retrying(event.attempt, event.max, event.delayMs))
@@ -177,7 +189,8 @@ class TurnRunner @Inject constructor(
                                 null
                             }
                             if (summary != null) {
-                                publish(body.copy(blocks = body.blocks.filter { it.step != step }))
+                                // Back to the blocks before this attempt: in CONTINUE they hold the text being continued (AN 2).
+                                publish(body.copy(blocks = before))
                                 continue
                             }
                             publish(StreamCollector.reduce(body, t, step, clock.now()))
