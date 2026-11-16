@@ -29,7 +29,10 @@ object StreamCollector {
             is LlmEvent.TextDelta -> body.closeThinking(now).appendText(event.text, step)
             is LlmEvent.RefusalDelta -> body.closeThinking(now).appendText(event.text, step).copy(refusal = true)
             is LlmEvent.ToolCallsReady -> event.calls.fold(body.closeThinking(now)) { b, call ->
-                b.append(ToolCallBlock(call.id.ifBlank { Ids.new() }, call.name, call.argumentsJson, step, ToolCallState.RUNNING, now))
+                // A blank id, or one already used in this step (malformed but seen), gets an app id so no call is lost.
+                val taken = b.blocks.any { it is ToolCallBlock && it.step == step && it.callId == call.id }
+                val id = if (call.id.isBlank() || taken) Ids.new() else call.id
+                b.append(ToolCallBlock(id, call.name, call.argumentsJson, step, ToolCallState.RUNNING, now))
             }
             is LlmEvent.Retrying -> body
             is LlmEvent.Finished -> body.closeThinking(now).copy(

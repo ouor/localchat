@@ -107,6 +107,30 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a call id repeated within one step gets an app id and both results go back`() = runTest {
+        val open = FakeTool("open_tab")
+        val h = Harness(this, tools = listOf(open))
+        h.llm.events(
+            LlmEvent.ToolCallsReady(listOf(ToolCallRequest("dup", "open_tab", "{}"), ToolCallRequest("dup", "open_tab", "{}"))),
+            finished("tool_calls"),
+        )
+        h.llm.text("done")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertEquals(2, open.calls)
+        val ids = reply.blocks.filterIsInstance<ToolCallBlock>().map { it.callId }
+        assertEquals("dup", ids[0])
+        assertTrue(ids[1] != "dup")
+        assertEquals(ids, reply.blocks.filterIsInstance<ToolResultBlock>().map { it.callId })
+        val second = h.llm.requests[1].messages
+        assertEquals(ids, second.single { it.role == "assistant" }.toolCalls!!.map { it.id })
+        assertEquals(ids, second.filter { it.role == "tool" }.map { it.toolCallId })
+    }
+
+    @Test
     fun `multi step loop runs tools and sends results and current reasoning back`() = runTest {
         val search = FakeTool("page_text")
         val h = Harness(this, tools = listOf(search))
