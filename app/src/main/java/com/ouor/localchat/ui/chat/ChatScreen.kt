@@ -240,6 +240,7 @@ internal fun ChatScreen(
                                         onLink = { browserActions.open(it) },
                                         toolStep = chat::toolStep,
                                         onReadAloud = { chat.readAloud(reply.node.id, it) },
+                                        thumbnail = composer::thumbnail,
                                         onErrorAction = { a ->
                                             when (a) {
                                                 ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) }
@@ -310,7 +311,8 @@ internal fun ChatScreen(
             )
         }
         is Pause.StepLimit -> LcDialog(
-            stringResource(R.string.ui_step_limit_title, p.reached), { }, stringResource(R.string.ui_continue),
+            // BUG-18: "중지" and back end the run (A-02).
+            stringResource(R.string.ui_step_limit_title, p.reached), { chat.resolve(Resolution.StepLimitAnswer(false)) }, stringResource(R.string.ui_continue),
             { chat.resolve(Resolution.StepLimitAnswer(true)) }, text = stringResource(R.string.ui_step_limit_body),
             dismissLabel = stringResource(R.string.ui_stop),
         )

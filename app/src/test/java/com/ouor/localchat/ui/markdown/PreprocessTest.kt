@@ -69,6 +69,11 @@ class PreprocessTest {
         assertEquals("Prices rose ⦃c1⦄⦃c2⦄ but [9] and [link](u) and [x]⦃c1⦄ stay.", p.text)
     }
 
+    @Test fun `colon after a citation and index-like brackets`() {
+        val p = tokenizeInline("See [1]: it says so. arr[1] is not one.\n[2]: https://example.com", setOf(1, 2))
+        assertEquals("See ⦃c1⦄: it says so. arr[1] is not one.\n[2]: https://example.com", p.text)
+    }
+
     @Test fun `code spans and fences are untouched`() {
         val text = "use `\$a\$ [1]` here\n```\n\$b\$ [1]\n```\nand \$c\$ [1]"
         val p = tokenizeInline(text, setOf(1))

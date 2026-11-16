@@ -43,6 +43,12 @@ import com.ouor.localchat.ui.components.EndpointGroupHeader
 import com.ouor.localchat.ui.components.ErrorAction
 import com.ouor.localchat.ui.components.LcBottomSheet
 import com.ouor.localchat.ui.components.MessageActionBar
+import com.ouor.localchat.ui.components.LcDialog
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.rounded.Close
 import com.ouor.localchat.ui.components.ModelRow
 import com.ouor.localchat.ui.components.RefusalCard
 import com.ouor.localchat.ui.components.SectionLabel
@@ -113,18 +119,29 @@ internal fun AssistantTurn(
     onLink: (String) -> Unit,
     onErrorAction: (ErrorAction) -> Unit,
     onReadAloud: ((String) -> Unit)? = null,
-    toolStep: (ToolCallBlock) -> com.ouor.localchat.chat.ToolStep? = { null },
+    toolStep: (ToolCallBlock, ToolResultBlock?) -> com.ouor.localchat.chat.ToolStep? = { _, _ -> null },
+    thumbnail: (Attachment) -> Any? = { null },
+    onOpenFile: ((Attachment) -> Unit)? = null,
 ) {
     val body = reply.body
     val running = reply.live && state.running
     val text = replyText(body.blocks)
     val sources = sources(body)
     var stepsOpen by rememberSaveable(reply.node.id) { mutableStateOf(false) }
+    var cite by remember { mutableStateOf<Source?>(null) }
+    var usageOpen by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<Any?>(null) }
     AssistantMessage {
         val calls = body.blocks.filterIsInstance<ToolCallBlock>()
         if (calls.isNotEmpty()) {
-            val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.callId }
-            val steps = calls.map { stepOf(it, results[it.callId], toolStep(it)) }
+            val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
+            // BUG-08: the result goes to toolStep too, or counts stay the raw "458 nodes".
+            val steps = calls.map { call ->
+                val r = results[call.key]
+                // BUG-17 (B-08): a screenshot step shows its image; tap opens it full screen.
+                val image = r?.artifactIds.orEmpty().firstNotNullOfOrNull { id -> state.attachments[id]?.takeIf { it.mime.startsWith("image/") }?.let(thumbnail) }
+                stepOf(call, r, toolStep(call, r)).copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
+            }
             val failed = steps.count { it.state == StepState.Failed }
             val browser = calls.any { toolVisual(it.name).agent }
             val listState = when {
@@ -140,15 +157,42 @@ internal fun AssistantTurn(
                 StepListState.FailedSome -> stringResource(R.string.ui_steps_failed, steps.size, failed)
                 StepListState.Done -> stringResource(R.string.ui_steps_done, steps.size)
             }
-            val caption = if (running) stringResource(R.string.ui_step_of, state.step + 1, state.maxSteps) else null
+            val caption = when {
+                running -> stringResource(R.string.ui_step_of, state.step + 1, state.maxSteps)
+                listState == StepListState.Stopped && browser -> stringResource(R.string.ui_stopped_no_undo) // BUG-16 (A-03)
+                else -> null
+            }
             StepList(listState, title, steps, stepsOpen, { stepsOpen = !stepsOpen }, caption = caption)
+            val files = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.artifactIds }
+                .mapNotNull { state.attachments[it] }.filterNot { it.mime.startsWith("image/") }
+            val context = androidx.compose.ui.platform.LocalContext.current
+            files.forEach { a ->
+                com.ouor.localchat.ui.components.FileCard(
+                    a.name, android.text.format.Formatter.formatShortFileSize(context, a.size), a.name.substringAfterLast('.', ""),
+                    onClick = onOpenFile?.let { { it(a) } },
+                )
+            }
         }
+        viewing?.let { m -> ImageViewer(m) { viewing = null } }
         body.blocks.filterIsInstance<ThinkingData>().lastOrNull()?.let { t -> Thinking(t, running && t.endedAt == null, body.status == ReplyStatus.STOPPED) }
-        if (text.isNotEmpty()) MarkdownMessage(text, sources, running, onLink, { s -> onLink(s.url) })
+        // BUG-15 (S-04): a badge opens a preview first, not the browser.
+        if (text.isNotEmpty()) MarkdownMessage(text, sources, running, onLink, { s -> cite = s }, activeCitation = cite?.n)
         if (sources.isNotEmpty()) SourceStack(sources.map { SourceSite(it.siteName ?: siteName(it.url)) }, sources.size, onSources)
         when {
             body.refusal -> RefusalCard({ onCopy(text) })
             body.error != null -> ChatErrorCard(body.error!!, onErrorAction, usedOptionalFeatures = body.options.run { reasoning || search || browser })
+        }
+        cite?.let { s -> CitationSheet(s, { cite = null; onLink(s.url) }) { cite = null } }
+        body.usage?.takeIf { usageOpen }?.let { u ->
+            val fmt = { n: Int -> "%,d".format(n) }
+            LcDialog(
+                stringResource(R.string.ui_usage_title), { usageOpen = false }, stringResource(R.string.ui_ok), { usageOpen = false },
+                text = listOfNotNull(
+                    stringResource(R.string.ui_usage_body, fmt(u.promptTokens), fmt(u.completionTokens)),
+                    u.cachedPromptTokens?.let { stringResource(R.string.ui_usage_cached, fmt(it)) },
+                ).joinToString(LINE),
+                dismissLabel = null,
+            )
         }
         if (!running) {
             MessageActionBar(
@@ -159,6 +203,7 @@ internal fun AssistantTurn(
                 onContinue = if (reply.canContinue) onContinue else null,
                 branch = if (reply.versions.size > 1) ({ Versions(reply.version, reply.versions, onVersion) }) else null,
                 modelName = body.model?.displayName,
+                onModelLongPress = if (body.usage != null) ({ usageOpen = true }) else null, // BUG-14 (M-11)
             )
         }
     }
@@ -214,6 +259,33 @@ internal fun sources(body: MessageBody.Assistant): List<Source> =
     body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }.distinctBy { it.n }.sortedBy { it.n }
 
 private fun siteName(url: String) = runCatching { java.net.URI(url).host?.removePrefix("www.") }.getOrNull() ?: url
+
+private const val LINE = "\n"
+
+/** Full-screen image (tool screenshot): fit to screen, close button. */
+@Composable
+private fun ImageViewer(model: Any, onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(com.ouor.localchat.ui.theme.LcTheme.colors.surface)) {
+            coil3.compose.AsyncImage(model, stringResource(R.string.ui_screenshot), Modifier.fillMaxSize().padding(16.dp), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+            com.ouor.localchat.ui.components.LcIconButton(
+                androidx.compose.material.icons.Icons.Rounded.Close, stringResource(R.string.ui_close), onClose,
+                Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(8.dp),
+            )
+        }
+    }
+}
+
+/** S-04 citation preview: title, site, snippet and [열기]. */
+@Composable
+private fun CitationSheet(s: Source, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    LcBottomSheet(onDismiss, null) {
+        SourceCard(s.n, s.title, SourceSite(s.siteName ?: siteName(s.url)), s.url, onOpen, snippet = s.snippet)
+        com.ouor.localchat.ui.components.LcButton(
+            stringResource(R.string.ui_open_page), onOpen, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+        )
+    }
+}
 
 @Composable
 internal fun SourcesSheet(sources: List<Source>, onOpen: (String) -> Unit, onDismiss: () -> Unit) {
