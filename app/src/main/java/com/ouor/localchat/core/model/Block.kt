@@ -42,7 +42,12 @@ data class ToolCallBlock(
     val state: ToolCallState,
     val startedAt: Long,
     val endedAt: Long? = null,
-) : Block
+) : Block {
+    /** Internal identity: some servers restart ids every step, so [callId] alone can repeat. [callId] stays the wire id. */
+    val key: String get() = toolKey(step, callId)
+}
+
+internal fun toolKey(step: Int, callId: String) = "$step/$callId"
 
 @Serializable
 enum class ToolCallState { RUNNING, AWAITING_APPROVAL, DONE, FAILED, DENIED, CANCELLED }
@@ -63,4 +68,6 @@ data class ToolResultBlock(
     val artifactIds: List<String> = emptyList(),
     /** screenshot: attached as an image to the next request. */
     val imageForModelId: String? = null,
-) : Block
+) : Block {
+    val key: String get() = toolKey(step, callId)
+}

@@ -115,7 +115,7 @@ class TurnRunner @Inject constructor(
                 ?: SystemPrompt.build(clock.now(), ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
             val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
-                publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.callId == id) it.copy(state = state) else it }))
+                publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
             if (mode == Mode.NEW && body.steps == 0 && !model.caps.toolCalling.value) path = prefetchLinks(path, executor)
             val maxSteps = prefs.maxSteps
@@ -187,8 +187,8 @@ class TurnRunner @Inject constructor(
                     }
                     is LlmEvent.Finished -> {
                         publish(body.copy(steps = step + 1))
-                        val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.callId }.toSet()
-                        val calls = body.blocks.filterIsInstance<ToolCallBlock>().filter { it.step == step && it.callId !in answered }
+                        val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.key }.toSet()
+                        val calls = body.blocks.filterIsInstance<ToolCallBlock>().filter { it.step == step && it.key !in answered }
                         if (body.refusal || calls.isEmpty()) {
                             publish(body.copy(status = ReplyStatus.DONE))
                             if (mode == Mode.NEW && path.count { it.body is MessageBody.User } == 1) launchTitle(path, model)
@@ -204,7 +204,7 @@ class TurnRunner @Inject constructor(
         }
 
         suspend fun runTool(executor: ToolExecutor, call: ToolCallBlock) {
-            dispatching = call.callId
+            dispatching = call.key
             val result = executor.execute(call)
             var block = result.block
             result.handoff?.let { handoff ->
@@ -219,7 +219,7 @@ class TurnRunner @Inject constructor(
             publish(
                 body.copy(
                     blocks = body.blocks.map {
-                        if (it is ToolCallBlock && it.callId == call.callId) it.copy(state = result.state, endedAt = now) else it
+                        if (it is ToolCallBlock && it.key == call.key) it.copy(state = result.state, endedAt = now) else it
                     } + block,
                 ),
             )

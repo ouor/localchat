@@ -39,7 +39,7 @@ class ToolExecutor(
     private val tools: List<Tool>,
     existingSources: List<Source>,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
-    private val onState: (callId: String, ToolCallState) -> Unit,
+    private val onState: (callKey: String, ToolCallState) -> Unit,
 ) : ToolContext {
 
     data class Result(val block: ToolResultBlock, val state: ToolCallState, val handoff: HandoffRequest?)
@@ -47,13 +47,13 @@ class ToolExecutor(
     override val browser: BrowserEngine get() = engine.get()
 
     private val sources = existingSources.associateBy { it.url }.toMutableMap()
-    private var callId: String? = null
+    private var callKey: String? = null
 
     /** Tab the current call acted on, for cookie masking. */
     private var lastTab: BrowserTab? = null
 
     suspend fun execute(call: ToolCallBlock): Result {
-        callId = call.callId
+        callKey = call.key
         lastTab = null
         val tool = tools.firstOrNull { it.name == call.name }
             ?: return error(call, "Unknown tool: ${call.name}")
@@ -118,7 +118,7 @@ class ToolExecutor(
     }
 
     override suspend fun requireApproval(request: ApprovalRequest): Boolean {
-        val id = callId ?: Ids.new()
+        val id = callKey ?: Ids.new()
         onState(id, ToolCallState.AWAITING_APPROVAL)
         val answer = handle.pause(Pause.Approval(id, request)) as Resolution.ApprovalAnswer
         onState(id, ToolCallState.RUNNING)

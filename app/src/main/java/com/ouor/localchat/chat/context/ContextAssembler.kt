@@ -76,9 +76,9 @@ object ContextAssembler {
             if (input.continueMode) emptyList() else listOf(input.current)
         val sendable = ToolResultTrimmer.trim(
             replies.flatMap { body ->
-                val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.callId }
+                val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
                 body.blocks.filterIsInstance<ToolCallBlock>()
-                    .map { Triple(it.callId, it.name, results[it.callId]?.content ?: SystemPrompt.ABORTED) }
+                    .map { Triple(it.key, it.name, results[it.key]?.content ?: SystemPrompt.ABORTED) }
             },
         )
 
@@ -179,13 +179,13 @@ object ContextAssembler {
                     reasoning = reasoning.takeIf { field == "reasoning" },
                 ),
             )
-            val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.callId }
+            val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
             for (call in calls) {
-                add(WireMessage("tool", JsonPrimitive(sendable[call.callId] ?: SystemPrompt.ABORTED), toolCallId = call.callId))
+                add(WireMessage("tool", JsonPrimitive(sendable[call.key] ?: SystemPrompt.ABORTED), toolCallId = call.callId))
             }
             // Rule 7: tool messages cannot carry images.
             if (input.model.caps.imageInput.value) {
-                val images = calls.mapNotNull { results[it.callId]?.imageForModelId }
+                val images = calls.mapNotNull { results[it.key]?.imageForModelId }
                     .mapNotNull { input.attachments[it]?.imageDataUrl }
                 if (images.isNotEmpty()) add(WireMessage("user", JsonArray(images.map(::imagePart))))
             }

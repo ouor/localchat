@@ -80,6 +80,33 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a call id reused by a later step still runs and goes back with its own id`() = runTest {
+        // Some local servers number tool calls per step, so call_0 repeats (C's ToolFlowE2eTest).
+        val open = FakeTool("open_tab")
+        val handoff = FakeTool("request_handoff") { _, _ -> ToolOutcome("waiting", handoff = HandoffRequest(7, "login")) }
+        val h = Harness(this, tools = listOf(open, handoff))
+        h.llm.events(call("call_0", "open_tab"), finished("tool_calls"))
+        h.llm.events(call("call_0", "request_handoff"), finished("tool_calls"))
+        h.llm.text("done")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(Pause.Handoff(7, "login"), (phase(h, sid) as RunPhase.Paused).pause)
+        h.engine.resolve(sid, Resolution.HandoffReturned)
+        advanceUntilIdle()
+
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertEquals(1 to 1, open.calls to handoff.calls)
+        assertEquals(listOf(ToolCallState.DONE, ToolCallState.DONE), reply.blocks.filterIsInstance<ToolCallBlock>().map { it.state })
+        assertEquals(listOf(0, 1), reply.blocks.filterIsInstance<ToolResultBlock>().map { it.step })
+        val last = h.llm.requests[2].messages
+        assertEquals(listOf("call_0", "call_0"), last.filter { it.role == "assistant" }.map { it.toolCalls!!.single().id })
+        val tools = last.filter { it.role == "tool" }
+        assertEquals(listOf("call_0", "call_0"), tools.map { it.toolCallId })
+        assertEquals(SystemPrompt.HANDOFF_DONE, tools[1].content!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `multi step loop runs tools and sends results and current reasoning back`() = runTest {
         val search = FakeTool("page_text")
         val h = Harness(this, tools = listOf(search))

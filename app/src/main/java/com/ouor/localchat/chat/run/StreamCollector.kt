@@ -1,6 +1,7 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.chat.context.SystemPrompt
+import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.model.Block
 import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.ReplyStatus
@@ -28,7 +29,7 @@ object StreamCollector {
             is LlmEvent.TextDelta -> body.closeThinking(now).appendText(event.text, step)
             is LlmEvent.RefusalDelta -> body.closeThinking(now).appendText(event.text, step).copy(refusal = true)
             is LlmEvent.ToolCallsReady -> event.calls.fold(body.closeThinking(now)) { b, call ->
-                b.append(ToolCallBlock(call.id, call.name, call.argumentsJson, step, ToolCallState.RUNNING, now))
+                b.append(ToolCallBlock(call.id.ifBlank { Ids.new() }, call.name, call.argumentsJson, step, ToolCallState.RUNNING, now))
             }
             is LlmEvent.Retrying -> body
             is LlmEvent.Finished -> body.closeThinking(now).copy(
@@ -42,14 +43,14 @@ object StreamCollector {
     /**
      * Ends an unfinished reply (stop, crash recovery): every tool call without a result gets the
      * harness result, open blocks are closed, and PENDING/STREAMING becomes STOPPED.
-     * [inFlightCallId] is the call that was executing; with [unknownOutcome] every call is treated so.
+     * [inFlightCallId] is the [ToolCallBlock.key] of the call that was executing; with [unknownOutcome] every call is treated so.
      */
     fun close(body: MessageBody.Assistant, inFlightCallId: String?, now: Long, unknownOutcome: Boolean = false): MessageBody.Assistant {
-        val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.callId }.toSet()
+        val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.key }.toSet()
         val blocks = mutableListOf<Block>()
         for (block in body.closeThinking(now).blocks) {
-            if (block is ToolCallBlock && block.callId !in answered) {
-                val dispatched = unknownOutcome || block.callId == inFlightCallId
+            if (block is ToolCallBlock && block.key !in answered) {
+                val dispatched = unknownOutcome || block.key == inFlightCallId
                 blocks += block.copy(state = ToolCallState.CANCELLED, endedAt = block.endedAt ?: now)
                 blocks += ToolResultBlock(
                     callId = block.callId,
