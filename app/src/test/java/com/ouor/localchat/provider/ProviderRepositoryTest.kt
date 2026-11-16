@@ -22,6 +22,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import javax.crypto.KeyGenerator
@@ -101,7 +102,7 @@ class ProviderRepositoryTest {
         val id = repo.add(draft())
         server.models = listOf("a")
         repo.refreshModels(id)
-        repo.update(id, draft(key = null, url = "http://127.0.0.1:1/v1"))
+        repo.update(id, draft(key = null, url = "http://127.0.0.1:1/v1"), keepKeyForNewHost = true)
         val r = repo.refreshModels(id) as ConnectionResult.Failed
         assertEquals(ChatErrorKind.NETWORK, r.error.kind)
         assertEquals(listOf("a"), repo.models(id).first().map { it.modelId })
@@ -143,6 +144,38 @@ class ProviderRepositoryTest {
         assertEquals("Bearer sk-abcd1234", server.takeRequest().headers["Authorization"])
         repo.checkConnection(draft(key = null))
         assertNull(server.takeRequest().headers["Authorization"])
+    }
+
+    @Test
+    fun `SE 25 a new host does not silently inherit the stored key`() = runTest {
+        val id = repo.add(draft())
+        val other = "http://127.0.0.1:1/v1"
+        assertThrows(KeyHostChanged::class.java) { kotlinx.coroutines.runBlocking { repo.update(id, draft(key = null, url = other)) } }
+        assertEquals(server.baseUrl, repo.endpoints.first().single().baseUrl)
+        assertThrows(KeyHostChanged::class.java) { kotlinx.coroutines.runBlocking { repo.checkConnection(draft(key = null, url = other), id) } }
+
+        repo.update(id, draft(key = null, url = server.baseUrl + "/x")) // same origin: key kept
+        assertEquals("1234", repo.keyHint(id))
+        repo.update(id, draft(key = "sk-other-5678", url = other)) // new key for the new host
+        assertEquals("5678", repo.keyHint(id))
+        repo.update(id, draft(key = null, url = server.baseUrl), keepKeyForNewHost = true) // user confirmed
+        assertEquals(ConnectionResult.Ok(1), repo.checkConnection(draft(key = null), id))
+        assertEquals("Bearer sk-other-5678", server.takeRequest().headers["Authorization"])
+
+        repo.setKey(id, null) // nothing to leak: no guard
+        repo.update(id, draft(key = null, url = other))
+    }
+
+    @Test
+    fun `public entity mapping keeps every column`() {
+        val ep = EndpointEntity("e", "N", "https://h/v1", "OLLAMA", enabled = false, maxRetries = 3, allowHttp = true, sortOrder = 7, createdAt = 9)
+        val model = ep.toModel(hasKey = true)
+        assertTrue(model.hasKey)
+        assertEquals(PresetId.OLLAMA, model.preset)
+        assertEquals(ep, model.toEntity(sortOrder = 7, createdAt = 9))
+        val row = ModelEntity("e", "m", """{"id":"m"}""", inServerList = false, manual = true, hidden = true,
+            capsUserJson = AppJson.encodeToString(ModelOverrides.serializer(), ModelOverrides(displayName = "N")), lastUsedAt = 4)
+        assertEquals(row, row.toRecord().toEntity())
     }
 
     @Test

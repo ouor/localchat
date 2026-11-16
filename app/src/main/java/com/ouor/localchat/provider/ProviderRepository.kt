@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -58,9 +59,13 @@ class ProviderRepository @Inject constructor(
         id
     }
 
-    /** [EndpointDraft.apiKey] null keeps the stored key; use [setKey] to remove it. */
-    suspend fun update(endpointId: String, draft: EndpointDraft): Unit = writes.withLock {
+    /**
+     * [EndpointDraft.apiKey] null keeps the stored key; use [setKey] to remove it. SE 25: a stored key
+     * is not kept for a new origin (scheme, host, port) unless [keepKeyForNewHost]; else [KeyHostChanged].
+     */
+    suspend fun update(endpointId: String, draft: EndpointDraft, keepKeyForNewHost: Boolean = false): Unit = writes.withLock {
         val old = requireNotNull(dao.endpoint(endpointId)) { "no endpoint $endpointId" }
+        guardKey(endpointId, old.baseUrl, draft, keepKeyForNewHost)
         dao.upsertEndpoint(draft.toEntity(endpointId, old.enabled, old.sortOrder, old.createdAt))
         draft.apiKey?.let { secrets.set(endpointId, it) }
     }
@@ -83,9 +88,10 @@ class ProviderRepository @Inject constructor(
 
     /**
      * P-02: `GET /models` with unsaved values. With [endpointId] and no key in the draft, the stored
-     * key of that endpoint is used (editing with "keep key").
+     * key of that endpoint is used (editing with "keep key"), with the same SE 25 rule as [update].
      */
-    suspend fun checkConnection(draft: EndpointDraft, endpointId: String? = null): ConnectionResult {
+    suspend fun checkConnection(draft: EndpointDraft, endpointId: String? = null, keepKeyForNewHost: Boolean = false): ConnectionResult {
+        endpointId?.let { id -> dao.endpoint(id)?.let { guardKey(id, it.baseUrl, draft, keepKeyForNewHost) } }
         val key = draft.apiKey ?: endpointId?.let { secrets.get(it) }
         return client.checkModels(draft.copy(apiKey = key).toTarget()).first
     }
@@ -129,6 +135,12 @@ class ProviderRepository @Inject constructor(
     suspend fun resetModel(endpointId: String, modelId: String) =
         edit(endpointId, modelId) { it.copy(overrides = ModelOverrides()) }
 
+    private suspend fun guardKey(endpointId: String, oldUrl: String, draft: EndpointDraft, confirmed: Boolean) {
+        if (draft.apiKey == null && !confirmed && origin(oldUrl) != origin(draft.baseUrl) && secrets.get(endpointId) != null) {
+            throw KeyHostChanged(endpointId)
+        }
+    }
+
     /** Unknown models are ignored (deleted meanwhile). */
     private suspend fun edit(endpointId: String, modelId: String, change: (ModelRecord) -> ModelRecord): Unit = writes.withLock {
         dao.model(endpointId, modelId)?.let { dao.upsertModels(listOf(change(it.toRecord()).toEntity())) }
@@ -145,6 +157,15 @@ data class EndpointDraft(
     val maxRetries: Int = 5,
 )
 
+/**
+ * SE 25: the base URL moved to another origin while the draft keeps the stored key. The UI asks for
+ * the key again, or repeats the call with `keepKeyForNewHost = true` after the user confirms.
+ */
+class KeyHostChanged(val endpointId: String) : IllegalStateException("base URL origin changed; re-enter or confirm the key")
+
+/** Unparseable URLs compare as themselves, so any edit of one counts as a change. */
+private fun origin(url: String) = url.trim().toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}:${it.port}" } ?: url.trim()
+
 sealed interface ConnectionResult {
     data class Ok(val modelCount: Int) : ConnectionResult
 
@@ -152,20 +173,25 @@ sealed interface ConnectionResult {
     data class Failed(val error: ChatError) : ConnectionResult
 }
 
-// Entities stay inside this file: everything above returns core models / ModelRecord.
+// Entity mapping (AR F-05): the only mapping, also used by backup. Everything above returns core models / ModelRecord.
 
-private fun EndpointEntity.toModel(hasKey: Boolean) = Endpoint(
+fun EndpointEntity.toModel(hasKey: Boolean) = Endpoint(
     id = id, name = name, baseUrl = baseUrl,
     preset = preset?.let { p -> PresetId.entries.firstOrNull { it.name == p } },
     enabled = enabled, maxRetries = maxRetries, allowHttp = allowHttp, hasKey = hasKey,
 )
 
-private fun EndpointDraft.toEntity(id: String, enabled: Boolean, sortOrder: Int, createdAt: Long) = EndpointEntity(
-    id = id, name = name.trim(), baseUrl = baseUrl.trim(), preset = preset?.name, enabled = enabled,
-    maxRetries = maxRetries.coerceIn(0, 10), allowHttp = allowHttp, sortOrder = sortOrder, createdAt = createdAt,
+/** The key is not part of the row ([Endpoint.hasKey] comes from SecretStore). */
+fun Endpoint.toEntity(sortOrder: Int, createdAt: Long) = EndpointEntity(
+    id = id, name = name, baseUrl = baseUrl, preset = preset?.name, enabled = enabled,
+    maxRetries = maxRetries, allowHttp = allowHttp, sortOrder = sortOrder, createdAt = createdAt,
 )
 
-internal fun ModelEntity.toRecord(): ModelRecord {
+private fun EndpointDraft.toEntity(id: String, enabled: Boolean, sortOrder: Int, createdAt: Long) =
+    Endpoint(id, name.trim(), baseUrl.trim(), preset, enabled, maxRetries.coerceIn(0, 10), allowHttp, hasKey = false)
+        .toEntity(sortOrder, createdAt)
+
+fun ModelEntity.toRecord(): ModelRecord {
     val overrides = capsUserJson?.let { runCatching { AppJson.decodeFromString(ModelOverrides.serializer(), it) }.getOrNull() }
         ?: ModelOverrides()
     return ModelRecord(
@@ -180,7 +206,7 @@ internal fun ModelEntity.toRecord(): ModelRecord {
     )
 }
 
-internal fun ModelRecord.toEntity() = ModelEntity(
+fun ModelRecord.toEntity() = ModelEntity(
     endpointId = endpointId,
     modelId = modelId,
     serverJson = serverJson?.toString(),
