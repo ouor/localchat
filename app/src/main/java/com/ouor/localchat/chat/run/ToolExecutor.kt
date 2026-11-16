@@ -16,6 +16,7 @@ import com.ouor.localchat.tools.ApprovalRequest
 import com.ouor.localchat.tools.HandoffRequest
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
+import com.ouor.localchat.tools.ToolError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import javax.inject.Provider
@@ -52,6 +53,9 @@ class ToolExecutor(
     /** Tab the current call acted on, for cookie masking. */
     private var lastTab: BrowserTab? = null
 
+    /** Tab and URL an ALWAYS approval was given for; the tool must act on exactly that page. */
+    private var approvedPage: Pair<Int, String?>? = null
+
     suspend fun execute(call: ToolCallBlock): Result {
         callKey = call.key
         lastTab = null
@@ -63,13 +67,17 @@ class ToolExecutor(
             return error(call, "Invalid arguments: not a JSON object")
         }
         handle.update { it.copy(phase = RunPhase.RunningTool(call.callId, call.name, args.tabId())) }
-        if (tool.approval == ApprovalMode.ALWAYS) {
-            val code = args["code"]?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
-            if (!requireApproval(ApprovalRequest(tool.name, targetText = null, url = null, code = code))) {
-                return done(call, ToolResultBlock(call.callId, call.step, SystemPrompt.DENIED, isError = true), ToolCallState.DENIED)
-            }
-        }
         return try {
+            if (tool.approval == ApprovalMode.ALWAYS) {
+                // SE 9: resolve the tab first so the sheet names where the code runs, then pin that page.
+                val tabId = browserPort.aiTabId(sessionId, args.tabId())
+                val url = browserPort.tabUrl(tabId)
+                val code = args["code"]?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
+                if (!ask(ApprovalInfo(tool.name, tabId, url, targetText = null, code = code))) {
+                    return done(call, ToolResultBlock(call.callId, call.step, SystemPrompt.DENIED, isError = true), ToolCallState.DENIED)
+                }
+                approvedPage = tabId to url
+            }
             val outcome = tool.run(args, this)
             val block = ToolResultBlock(
                 callId = call.callId,
@@ -93,6 +101,7 @@ class ToolExecutor(
             // ToolError, PageError and anything unexpected: the model sees the message and can adapt.
             error(call, e.message ?: "Tool failed: ${e::class.simpleName}")
         } finally {
+            approvedPage = null
             if (lastTab != null) browserPort.clearAiActivity(sessionId)
         }
     }
@@ -114,13 +123,20 @@ class ToolExecutor(
             // The user may have navigated anywhere meanwhile: check again.
             id = browserPort.aiTabId(sessionId, id)
         }
+        approvedPage?.let { (tabId, url) ->
+            if (tabId != id || browserPort.tabUrl(id) != url) throw ToolError("The page changed after approval; ask again.")
+        }
         return browserPort.tab(id).also { lastTab = it }
     }
 
-    override suspend fun requireApproval(request: ApprovalRequest): Boolean {
+    override suspend fun requireApproval(request: ApprovalRequest): Boolean = ask(
+        ApprovalInfo(request.toolName, lastTab?.id, request.url, request.targetText, request.code, request.screenshotId, request.reason),
+    )
+
+    private suspend fun ask(info: ApprovalInfo): Boolean {
         val id = callKey ?: Ids.new()
         onState(id, ToolCallState.AWAITING_APPROVAL)
-        val answer = handle.pause(Pause.Approval(id, request)) as Resolution.ApprovalAnswer
+        val answer = handle.pause(Pause.Approval(id, info)) as Resolution.ApprovalAnswer
         onState(id, ToolCallState.RUNNING)
         return answer.allow
     }

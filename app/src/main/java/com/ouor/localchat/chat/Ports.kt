@@ -69,6 +69,9 @@ interface BrowserPort {
     suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int
     fun tab(tabId: Int): BrowserTab
     fun control(tabId: Int): Flow<Control>
+
+    /** Current URL of the tab, null once closed. */
+    fun tabUrl(tabId: Int): String?
     fun setControl(tabId: Int, control: Control)
 
     /** B-S4: masks the tab's cookie values in [text]. */

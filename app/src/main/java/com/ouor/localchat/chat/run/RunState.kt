@@ -1,7 +1,7 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.core.model.MessageNode
-import com.ouor.localchat.tools.ApprovalRequest
+import com.ouor.localchat.browser.safety.IrreversibleAction
 
 /** A live run of one session (architecture 5.2). Exposed through ChatEngine.runs. */
 data class RunState(
@@ -25,7 +25,7 @@ sealed interface RunPhase {
 
 sealed interface Pause {
     /** SC-13. Answer with [Resolution.ApprovalAnswer]. */
-    data class Approval(val id: String, val request: ApprovalRequest) : Pause
+    data class Approval(val id: String, val request: ApprovalInfo) : Pause
 
     /** SC-14. Answer with [Resolution.StepLimitAnswer]. */
     data class StepLimit(val reached: Int) : Pause
@@ -43,3 +43,17 @@ sealed interface Resolution {
     data class StepLimitAnswer(val continueRun: Boolean) : Resolution
     data object HandoffReturned : Resolution
 }
+
+/**
+ * SC-13 contents for ui (which may not import tools). [tabId] and [url] name the tab the action
+ * runs in (SE 9); [reason] is null for execute, which always asks.
+ */
+data class ApprovalInfo(
+    val toolName: String,
+    val tabId: Int?,
+    val url: String?,
+    val targetText: String?,
+    val code: String? = null,
+    val screenshotId: String? = null,
+    val reason: IrreversibleAction.Reason? = null,
+)

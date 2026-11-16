@@ -119,6 +119,8 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
 
     override fun setControl(tabId: Int, control: Control) = engine.setControl(tabId, control)
 
+    override fun tabUrl(tabId: Int): String? = engine.tabs.value.firstOrNull { it.id == tabId }?.url
+
     override fun maskCookies(text: String, url: String): String = CookieMasker.mask(text, engine.cookieHeader(url))
 
     override fun clearAiActivity(sessionId: String) = engine.clearAiActivity(sessionId)

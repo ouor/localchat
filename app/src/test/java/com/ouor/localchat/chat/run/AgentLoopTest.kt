@@ -1,7 +1,9 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.browser.Control
+import com.ouor.localchat.R
 import com.ouor.localchat.chat.ChatRejected
+import com.ouor.localchat.chat.ToolStep
 import com.ouor.localchat.chat.FakeModelPort
 import com.ouor.localchat.chat.FakeTool
 import com.ouor.localchat.chat.Harness
@@ -171,6 +173,24 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `execute refuses to run when the approved page changed`() = runTest {
+        val exec = FakeTool("execute", approval = ApprovalMode.ALWAYS) { _, ctx -> ToolOutcome("ran in ${ctx.aiTab(null).id}") }
+        val h = Harness(this, tools = listOf(exec))
+        h.llm.events(call("c1", "execute", """{"code":"1"}"""), finished("tool_calls"))
+        h.llm.text("end")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val p = (phase(h, sid) as RunPhase.Paused).pause as Pause.Approval
+        h.browser.urls[1] = "https://elsewhere.test/"
+        h.engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = true))
+        advanceUntilIdle()
+
+        val reply = h.lastReply(sid)
+        assertEquals(ToolCallState.FAILED, reply.blocks.filterIsInstance<ToolCallBlock>().single().state)
+        assertTrue(reply.blocks.filterIsInstance<ToolResultBlock>().single().content.contains("page changed"))
+    }
+
+    @Test
     fun `approval pause allows or denies`() = runTest {
         val exec = FakeTool("execute", approval = ApprovalMode.ALWAYS) { _, _ -> ToolOutcome("ran") }
         val h = Harness(this, tools = listOf(exec))
@@ -182,6 +202,7 @@ class AgentLoopTest {
 
         val p1 = (phase(h, sid) as RunPhase.Paused).pause as Pause.Approval
         assertEquals("1+1", p1.request.code)
+        assertEquals(1 to "https://tab1.test/", p1.request.tabId to p1.request.url) // SE 9
         val live = h.registry.runs.value.getValue(sid).live.body as MessageBody.Assistant
         assertEquals(ToolCallState.AWAITING_APPROVAL, live.blocks.filterIsInstance<ToolCallBlock>().single().state)
         h.engine.resolve(sid, Resolution.StepLimitAnswer(true)) // wrong kind: ignored
@@ -413,6 +434,15 @@ class AgentLoopTest {
         val sid = sent.await()
         advanceUntilIdle()
         assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
+    }
+
+    @Test
+    fun `toolStep gives ui the label and argument summary of a stored call`() = runTest {
+        val h = Harness(this, tools = ToolExposure.exposedTools(caps(), searchOn = false, browserOn = true))
+        fun block(name: String, args: String) = ToolCallBlock("c", name, args, 0, ToolCallState.DONE, 0)
+        assertEquals(ToolStep(R.string.tool_open_tab, "https://a.test"), h.engine.toolStep(block("open_tab", """{"url":"https://a.test"}""")))
+        assertEquals(ToolStep(R.string.tool_open_tab, ""), h.engine.toolStep(block("open_tab", "not json")))
+        assertNull(h.engine.toolStep(block("no_such_tool", "{}")))
     }
 
     @Test

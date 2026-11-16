@@ -152,6 +152,8 @@ class FakeBrowserPort : BrowserPort {
     override suspend fun openAiTab(sessionId: String, url: String): Int { opened += url; return 40 + opened.size }
     override suspend fun close(tabId: Int) { closed += tabId }
     override fun isSensitive(url: String) = "bank" in url
+    val urls = HashMap<Int, String>()
+    override fun tabUrl(tabId: Int): String? = urls[tabId] ?: "https://tab$tabId.test/"
     override fun control(tabId: Int) = controls.map { it[tabId] ?: Control.AI }
     override fun setControl(tabId: Int, control: Control) {
         setCalls += tabId to control

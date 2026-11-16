@@ -6,6 +6,7 @@ import com.ouor.localchat.chat.run.RunRegistry
 import com.ouor.localchat.chat.run.RunState
 import com.ouor.localchat.chat.run.StartupRecovery
 import com.ouor.localchat.chat.run.TurnRunner
+import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.MessageTree
@@ -19,13 +20,18 @@ import com.ouor.localchat.core.model.ReplyStatus
 import com.ouor.localchat.core.model.Role
 import com.ouor.localchat.core.model.Session
 import com.ouor.localchat.core.model.TitleSource
+import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.storage.SettingsStore
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.jsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** A start call was refused; [reason] tells ui why (spec 12.1 error codes). */
+/** A-04: [labelRes] is the tool's string resource, [argSummary] e.g. the URL or query. */
+data class ToolStep(val labelRes: Int, val argSummary: String)
+
 class ChatRejected(val reason: Reason) : Exception(reason.name) {
     enum class Reason {
         /** The session already has a run (the send button is a stop button then). */
@@ -145,6 +151,13 @@ class ChatEngine @Inject constructor(
     /** Names of the tools a request would expose (same rule as the loop, P-05). */
     fun exposurePreview(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<String> =
         tools.exposed(caps, search, browser).map { it.name }
+
+    /** A-04 step row for a stored tool call: the tool's label and short argument summary; null for an unknown tool. */
+    fun toolStep(block: ToolCallBlock): ToolStep? {
+        val tool = tools.byName(block.name) ?: return null
+        val args = runCatching { AppJson.parseToJsonElement(block.argumentsJson).jsonObject }.getOrNull()
+        return ToolStep(tool.labelRes, args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty())
+    }
 
     private suspend fun insertAndStart(sessionId: String, parentId: String?, chain: List<MessageNode>, model: ModelRef) {
         val (nodes, selection) = MessageTree.appendBranch(parentId, chain)
