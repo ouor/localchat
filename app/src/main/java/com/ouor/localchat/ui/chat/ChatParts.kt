@@ -7,6 +7,7 @@ import com.ouor.localchat.ui.components.TileKind
 import com.ouor.localchat.ui.components.TileState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -306,23 +307,73 @@ internal fun SourcesSheet(sources: List<Source>, onOpen: (String) -> Unit, onDis
     }
 }
 
-/** SC-06: recent first, then by endpoint. */
+/**
+ * SC-06 / FB-3: recent (expanded, chat only), then one collapsible group per endpoint, all collapsed on open.
+ * [endpointIds] adds groups for endpoints with 0 models; collapse state lives only while the sheet is open.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun ModelPickerSheet(models: List<ModelInfo>, current: ModelRef?, endpointName: (String) -> String, onDismiss: () -> Unit, onPick: (ModelRef) -> Unit) {
+internal fun ModelPickerSheet(
+    models: List<ModelInfo>,
+    current: ModelRef?,
+    endpointName: (String) -> String,
+    onDismiss: () -> Unit,
+    showRecent: Boolean = true,
+    endpointIds: List<String> = emptyList(),
+    onPick: (ModelRef) -> Unit,
+) {
     LcBottomSheet(onDismiss, stringResource(R.string.ui_choose_model)) {
-        val recent = models.filter { it.lastUsedAt != null }.sortedByDescending { it.lastUsedAt }.take(3)
-        LazyColumn(Modifier.heightIn(max = 600.dp)) {
-            @Composable fun Row(m: ModelInfo) = ModelRow(
-                m.displayName, { onPick(m.ref) },
-                subtitle = if (m.displayName != m.modelId) m.modelId else null,
-                selected = current?.endpointId == m.endpointId && current.modelId == m.modelId,
-            ) { CapabilityIcons(m.caps.toolCalling.value, m.caps.imageInput.value, m.caps.reasoning.value != null) }
-            if (recent.isNotEmpty()) {
-                item { SectionLabel(stringResource(R.string.ui_recent)) }
-                items(recent, key = { "r" + it.endpointId + it.modelId }) { Row(it) }
+        ModelPickerList(models, current, endpointName, showRecent, endpointIds, onPick)
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun ModelPickerList(
+    models: List<ModelInfo>,
+    current: ModelRef?,
+    endpointName: (String) -> String,
+    showRecent: Boolean,
+    endpointIds: List<String>,
+    onPick: (ModelRef) -> Unit,
+) {
+    val c = com.ouor.localchat.ui.theme.LcTheme.colors
+    val recent = if (showRecent) models.filter { it.lastUsedAt != null }.sortedByDescending { it.lastUsedAt }.take(3) else emptyList()
+    val byEndpoint = models.groupBy { it.endpointId }
+    val groups = (endpointIds + byEndpoint.keys).distinct()
+    val open = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    LazyColumn(Modifier.heightIn(max = 600.dp)) {
+        @Composable fun Row(m: ModelInfo) = ModelRow(
+            m.displayName, { onPick(m.ref) },
+            subtitle = if (m.displayName != m.modelId) m.modelId else null,
+            selected = current?.endpointId == m.endpointId && current.modelId == m.modelId,
+        ) { CapabilityIcons(m.caps.toolCalling.value, m.caps.imageInput.value, m.caps.reasoning.value != null) }
+        if (recent.isNotEmpty()) {
+            item { SectionLabel(stringResource(R.string.ui_recent)) }
+            items(recent, key = { "r" + it.endpointId + it.modelId }) { Row(it) }
+        }
+        groups.forEachIndexed { i, endpointId ->
+            val list = byEndpoint[endpointId].orEmpty()
+            val expanded = open[endpointId] == true
+            val header: @Composable () -> Unit = {
+                val n = endpointName(endpointId)
+                Box(Modifier.background(c.surfaceRaised)) {
+                    EndpointGroupHeader(
+                        n, endpointDotColor(n), list.size, expanded = expanded, onToggle = { open[endpointId] = !expanded },
+                        hasSelected = current?.endpointId == endpointId && list.any { it.modelId == current.modelId },
+                    )
+                    if (i > 0 || recent.isNotEmpty()) androidx.compose.material3.HorizontalDivider(color = c.border)
+                }
             }
-            models.groupBy { it.endpointId }.forEach { (endpointId, list) ->
-                item(key = "h$endpointId") { val n = endpointName(endpointId); EndpointGroupHeader(n, endpointDotColor(n), list.size) }
+            // Expanded header sticks so a long group can be collapsed from its middle.
+            if (expanded) stickyHeader(key = "h$endpointId") { header() } else item(key = "h$endpointId") { header() }
+            if (expanded) {
+                if (list.isEmpty()) item(key = "e$endpointId") {
+                    androidx.compose.material3.Text(
+                        stringResource(R.string.fb_e3_group_empty), Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        style = com.ouor.localchat.ui.theme.LcTheme.text.caption, color = c.textTertiary,
+                    )
+                }
                 items(list, key = { it.endpointId + "/" + it.modelId }) { Row(it) }
             }
         }

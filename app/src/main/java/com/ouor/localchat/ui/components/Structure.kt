@@ -47,7 +47,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -76,7 +78,7 @@ fun LcTopBar(
         title = {
             Column {
                 Text(title, style = LcTheme.text.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (subtitle != null) Text(subtitle, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1)
+                if (subtitle != null) Text(subtitle, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         },
         navigationIcon = navigationIcon,
@@ -219,14 +221,18 @@ fun SettingsGroup(modifier: Modifier = Modifier, content: @Composable ColumnScop
 
 
 /**
- * One settings/list row: optional leading icon, title + subtitle, trailing slot
- * (use [SettingsChevron], [SettingsValue], [LcSwitch], [Stepper], or badge + switch). [divider] = not the first row.
+ * One settings/list row: optional leading icon, title + subtitle, [value], trailing slot
+ * (use [SettingsChevron], [LcSwitch], [Stepper], or badge + switch). [divider] = not the first row.
+ *
+ * FB-2: the title is measured first and never wraps. [value] sits on the title line (1 line, ellipsis)
+ * when at least 96dp is left next to the title, otherwise it drops to a second line (max 2 lines).
  */
 @Composable
 fun SettingsRow(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    value: String? = null,
     leadingIcon: ImageVector? = null,
     danger: Boolean = false,
     divider: Boolean = false,
@@ -239,32 +245,56 @@ fun SettingsRow(
     Box(modifier) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                .then(if (onClick != null) Modifier.combinedClickable(enabled = enabled, onClick = onClick) else Modifier)
+                .then(if (onClick != null) Modifier.combinedClickable(enabled = enabled, onClick = onClick) else Modifier.semantics(mergeDescendants = true) {})
                 .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             leading?.invoke()
             if (leadingIcon != null) Icon(leadingIcon, null, Modifier.size(20.dp), tint = if (danger) c.dangerText else c.iconSecondary)
-            Column(Modifier.weight(1f)) {
-                Text(title, style = LcTheme.text.bodyStrong, color = when {
-                    !enabled -> c.textDisabled
-                    danger -> c.dangerText
-                    else -> c.textPrimary
-                })
-                if (subtitle != null) Text(subtitle, style = LcTheme.text.caption, color = c.textTertiary, modifier = Modifier.padding(top = 2.dp))
-            }
+            TitleValue(title, when {
+                !enabled -> c.textDisabled
+                danger -> c.dangerText
+                else -> c.textPrimary
+            }, value, subtitle, Modifier.weight(1f))
             trailing()
         }
         if (divider) HorizontalDivider(Modifier.padding(start = 16.dp).align(Alignment.TopStart), color = c.border)
     }
 }
 
+/** Title line first; value beside it if ≥ 96dp remains, else below it; subtitle last. */
+@Composable
+private fun TitleValue(title: String, titleColor: Color, value: String?, subtitle: String?, modifier: Modifier) {
+    val c = LcTheme.colors
+    SubcomposeLayout(modifier) { cs ->
+        val loose = cs.copy(minWidth = 0, minHeight = 0)
+        val t = subcompose("t") { Text(title, style = LcTheme.text.bodyStrong, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis) }[0].measure(loose)
+        val room = cs.maxWidth - t.width - 12.dp.roundToPx()
+        val inline = room >= 96.dp.roundToPx()
+        val v = value?.let {
+            subcompose("v") {
+                Text(it, style = LcTheme.text.body, color = c.textSecondary, maxLines = if (inline) 1 else 2, overflow = TextOverflow.Ellipsis)
+            }[0].measure(if (inline) loose.copy(maxWidth = room) else loose)
+        }
+        val s = subtitle?.let { subcompose("s") { Text(it, style = LcTheme.text.caption, color = c.textTertiary, modifier = Modifier.padding(top = 2.dp)) }[0].measure(loose) }
+        val line1 = if (inline && v != null) maxOf(t.height, v.height) else t.height
+        val below = if (!inline && v != null) v.height else 0
+        val w = if (cs.hasBoundedWidth) cs.maxWidth else maxOf(t.width, v?.width ?: 0, s?.width ?: 0)
+        layout(w, line1 + below + (s?.height ?: 0)) {
+            t.place(0, (line1 - t.height) / 2)
+            if (v != null) { if (inline) v.place(w - v.width, (line1 - v.height) / 2) else v.place(0, line1) }
+            s?.place(0, line1 + below)
+        }
+    }
+}
+
 @Composable
 fun SettingsChevron() = Icon(Icons.Rounded.ChevronRight, null, Modifier.size(20.dp), tint = LcTheme.colors.iconSecondary)
 
+/** Short trailing text; prefer [SettingsRow]'s `value` for anything that can be long. */
 @Composable
-fun SettingsValue(text: String) = Text(text, style = LcTheme.text.body, color = LcTheme.colors.textSecondary)
+fun SettingsValue(text: String) = Text(text, style = LcTheme.text.body, color = LcTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
 /** − value + stepper (e.g. retries, step limit). */
 @Composable

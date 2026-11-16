@@ -1,9 +1,20 @@
 package com.ouor.localchat.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -137,27 +148,58 @@ fun ModelRow(
     ) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(name, style = LcTheme.text.bodyStrong, color = if (enabled) c.textPrimary else c.textDisabled, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(name, style = LcTheme.text.bodyStrong, color = if (enabled) c.textPrimary else c.textDisabled, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (notListed) LcBadge(stringResource(R.string.ui_not_listed), variant = BadgeVariant.Warn)
             }
-            if (subtitle != null) Text(subtitle, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1)
+            if (subtitle != null) Text(subtitle, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         caps()
         if (selected) Icon(Icons.Rounded.Check, stringResource(R.string.ui_selected), Modifier.size(18.dp), tint = c.onAccentContainer)
     }
 }
 
-/** Group header: dot + name + badges (http, disabled) + count. */
+/**
+ * FB-3 group header: dot + name + badges (http, disabled) + [selected check] + count + chevron.
+ * With [onToggle] the whole row toggles [expanded]; [dotColor] null = no dot (provider detail "모델").
+ */
 @Composable
-fun EndpointGroupHeader(name: String, dotColor: Color, count: Int, modifier: Modifier = Modifier, http: Boolean = false, disabled: Boolean = false) {
+fun EndpointGroupHeader(
+    name: String,
+    dotColor: Color?,
+    count: Int,
+    modifier: Modifier = Modifier,
+    http: Boolean = false,
+    disabled: Boolean = false,
+    expanded: Boolean = true,
+    onToggle: (() -> Unit)? = null,
+    hasSelected: Boolean = false,
+) {
     val c = LcTheme.colors
-    Row(modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        EndpointDot(dotColor)
-        Text(name, style = LcTheme.text.label, color = c.textTertiary)
-        if (http) LcBadge("http", variant = BadgeVariant.Warn)
-        if (disabled) LcBadge(stringResource(R.string.ui_disabled), variant = BadgeVariant.Neutral)
-        Box(Modifier.weight(1f))
-        Text("$count", style = LcTheme.text.label, color = c.textTertiary)
+    val cd = stringResource(if (hasSelected) R.string.fb_e3_group_cd_selected else R.string.fb_e3_group_cd, name, count)
+    val state = stringResource(if (expanded) R.string.fb_e3_group_expanded else R.string.fb_e3_group_collapsed)
+    val turn by animateFloatAsState(if (expanded) 180f else 0f, tween(200), label = "chevron")
+    Row(
+        modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .then(if (onToggle != null) Modifier.clickable(role = Role.Button, onClick = onToggle) else Modifier)
+            .clearAndSetSemantics {
+                contentDescription = cd
+                if (onToggle != null) stateDescription = state
+            }
+            .padding(start = 20.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (dotColor != null) { EndpointDot(dotColor); Spacer(Modifier.width(10.dp)) }
+        Row(Modifier.weight(1f).padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(name, style = LcTheme.text.bodyStrong, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            if (http) LcBadge("http", variant = BadgeVariant.Warn)
+            if (disabled) LcBadge(stringResource(R.string.ui_disabled), variant = BadgeVariant.Neutral)
+        }
+        if (hasSelected) { Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = c.accentText); Spacer(Modifier.width(8.dp)) }
+        Text("$count", style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, softWrap = false)
+        if (onToggle != null) {
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Rounded.ExpandMore, null, Modifier.size(20.dp).rotate(turn), tint = c.iconSecondary)
+        }
     }
 }
 

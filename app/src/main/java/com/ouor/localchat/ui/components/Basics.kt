@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -207,7 +208,7 @@ enum class BadgeVariant { Neutral, Ai, AiSoft, Me, Ok, Warn, Err, Accent }
 fun LcBadge(text: String, modifier: Modifier = Modifier, variant: BadgeVariant = BadgeVariant.Neutral, icon: ImageVector? = null) {
     val (bg, fg) = badgeColors(LcTheme.colors, variant)
     Row(
-        modifier.height(20.dp).background(bg, LcRadius.full).padding(horizontal = 7.dp),
+        modifier.heightIn(min = 20.dp).background(bg, LcRadius.full).padding(horizontal = 7.dp, vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {

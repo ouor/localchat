@@ -1,6 +1,23 @@
 package com.ouor.localchat.ui.providers
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import com.ouor.localchat.core.model.Sourced
+import com.ouor.localchat.ui.components.EndpointGroupHeader
+import com.ouor.localchat.ui.theme.LcRadius
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -64,7 +81,6 @@ import com.ouor.localchat.ui.components.SectionLabel
 import com.ouor.localchat.ui.components.SettingsChevron
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.components.SettingsRow
-import com.ouor.localchat.ui.components.SettingsValue
 import com.ouor.localchat.ui.components.SourceBadge
 import com.ouor.localchat.ui.components.Stepper
 import com.ouor.localchat.ui.components.TextFieldKind
@@ -130,12 +146,16 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
                 Check(s, vm, onSaveAnyway = vm::save)
             } else {
                 KeySection(s, vm)
-                Row(pad.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.ui_models), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = Modifier.weight(1f).padding(start = 4.dp))
+                // FB-3: one "모델 N" group, collapsed whenever the screen opens.
+                var modelsOpen by remember { mutableStateOf(false) }
+                Row(Modifier.padding(end = 16.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    EndpointGroupHeader(stringResource(R.string.ui_models), null, models.size, Modifier.weight(1f), expanded = modelsOpen, onToggle = { modelsOpen = !modelsOpen })
                     LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_refresh_models), vm::refresh, size = IconButtonSize.Sm, enabled = !s.refreshing)
                     LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_add_model), { adding = true }, size = IconButtonSize.Sm)
                 }
-                SettingsGroup {
+                // shortcut: plain Column, so the first expand of 300+ models is heavy; move to LazyColumn if it stutters.
+                if (modelsOpen) SettingsGroup {
+                    if (models.isEmpty()) Text(stringResource(R.string.fb_e3_group_empty), Modifier.padding(16.dp), style = LcTheme.text.caption, color = LcTheme.colors.textTertiary)
                     models.forEachIndexed { i, m -> ModelLine(m, i > 0, { onModel(m.endpointId, m.modelId) }, { vm.setHidden(m, !m.hidden) }) }
                 }
                 Text(stringResource(R.string.ui_connection), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = pad.padding(start = 4.dp, top = 4.dp))
@@ -266,17 +286,113 @@ fun ModelDetailRoute(vm: ModelDetailViewModel, onBack: () -> Unit) {
             }
             SectionLabel(stringResource(R.string.ui_limits))
             SettingsGroup {
-                SettingsRow(stringResource(R.string.ui_context_window)) {
-                    SourceBadge(m.caps.contextWindow.source); SettingsValue(m.caps.contextWindow.value?.let { "%,d".format(it) } ?: "—")
+                val ctx = m.caps.contextWindow
+                LimitRow(stringResource(R.string.ui_context_window), ctx, s.autoContext, CONTEXT_PRESETS, CONTEXT_RANGE, null, false) {
+                    vm.edit { copy(contextWindow = it) }
                 }
-                SettingsRow(stringResource(R.string.ui_max_output), divider = true) {
-                    SourceBadge(m.caps.maxOutputTokens.source); SettingsValue(m.caps.maxOutputTokens.value?.let { "%,d".format(it) } ?: "—")
-                }
+                LimitRow(
+                    stringResource(R.string.ui_max_output), m.caps.maxOutputTokens, s.autoOutput, OUTPUT_PRESETS, OUTPUT_RANGE,
+                    ctx.value?.let { limitLabel(it, CONTEXT_PRESETS) to it }, true,
+                ) { vm.edit { copy(maxOutputTokens = it) } }
             }
             LcButton(stringResource(R.string.ui_reset_defaults), { vm.reset() }, Modifier.fillMaxWidth().padding(16.dp), variant = ButtonVariant.Outline, icon = Icons.Rounded.RestartAlt)
             Text(stringResource(R.string.ui_cap_priority), Modifier.fillMaxWidth(), style = LcTheme.text.caption, color = LcTheme.colors.textTertiary, textAlign = TextAlign.Center)
         }
     }
+}
+
+/**
+ * FB-6: limit row → menu (자동 / presets / 직접 입력…) → number dialog. [onSet] null = drop the override (자동).
+ * [context] = (label, value) of the context window, only for the max-output row's warning.
+ */
+@Composable
+internal fun LimitRow(
+    title: String, cap: Sourced<Int?>, auto: Sourced<Int?>, presets: List<Int>, range: IntRange,
+    context: Pair<String, Int>?, divider: Boolean, onSet: (Int?) -> Unit,
+) {
+    val c = LcTheme.colors
+    var menu by remember { mutableStateOf(false) }
+    var custom by remember { mutableStateOf(false) }
+    val v = cap.value.takeIf { cap.source == CapSource.USER }
+    val autoValue = auto.value
+    val autoText = when {
+        autoValue == null -> stringResource(R.string.fb_e3_limit_auto_unknown)
+        auto.source == CapSource.SERVER -> stringResource(R.string.fb_e3_limit_auto_server, limitLabel(autoValue, presets))
+        else -> stringResource(R.string.fb_e3_limit_auto_builtin, limitLabel(autoValue, presets))
+    }
+    val warn = when {
+        v != null && context != null && v > context.second -> stringResource(R.string.fb_e3_limit_warn_gt_ctx, context.first)
+        v != null && autoValue != null && auto.source == CapSource.SERVER && v > autoValue ->
+            stringResource(R.string.fb_e3_limit_warn_gt_server, limitLabel(autoValue, presets))
+        else -> null
+    }
+    Box {
+        Column {
+            // Value goes in the FB-2 value slot so the label keeps priority at 200% font.
+            SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
+                SourceBadge(cap.source)
+                Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
+            }
+            if (warn != null) Text(warn, Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp), style = LcTheme.text.caption, color = c.warning)
+        }
+        DropdownMenu(
+            menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
+            shape = LcRadius.sm, containerColor = c.surfaceRaised,
+        ) {
+            LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
+            HorizontalDivider(color = c.border)
+            presets.forEach { p ->
+                val label = limitLabel(p, presets)
+                val exact = "%,d".format(p)
+                LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
+            }
+            HorizontalDivider(color = c.border)
+            val outside = v != null && v !in presets
+            LimitItem(
+                if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
+                null, null, outside,
+            ) { menu = false; custom = true }
+        }
+    }
+    if (custom) {
+        var text by remember { mutableStateOf(v?.toString().orEmpty()) }
+        val parsed = parseLimit(text, range)
+        val min = "%,d".format(range.first)
+        val max = "%,d".format(range.last)
+        val (helper, tone) = when {
+            parsed == LimitInput.NotNumber -> stringResource(R.string.fb_e3_limit_err_nan) to HelperTone.Error
+            parsed == LimitInput.OutOfRange -> stringResource(R.string.fb_e3_limit_err_range, min, max) to HelperTone.Error
+            parsed is LimitInput.Ok && context != null && parsed.value > context.second ->
+                stringResource(R.string.fb_e3_limit_warn_gt_ctx, context.first) to HelperTone.Warn
+            else -> stringResource(R.string.fb_e3_limit_range, min, max) to HelperTone.Normal
+        }
+        LcDialog(
+            title, { custom = false }, stringResource(R.string.ui_save), { (parsed as? LimitInput.Ok)?.let { onSet(it.value) }; custom = false },
+            confirmEnabled = parsed is LimitInput.Ok,
+        ) {
+            // shortcut: LcTextField has no number keyboard / "토큰" suffix (Inputs.kt is E1's); add TextFieldKind.Number later.
+            LcTextField(text, { text = it }, placeholder = stringResource(R.string.fb_e3_unit_tokens), helper = helper, helperTone = tone)
+        }
+    }
+}
+
+@Composable
+private fun LimitItem(label: String, hint: String?, cd: String?, selected: Boolean, onClick: () -> Unit) {
+    val c = LcTheme.colors
+    DropdownMenuItem(
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.weight(1f, fill = false), style = LcTheme.text.body, maxLines = 1, softWrap = false)
+                if (hint != null) {
+                    Spacer(Modifier.width(12.dp))
+                    Text(hint, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, softWrap = false)
+                }
+            }
+        },
+        onClick = onClick,
+        leadingIcon = { Box(Modifier.size(24.dp)) { if (selected) Icon(Icons.Rounded.Check, null, Modifier.size(20.dp), tint = c.accentText) } },
+        modifier = if (cd != null) Modifier.semantics { contentDescription = cd; this.selected = selected } else Modifier.semantics { this.selected = selected },
+    )
 }
 
 @Composable

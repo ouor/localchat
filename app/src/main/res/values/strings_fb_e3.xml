@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FB1 track E3 (FB-3 model groups, FB-6 limit menu) -->
+<resources>
+    <string name="fb_e3_group_cd">%1$s, %2$d models</string>
+    <string name="fb_e3_group_cd_selected">%1$s, %2$d models, includes selected</string>
+    <string name="fb_e3_group_collapsed">Collapsed</string>
+    <string name="fb_e3_group_expanded">Expanded</string>
+    <string name="fb_e3_group_empty">No models · Refresh on the provider screen</string>
+    <string name="fb_e3_limit_auto_server">Auto (server: %s)</string>
+    <string name="fb_e3_limit_auto_builtin">Auto (built-in: %s)</string>
+    <string name="fb_e3_limit_auto_unknown">Auto (unknown)</string>
+    <string name="fb_e3_limit_custom">Custom…</string>
+    <string name="fb_e3_limit_custom_n">Custom: %s</string>
+    <string name="fb_e3_limit_range">Between %1$s and %2$s</string>
+    <string name="fb_e3_limit_err_nan">Numbers only</string>
+    <string name="fb_e3_limit_err_range">Enter %1$s–%2$s</string>
+    <string name="fb_e3_limit_warn_gt_ctx">Larger than the context window (%s)</string>
+    <string name="fb_e3_limit_warn_gt_server">Larger than the server value (%s)</string>
+    <string name="fb_e3_limit_item_cd">%1$s, %2$s tokens</string>
+    <string name="fb_e3_unit_tokens">tokens</string>
+</resources>
