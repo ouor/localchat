@@ -123,10 +123,9 @@ private fun LazyListScope.basics() {
             ToggleChip(ToggleKind.Search, "검색", false, noop, iconOnly = true)
         }
     }
-    cell("ModelChip · rail / hero / missing / loading") {
+    cell("ModelChip · rail / missing / loading") {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ModelChip("DeepSeek", "flash", endpointDotColor("DeepSeek"), noop)
-            ModelChip("OpenAI", "gpt-5.1", endpointDotColor("OpenAI"), noop, variant = ModelChipVariant.Hero)
             ModelChip("Ollama", "llama3.2", endpointDotColor("Ollama"), noop, state = ModelChipState.Missing)
             ModelChip("Ollama", "qwen3:8b", endpointDotColor("Ollama"), noop, state = ModelChipState.Loading)
         }
@@ -532,13 +531,13 @@ private fun LazyListScope.lists() {
         EndpointGroupHeader("DeepSeek", endpointDotColor("DeepSeek"), 2)
         ModelRow("deepseek-v4-flash", noop, subtitle = "1M 컨텍스트", selected = true) { CapabilityIcons(true, false, true) }
         ModelRow("deepseek-v4-pro", noop, subtitle = "1M 컨텍스트") { CapabilityIcons(true, true, true) }
-        EndpointGroupHeader("Ollama (집)", endpointDotColor("Ollama"), 1, http = true, disabled = true)
+        EndpointGroupHeader("Ollama (집)", endpointDotColor("Ollama"), 1, expanded = false, onToggle = noop)
         ModelRow("llama3.2", noop, enabled = false, notListed = true) { CapabilityIcons(false, false, false) }
     }
     cell("SettingsGroup + SettingsRow · chevron / value / switch / stepper / badge+switch / danger", horizontalPadding = false) {
         var sw by remember { mutableStateOf(true) }
         SettingsGroup {
-            SettingsRow("테마", leadingIcon = Icons.Outlined.Palette, onClick = noop) { SettingsValue("시스템"); SettingsChevron() }
+            SettingsRow("테마", value = "시스템", leadingIcon = Icons.Outlined.Palette, onClick = noop) { SettingsChevron() }
             SettingsRow("API 키", subtitle = "끝 4자리 abcd", leadingIcon = Icons.Outlined.Key, divider = true, onClick = noop) { SettingsChevron() }
             SettingsRow("도구 호출", divider = true) { SourceBadge(CapSource.SERVER); LcSwitch(sw, { sw = it }) }
             SettingsRow("최대 단계", subtitle = "한 응답에서 도구를 쓸 수 있는 횟수", divider = true) { Stepper("25", noop, noop) }

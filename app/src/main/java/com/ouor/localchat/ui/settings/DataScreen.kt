@@ -242,8 +242,12 @@ private fun BackupSheet(step: BackupStep, vm: DataViewModel, onPickAnother: () -
         is BackupStep.Export -> stringResource(if (step.scope is BackupScope.Full) R.string.ui_full_backup else R.string.ui_export_chat)
         is BackupStep.Working -> stringResource(if (step.restoring) R.string.ui_restoring else R.string.ui_backing_up)
         else -> stringResource(R.string.ui_restore)
-    }, locked = working) {
-        Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    }, locked = working, heightFraction = if (step is BackupStep.Export && step.scope is BackupScope.Full) 0.9f else null) {
+        // P-STABLE (H5): the full-backup sheet has a fixed height, so "include keys" adds its fields below the checkbox.
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             when (step) {
                 is BackupStep.Export -> ExportStep(step, vm)
                 is BackupStep.Working -> {

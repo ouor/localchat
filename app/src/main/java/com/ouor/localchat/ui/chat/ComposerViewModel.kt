@@ -13,6 +13,7 @@ import com.ouor.localchat.core.model.Attachment
 import com.ouor.localchat.core.model.AttachmentKind
 import com.ouor.localchat.core.model.Draft
 import com.ouor.localchat.core.model.GenOptions
+import com.ouor.localchat.core.model.Endpoint
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.PrepState
@@ -43,6 +44,12 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+/**
+ * Endpoints the model picker shows as groups (chat and settings sheets): enabled only, like
+ * [com.ouor.localchat.provider.ProviderRepository.allVisibleModels], so a switched-off provider is not an empty group.
+ */
+fun pickerEndpoints(endpoints: List<Endpoint>): List<Endpoint> = endpoints.filter { it.enabled }
 
 /** Toggle availability from the model (P-05). [reason] non-null = disabled. */
 data class ToggleUi(val on: Boolean, val enabled: Boolean, val locked: Boolean = false)
@@ -126,7 +133,7 @@ class ComposerViewModel @AssistedInject constructor(
             model = model,
             modelMissing = wanted != null && model == null,
             models = models,
-            endpointNames = endpoints.associate { it.id to it.name },
+            endpointNames = pickerEndpoints(endpoints).associate { it.id to it.name },
             reasoning = ToggleUi(alwaysOn || (o.reasoning && reasoningSpec != null), reasoningSpec != null && !alwaysOn, locked = alwaysOn),
             effort = o.reasoningEffort?.takeIf { reasoningSpec?.efforts?.contains(it) == true } ?: reasoningSpec?.defaultEffort,
             efforts = reasoningSpec?.efforts.orEmpty(),

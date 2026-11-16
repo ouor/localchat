@@ -134,7 +134,6 @@ fun ToggleChip(
 
 // ---------------- ModelChip (.chip.model) ----------------
 
-enum class ModelChipVariant { Rail, Hero }
 enum class ModelChipState { Normal, Missing, Loading }
 
 @Composable
@@ -144,20 +143,18 @@ fun ModelChip(
     dotColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    variant: ModelChipVariant = ModelChipVariant.Rail,
     state: ModelChipState = ModelChipState.Normal,
 ) {
     val c = LcTheme.colors
-    val hero = variant == ModelChipVariant.Hero
     val fg = if (state == ModelChipState.Missing) c.warning else c.textPrimary
     ChipSurface(
         onClick = onClick,
-        container = if (hero) c.surfaceRaised else Color.Transparent,
+        container = Color.Transparent,
         content = fg,
-        border = if (hero) c.border else null,
+        border = null,
         modifier = modifier,
-        height = if (hero) 40.dp else 28.dp,
-        horizontalPadding = PaddingValues(start = if (hero) 14.dp else 8.dp, end = if (hero) 10.dp else 6.dp),
+        height = 28.dp,
+        horizontalPadding = PaddingValues(start = 8.dp, end = 6.dp),
     ) {
         when (state) {
             ModelChipState.Loading -> LcSpinner(size = 12.dp)
@@ -166,7 +163,7 @@ fun ModelChip(
         }
         val text = if (state == ModelChipState.Missing) stringResource(R.string.ui_model_missing) else if (endpointName.isEmpty()) modelName else "$endpointName · $modelName"
         Text(
-            text, style = (if (hero) LcTheme.text.bodyStrong else LcTheme.text.label).copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+            text, style = LcTheme.text.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
         Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(16.dp))
