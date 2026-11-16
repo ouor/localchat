@@ -12,7 +12,6 @@
     <string name="ui_cap_image">이미지 입력</string>
     <string name="ui_cap_reasoning">추론</string>
     <string name="ui_cap_tools">도구 호출</string>
-    <string name="ui_caveat">AI 생성 답변, 참고용</string>
     <string name="ui_citation_desc">출처 %1$d</string>
     <string name="ui_close">닫기</string>
     <string name="ui_close_tab">탭 닫기</string>

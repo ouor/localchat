@@ -155,41 +155,6 @@ fun HandoffBanner(title: String, body: String, onStop: () -> Unit, onGiveBack: (
     }
 }
 
-// ---------------- BrowserPeekCard (.peek) ----------------
-
-/** Collapsed browser preview above the composer: thumbnail · owner + action · URL · [직접 조작] · expand. */
-@Composable
-fun BrowserPeekCard(
-    owner: BrowserOwner,
-    action: String,
-    url: String,
-    onExpand: () -> Unit,
-    modifier: Modifier = Modifier,
-    detail: String? = null,
-    onTakeOver: (() -> Unit)? = null,
-    thumbnail: @Composable () -> Unit = {},
-) {
-    val c = LcTheme.colors
-    Surface(
-        onClick = onExpand, modifier = modifier.fillMaxWidth().heightIn(min = 72.dp), shape = LcRadius.lg, color = c.surfaceRaised,
-        shadowElevation = LcElevation.e2, border = if (c.isDark) BorderStroke(1.dp, c.floatingBorder) else null,
-    ) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(88.dp, 56.dp).clip(LcRadius.sm).background(Color.White).border(1.dp, c.border, LcRadius.sm)) { thumbnail() }
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (owner == BrowserOwner.Ai) LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
-                    Text(action, style = LcTheme.text.bodyStrong, color = c.textPrimary, maxLines = 1)
-                }
-                Text(url, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (detail != null) Text(detail, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (onTakeOver != null) LcButton(stringResource(R.string.ui_take_over), onTakeOver, variant = ButtonVariant.Outline, size = ButtonSize.Sm)
-            Icon(Icons.Rounded.KeyboardArrowUp, stringResource(R.string.ui_expand), Modifier.size(20.dp), tint = c.iconSecondary)
-        }
-    }
-}
-
 // ---------------- BrowserStatusStrip (FB-1c) ----------------
 
 /**

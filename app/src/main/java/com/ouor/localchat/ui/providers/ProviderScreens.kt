@@ -370,8 +370,11 @@ internal fun LimitRow(
             title, { custom = false }, stringResource(R.string.ui_save), { (parsed as? LimitInput.Ok)?.let { onSet(it.value) }; custom = false },
             confirmEnabled = parsed is LimitInput.Ok,
         ) {
-            // shortcut: LcTextField has no number keyboard / "토큰" suffix (Inputs.kt is E1's); add TextFieldKind.Number later.
-            LcTextField(text, { text = it }, placeholder = stringResource(R.string.fb_e3_unit_tokens), helper = helper, helperTone = tone)
+            LcTextField(
+                text, { text = it }, helper = helper, helperTone = tone,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                suffix = stringResource(R.string.fb_e3_unit_tokens),
+            )
         }
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -351,23 +352,23 @@ fun CitationBadge(n: Int, onClick: () -> Unit, modifier: Modifier = Modifier, ac
 data class SourceSite(val name: String, val iconUrl: String? = null)
 
 @Composable
-private fun SiteLogo(site: SourceSite, size: androidx.compose.ui.unit.Dp, ring: Color) {
+private fun SiteLogo(site: SourceSite, ring: Color) {
     val color = com.ouor.localchat.ui.theme.endpointDotColor(site.name)
-    Box(Modifier.size(size + 4.dp).background(ring, CircleShape).padding(2.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-        Text(site.name.take(1).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        if (site.iconUrl != null) AsyncImage(site.iconUrl, null, Modifier.size(size), contentScale = ContentScale.Crop)
+    Box(Modifier.size(16.dp).background(ring, CircleShape).padding(1.5.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+        Text(site.name.take(1).uppercase(), fontSize = 9.sp, lineHeight = 9.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        if (site.iconUrl != null) AsyncImage(site.iconUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     }
 }
 
-/** S-04 footer: overlapping logos (max 4) + "n개 웹페이지 ›". */
+/** S-04 footer (FB-1d): up to 3 overlapping 16dp logos + "출처 n", one line, 28dp. */
 @Composable
 fun SourceStack(sites: List<SourceSite>, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = LcTheme.colors
-    Surface(onClick = onClick, modifier = modifier, shape = LcRadius.full, color = c.surfaceRaised, contentColor = c.textSecondary, border = androidx.compose.foundation.BorderStroke(1.dp, c.border)) {
-        Row(Modifier.height(36.dp).padding(start = 4.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row { sites.take(4).forEachIndexed { i, s -> Box(Modifier.offset(x = (-6 * i).dp)) { SiteLogo(s, 22.dp, c.surfaceRaised) } } }
-            Text(stringResource(R.string.ui_n_webpages, count), style = LcTheme.text.label, modifier = Modifier.offset(x = (-6 * (minOf(sites.size, 4) - 1)).coerceAtMost(0).dp))
-            Icon(Icons.Rounded.ChevronRight, null, Modifier.size(16.dp).offset(x = (-6 * (minOf(sites.size, 4) - 1)).coerceAtMost(0).dp))
+    val desc = stringResource(R.string.fb_e1_sources_cd, count)
+    Surface(onClick = onClick, modifier = modifier.semantics(mergeDescendants = true) { contentDescription = desc }, shape = LcRadius.full, color = c.surfaceSunken, contentColor = c.textSecondary) {
+        Row(Modifier.heightIn(min = 28.dp).padding(start = 4.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy((-4).dp)) { sites.take(3).forEach { SiteLogo(it, c.surfaceSunken) } }
+            Text(stringResource(R.string.fb_e1_sources_n, count), style = LcTheme.text.label, maxLines = 1, softWrap = false)
         }
     }
 }

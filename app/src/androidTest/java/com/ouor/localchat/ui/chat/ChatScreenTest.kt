@@ -5,6 +5,13 @@ import android.webkit.WebView
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.foundation.background
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.assertCountEquals
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -223,5 +230,83 @@ class ChatScreenTest {
         rule.onNodeWithText("Example_Domain.pdf").assertIsDisplayed()
         rule.onNodeWithText(ctx.getString(R.string.ui_share)).assertIsDisplayed()
         rule.onNodeWithText(ctx.getString(R.string.ui_save)).assertIsDisplayed()
+    }
+
+    // ---- FB-1 ----
+
+    private val aiTab = com.ouor.localchat.browser.TabInfo(1, "Wiki", "https://wiki.example/hr", com.ouor.localchat.browser.Owner.Ai("s"),
+        com.ouor.localchat.browser.Control.AI, loading = false)
+
+    @Test fun emptyChatOpensOptionsWithoutHeroChipOrCaveat() { // FB-1a, FB-1b, lead decision 1
+        show(ChatUiState(loading = false))
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertIsDisplayed()
+        rule.onAllNodesWithText(ctx.getString(R.string.ui_choose_model), substring = true, useUnmergedTree = true).assertCountEquals(1)
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).assertIsDisplayed()
+        listOf("참고용", "for reference").forEach { rule.onAllNodesWithText(it, substring = true, useUnmergedTree = true).assertCountEquals(0) }
+    }
+
+    @Test fun chatInProgressCollapsesOptionsUntilExpanded() { // FB-1b
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))))
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    private fun longChat(bs: BrowserUiState) {
+        val long = (1..40).joinToString("\n\n") { "Paragraph $it." } + "\n\nTAIL-MARKER"
+        val state = ChatUiState(loading = false, turns = listOf(turn("hi", reply(long, ReplyStatus.STREAMING), live = true)), runPhase = RunPhase.Streaming)
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), bs, chat, composer, browser, nav) } }
+        rule.waitForIdle()
+    }
+
+    private fun tailBottom() = rule.onNodeWithText("TAIL-MARKER", substring = true).fetchSemanticsNode().boundsInRoot.bottom
+
+    @Test fun statusStripNeverCoversTheLastLine() { // FB-1c
+        longChat(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true))
+        val strip = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki"))
+        strip.assertIsDisplayed()
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+        assertTrue(tailBottom() <= strip.fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    /** FB-1 screenshots into the app's external files (pulled into docs/dev/ui/shots by hand); also checks the strip at 200% + dark. */
+    @Test fun fb1Screenshots() {
+        val long = (1..12).joinToString("\n\n") { "문단 $it. 강남구 아파트 전세 시세는 최근 3개월 기준 보합 흐름입니다." } + "\n\nTAIL-MARKER 마지막 줄"
+        val chatState = ChatUiState(loading = false, turns = listOf(turn("전세 시세 알려줘", reply(long))))
+        val strip = BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true)
+        var scene by mutableStateOf(0)
+        rule.setContent {
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            val big = scene == 3
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, if (big) 2f else 1f)) {
+                LocalchatTheme(big) {
+                    // The app's root surface paints the window; the test draws it so dark mode reads right.
+                    androidx.compose.runtime.key(scene) { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.background(com.ouor.localchat.ui.theme.LcTheme.colors.surface)) {
+                        when (scene) {
+                            0 -> ChatScreen(ChatUiState(loading = false), ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                            1 -> ChatScreen(chatState, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                            else -> ChatScreen(chatState, ComposerUiState(), strip, chat, composer, browser, nav)
+                        }
+                    } }
+                }
+            }
+        }
+        listOf("empty-expanded", "progress-collapsed", "strip-last-line", "strip-200-dark").forEachIndexed { i, name ->
+            scene = i
+            rule.waitForIdle()
+            if (i >= 1) rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+            if (i >= 2) assertTrue(tailBottom() <= rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki")).fetchSemanticsNode().boundsInRoot.top)
+            val dir = ctx.getExternalFilesDir("shots") ?: return@forEachIndexed
+            val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
+            java.io.File(dir, "fb1-e1-$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
+    }
+
+    @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel
+        longChat(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "s", running = true))
+        val handle = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd))
+        rule.waitUntil(5_000) { runCatching { tailBottom() <= handle.fetchSemanticsNode().boundsInRoot.top }.getOrDefault(false) }
     }
 }

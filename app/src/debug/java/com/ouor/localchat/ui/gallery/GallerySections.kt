@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -282,7 +283,14 @@ private fun LazyListScope.composer() {
     }
     cell("12. 좁은 폭 — 꺼진 토글 아이콘 전용") {
         Box(Modifier.fillMaxWidth(0.86f)) { ComposerPanel("", {}, noop, noop, noop, noop) { Toggles("high", r = true, iconOnlyOff = true) } }
-        ComposerCaveat()
+    }
+    cell("13. FB-1b 옵션 접힘(대화 중) / 펼침(빈 대화)") {
+        ComposerPanel("", {}, noop, noop, noop, noop) { LcIconButton(Icons.Rounded.Tune, "옵션 펼치기", noop, size = IconButtonSize.Sm) }
+        Column {
+            ComposerPanel("", {}, noop, noop, noop, noop) { LcIconButton(Icons.Rounded.Tune, "옵션 접기", noop, variant = IconButtonVariant.Tonal, size = IconButtonSize.Sm) }
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { Toggles() }
+            Rail("DeepSeek-아주-긴-프로바이더-이름", "deepseek-v4-pro-long-model-id-2026", 41, tokens = "31.6k 토큰")
+        }
     }
 }
 
@@ -321,7 +329,7 @@ private fun LazyListScope.chat() {
             StepList(StepListState.Running, "브라우저 작업 중", demoSteps(done = false), true, noop, caption = "4단계 · 25 중")
             ThinkingBlock(ThinkingState.Thinking, "3.4s", false, noop, "")
         }
-        BrowserPeekCard(BrowserOwner.Ai, "클릭 중", "wiki.corp.example/hr", noop, onTakeOver = noop) { FakePage(mini = true) }
+        BrowserStatusStrip("인사 규정 - 사내 위키", "wiki.corp.example", noop, noop)
         Column { ComposerPanel("", {}, noop, noop, noop, noop, mode = ComposerMode.Running) { Toggles(b = true) }; Rail("OpenAI", "gpt-5.1", 71) }
     }
     cell("C. 펼친 단계(실패 포함)·요약 구분선·오류 카드·맨 아래로") {
@@ -375,6 +383,15 @@ ${'$'}${'$'}f(x)=\begin{cases} x^2 & x\ge 0 \\ -x & x<0 \end{cases}${'$'}${'$'}
 |---|---|---|---|
 | 대치 | 12.1억 | +0.8% | 학군 |
 | 개포 | 9.4억 | -0.3% | 입주 |
+
+| 항목 | 설명 |
+|---|---|
+| 연차 이월 | 미사용 연차는 다음 해 3월 31일까지 최대 10일을 이월할 수 있으며, 이월분은 신규 연차보다 먼저 차감됩니다.[1] |
+|  |  |
+
+| A | B | C | D | E | F | G | H | I | J |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | https://very-long-domain-name.example.com/path/to/a/really/long/resource?query=without-spaces-at-all |
 
 > 인용문은 보조 텍스트 색으로 표시됩니다.
 
@@ -456,8 +473,9 @@ private fun LazyListScope.browser() {
         OwnershipBar(BrowserOwner.Me)
         OwnershipBar(BrowserOwner.Waiting)
     }
-    cell("BrowserPeekCard (접힘 미리보기)") {
-        BrowserPeekCard(BrowserOwner.Ai, "입력 중", "wiki.corp.example/search", noop, detail = "type · 검색창", onTakeOver = noop) { FakePage(mini = true) }
+    cell("BrowserStatusStrip (FB-1c, 패널 Peek) · 긴 제목") {
+        BrowserStatusStrip("인사 규정", "wiki.corp.example", noop, noop)
+        BrowserStatusStrip("아주 긴 페이지 제목이 들어와도 한 줄로 말줄임되고 버튼은 항상 보여요", "a-very-long-host-name.corp.example.com", noop, noop)
     }
     cell("B. 절반 — 툴바 · 소유 바 · 요소 강조(B-09, 1초 후 페이드 반복)", horizontalPadding = false) {
         BrowserPanelFrame(

@@ -67,7 +67,6 @@ import com.ouor.localchat.ui.components.BannerAction
 import com.ouor.localchat.ui.components.BannerVariant
 import com.ouor.localchat.ui.components.ApprovalContent
 import com.ouor.localchat.ui.components.CapabilityIcons
-import com.ouor.localchat.ui.components.ComposerCaveat
 import com.ouor.localchat.ui.components.ComposerMode
 import com.ouor.localchat.ui.components.ComposerPanel
 import com.ouor.localchat.ui.components.ComposerRail
@@ -85,7 +84,6 @@ import com.ouor.localchat.ui.components.LcTopBar
 import com.ouor.localchat.ui.components.DialogKind
 import com.ouor.localchat.ui.components.ModelChip
 import com.ouor.localchat.ui.components.ModelChipState
-import com.ouor.localchat.ui.components.ModelChipVariant
 import com.ouor.localchat.ui.components.RetryStatus
 import com.ouor.localchat.ui.components.ScrollToBottomButton
 import com.ouor.localchat.ui.components.TileKind
@@ -102,6 +100,19 @@ import com.ouor.localchat.ui.browser.BrowserActions
 import com.ouor.localchat.ui.browser.BrowserOverlay
 import com.ouor.localchat.ui.browser.BrowserPeek
 import com.ouor.localchat.ui.browser.BrowserUiState
+import com.ouor.localchat.ui.browser.PanelState
+import com.ouor.localchat.ui.components.IconButtonSize
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 /** What the chat needs from the app shell (navigation lives in AppScaffold). */
 class ChatNav(
@@ -213,6 +224,25 @@ internal fun ChatScreen(
             scope.launch { snackbar.showSnackbar(context.getString(R.string.ui_no_app_to_open)) }
         }
     }
+    // FB-1b: options open by default only in an empty chat; a user toggle sticks for this chat.
+    var userOpen by rememberSaveable(chat.sessionId) { mutableStateOf<Boolean?>(null) }
+    val optionsOpen = userOpen ?: (state.turns.isEmpty() && !state.loading)
+
+    // FB-1c: at Half the browser panel covers the screen bottom; pad the list so its last line can scroll above the panel.
+    // The panel reports its height every frame while it moves; only the settled height reaches the list (no per-frame relayout).
+    val density = LocalDensity.current
+    var bottomPx by remember { mutableIntStateOf(0) }
+    val coverRaw = remember { mutableIntStateOf(0) }
+    var cover by remember { mutableIntStateOf(0) }
+    val panelNow by rememberUpdatedState(browserState.panel)
+    LaunchedEffect(Unit) {
+        snapshotFlow { coverRaw.intValue }.collectLatest {
+            delay(120)
+            if (panelNow != PanelState.Full) cover = it // Full hides the list anyway; keep the Half padding.
+        }
+    }
+    val panelPad = with(density) { (cover - bottomPx).coerceAtLeast(0).toDp() }
+
     val picks = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { composer.attach(it) }
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) composer.startVoice() }
 
@@ -244,9 +274,9 @@ internal fun ChatScreen(
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.turns.isEmpty() && !state.loading) {
-                    Welcome(cs, { picker = true }, Modifier.align(Alignment.Center))
+                    Welcome(cs, Modifier.align(Alignment.Center))
                 } else {
-                    LazyColumn(Modifier.fillMaxSize(), list, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LazyColumn(Modifier.fillMaxSize(), list, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + panelPad), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(state.turns, key = { it.user.node.id }) { turn ->
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 UserTurn(turn.user, cs, chat, state.attachments, composer::thumbnail)
@@ -289,16 +319,21 @@ internal fun ChatScreen(
                     )
                 }
             }
-            BrowserPeek(browserState, browserActions, Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp))
-            ComposerArea(cs, state, composer, chat, nav, onPicker = { picker = true }, onAttach = { picks.launch(arrayOf("*/*")) },
-                onMic = { mic.launch(android.Manifest.permission.RECORD_AUDIO) }, onGauge = { contextCard = true })
+            // Status strip + composer: a sibling below the list, so they never cover it (FB-1c).
+            Column(Modifier.onSizeChanged { bottomPx = it.height }) {
+                // 8dp gap to the composer (screens-fb1 1b ②).
+                BrowserPeek(browserState, browserActions, Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp))
+                ComposerArea(cs, state, composer, chat, nav, onPicker = { picker = true }, onAttach = { picks.launch(arrayOf("*/*")) },
+                    onMic = { mic.launch(android.Manifest.permission.RECORD_AUDIO) }, onGauge = { contextCard = true },
+                    open = optionsOpen, onToggleOpen = { userOpen = !optionsOpen })
+            }
         }
-        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 140.dp))
-        BrowserOverlay(browserState, browserActions)
+        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + 8.dp))
+        BrowserOverlay(browserState, browserActions) { coverRaw.intValue = it }
     }
 
     // ---- sheets and dialogs ----
-    if (picker) ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { picker = false }) { composer.selectModel(it); picker = false }
+    if (picker) ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { picker = false }, endpointIds = cs.endpointNames.keys.toList()) { composer.selectModel(it); picker = false }
     if (contextCard) LcBottomSheet({ contextCard = false }, null) {
         ContextUsageCard(
             state.gaugePercent ?: 0,
@@ -344,21 +379,16 @@ internal fun ChatScreen(
     }
 }
 
+/** Greeting + the model's capability icons; the model chip lives only under the composer (FB-1, lead decision 1). */
 @Composable
-private fun Welcome(cs: ComposerUiState, onPicker: () -> Unit, modifier: Modifier) {
+private fun Welcome(cs: ComposerUiState, modifier: Modifier) {
     val c = LcTheme.colors
     Column(modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Box(Modifier.size(36.dp).background(c.surfaceRaised, com.ouor.localchat.ui.theme.LcRadius.md), contentAlignment = Alignment.Center) {
             Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = c.accent)
         }
         Text(stringResource(R.string.ui_welcome_title), style = LcTheme.text.display, color = c.textPrimary, textAlign = TextAlign.Center)
-        val m = cs.model
-        if (m != null) {
-            ModelChip(m.endpointName(cs), m.displayName, endpointDotColor(m.endpointName(cs)), onPicker, variant = ModelChipVariant.Hero)
-            CapabilityIcons(m.caps.toolCalling.value, m.caps.imageInput.value, m.caps.reasoning.value != null, labeled = true)
-        } else {
-            ModelChip("", stringResource(R.string.ui_choose_model), c.textTertiary, onPicker, variant = ModelChipVariant.Hero, state = if (cs.modelMissing) ModelChipState.Missing else ModelChipState.Normal)
-        }
+        cs.model?.let { m -> CapabilityIcons(m.caps.toolCalling.value, m.caps.imageInput.value, m.caps.reasoning.value != null, labeled = true) }
     }
 }
 
@@ -373,9 +403,11 @@ private fun ComposerArea(
     onAttach: () -> Unit,
     onMic: () -> Unit,
     onGauge: () -> Unit,
+    open: Boolean,
+    onToggleOpen: () -> Unit,
 ) {
     val c = LcTheme.colors
-    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp).padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (cs.imageIssue) {
             val n = cs.attachments.count { it.kind == AttachmentKind.IMAGE }
             Banner(
@@ -413,30 +445,40 @@ private fun ComposerArea(
                     )
                 }) else null,
             ) {
-                Toggles(cs, composer, nav)
+                // FB-1b: the bar is [+][options] field [mic|send]; the options button never takes focus so the keyboard stays.
+                LcIconButton(
+                    Icons.Rounded.Tune, stringResource(if (open) R.string.fb_e1_options_hide else R.string.fb_e1_options_show), onToggleOpen,
+                    Modifier.focusProperties { canFocus = false }, variant = if (open) IconButtonVariant.Tonal else IconButtonVariant.Ghost, size = IconButtonSize.Sm,
+                )
             }
-            ComposerRail(
-                start = start@{
-                    if (state.turns.isEmpty()) return@start // SC-04: the welcome hero chip is the only model chip
-                    val m = cs.model
-                    if (m != null) ModelChip(m.endpointName(cs), m.displayName, endpointDotColor(m.endpointName(cs)), onPicker)
-                    else ModelChip("", stringResource(R.string.ui_choose_model), c.textTertiary, onPicker, state = if (cs.modelMissing) ModelChipState.Missing else ModelChipState.Normal)
-                },
-                end = {
-                    val failed = cs.attachments.count { it.state is PrepState.Failed }
+            // Status captions stay visible whether the options are open or not.
+            val failed = cs.attachments.count { it.state is PrepState.Failed }
+            val retry = state.runPhase as? RunPhase.Retrying
+            val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
+            if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
+                Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     when {
                         failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
                         cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
                     }
-                    (state.runPhase as? RunPhase.Retrying)?.let { RetryStatus(it.attempt, it.max) }
-                    (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }?.let {
-                        Text(stringResource(R.string.ui_reading_link, siteOf(it.callId)), style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1)
-                    }
-                    if (chat.sessionId != null) ContextGauge(state.gaugePercent, onGauge, tokensText = state.usageTokens?.let { stringResource(R.string.ui_tokens, compact(it)) })
-                },
-            )
+                    retry?.let { RetryStatus(it.attempt, it.max) }
+                    reading?.let { Text(stringResource(R.string.ui_reading_link, siteOf(it.callId)), style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+            }
+            if (open) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 2.dp, end = 2.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Toggles(cs, composer, nav)
+                }
+                ComposerRail(
+                    start = {
+                        val m = cs.model
+                        if (m != null) ModelChip(m.endpointName(cs), m.displayName, endpointDotColor(m.endpointName(cs)), onPicker, Modifier.weight(1f, fill = false))
+                        else ModelChip("", stringResource(R.string.ui_choose_model), c.textTertiary, onPicker, Modifier.weight(1f, fill = false), state = if (cs.modelMissing) ModelChipState.Missing else ModelChipState.Normal)
+                    },
+                    end = { if (chat.sessionId != null) ContextGauge(state.gaugePercent, onGauge, tokensText = state.usageTokens?.let { stringResource(R.string.ui_tokens, compact(it)) }) },
+                )
+            }
         }
-        ComposerCaveat()
     }
 }
 

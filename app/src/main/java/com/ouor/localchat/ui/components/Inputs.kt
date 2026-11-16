@@ -164,7 +164,7 @@ fun ModelChip(
             ModelChipState.Missing -> Icon(Icons.Outlined.WarningAmber, null, Modifier.size(16.dp))
             ModelChipState.Normal -> EndpointDot(dotColor)
         }
-        val text = if (state == ModelChipState.Missing) stringResource(R.string.ui_model_missing) else "$endpointName · $modelName"
+        val text = if (state == ModelChipState.Missing) stringResource(R.string.ui_model_missing) else if (endpointName.isEmpty()) modelName else "$endpointName · $modelName"
         Text(
             text, style = (if (hero) LcTheme.text.bodyStrong else LcTheme.text.label).copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
@@ -193,6 +193,10 @@ fun LcTextField(
     kind: TextFieldKind = TextFieldKind.Text,
     enabled: Boolean = true,
     onPaste: (() -> Unit)? = null,
+    /** Overrides the keyboard [kind] picks (e.g. KeyboardType.Number for counts). */
+    keyboardOptions: KeyboardOptions? = null,
+    /** Unit shown after the text, e.g. "토큰". */
+    suffix: String? = null,
 ) {
     val c = LcTheme.colors
     var focused by remember { mutableStateOf(false) }
@@ -210,7 +214,7 @@ fun LcTextField(
             textStyle = LcTheme.text.bodyLarge.copy(color = if (enabled) c.textPrimary else c.textDisabled),
             cursorBrush = SolidColor(c.accent),
             visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(
+            keyboardOptions = keyboardOptions ?: KeyboardOptions(
                 keyboardType = when (kind) {
                     TextFieldKind.Url -> KeyboardType.Uri
                     TextFieldKind.Secret, TextFieldKind.Password -> KeyboardType.Password
@@ -239,6 +243,7 @@ fun LcTextField(
                         }
                         inner()
                     }
+                    if (suffix != null) Text(suffix, style = LcTheme.text.bodyLarge, color = c.textTertiary, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp, end = 8.dp))
                     if (kind == TextFieldKind.Secret && onPaste != null) {
                         LcIconButton(Icons.Outlined.ContentPaste, stringResource(R.string.ui_paste), onPaste,
                             variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)

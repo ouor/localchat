@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb_e1_options_show">옵션 펼치기</string>
+    <string name="fb_e1_options_hide">옵션 접기</string>
+    <string name="fb_e1_sources_n">출처 %1$d</string>
+    <string name="fb_e1_sources_cd">출처 %1$d개, 목록 열기</string>
+</resources>
