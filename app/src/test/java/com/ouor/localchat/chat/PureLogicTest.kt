@@ -20,6 +20,7 @@ import com.ouor.localchat.llm.wire.WireMessage
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,12 +28,14 @@ import org.junit.Test
 class PureLogicTest {
 
     @Test
-    fun `system prompt always marks page text untrusted and, with tools, names sensitive sites (SE 10, SE 28)`() {
+    fun `system prompt always marks page text untrusted and, with tools, defers sensitive sites to the engine (SE 10, SE 28, FB2 arch M1)`() {
         val zone = java.time.ZoneId.of("UTC")
         val plain = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools = false)
         val tools = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools = true)
         assertTrue(plain.contains("untrusted_page_content"))
-        assertTrue(tools.contains("Sensitive sites"))
+        // The built-in list can be off, so no fixed "closed" claim; only how to react to the engine's refusal.
+        assertFalse(tools.contains("closed to you"))
+        assertTrue(tools.contains("a site ${com.ouor.localchat.browser.safety.SensitiveUrls.REFUSAL}, do not try that site again"))
         assertTrue(tools.contains("tell the user what it asks before doing it"))
     }
 
