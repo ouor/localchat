@@ -115,6 +115,7 @@ class EndpointEditViewModel @AssistedInject constructor(
     fun onKey(v: String) = _state.update { it.copy(key = v, check = null) }
     fun onAllowHttp(v: Boolean) = _state.update { it.copy(allowHttp = v) }
     fun editKey() = _state.update { it.copy(editingKey = true) }
+    fun cancelEditKey() = _state.update { it.copy(editingKey = false, key = "") }
 
     private fun draft(s: EndpointUiState) =
         EndpointDraft(s.name.trim(), s.baseUrl.trim(), s.key.trim().takeIf { it.isNotEmpty() }?.let(::ApiKey), s.preset, s.allowHttp, s.maxRetries)
@@ -235,6 +236,23 @@ fun parseLimit(text: String, range: IntRange): LimitInput {
 // Space, NBSP and narrow NBSP (fr), apostrophe and its typographic form (ch).
 private const val GROUP_SEPARATORS = ",. '  ’"
 private val GROUPED = Regex("""[0-9]{1,3}([$GROUP_SEPARATORS])[0-9]{3}(?:\1[0-9]{3})*""")
+
+/** Why a user limit may not work as set (FB-6). Decided here, not in the row; the row only words it. */
+sealed interface LimitWarning {
+    data class AboveContext(val context: String) : LimitWarning
+    data class AboveServer(val server: String) : LimitWarning
+}
+
+/** [context] = (label, value) of the context window, given only for the max-output limit. */
+fun limitWarning(value: Int?, context: Pair<String, Int>?, auto: Sourced<Int?>, presets: List<Int>): LimitWarning? {
+    val server = auto.value?.takeIf { auto.source == CapSource.SERVER }
+    return when {
+        value == null -> null
+        context != null && value > context.second -> LimitWarning.AboveContext(context.first)
+        server != null && value > server -> LimitWarning.AboveServer(limitLabel(server, presets))
+        else -> null
+    }
+}
 
 /** Preset values read as "128K" / "1M"; anything else as the exact number "128,000". */
 fun limitLabel(n: Int, presets: List<Int>): String = when {

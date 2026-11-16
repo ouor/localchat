@@ -24,6 +24,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +51,7 @@ import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.ui.chat.ModelPickerSheet
 import com.ouor.localchat.ui.components.Banner
 import com.ouor.localchat.ui.components.BannerVariant
+import com.ouor.localchat.ui.components.ButtonSize
 import com.ouor.localchat.ui.components.ButtonVariant
 import com.ouor.localchat.ui.components.DialogKind
 import com.ouor.localchat.ui.components.IconButtonSize
@@ -244,11 +246,7 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
         SectionLabel(stringResource(R.string.ui_sensitive_sites))
         SettingsGroup {
             BuiltInSensitiveRow(set.builtInSensitiveEnabled, vm.builtInSensitiveCount) { on -> vm.update { copy(builtInSensitiveEnabled = on) } }
-            set.userSensitiveDomains.forEach { d ->
-                SettingsRow(d, divider = true) {
-                    LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_delete), { vm.update { copy(userSensitiveDomains = userSensitiveDomains - d) } }, size = IconButtonSize.Sm)
-                }
-            }
+            SensitiveDomainRows(set.userSensitiveDomains) { list -> vm.update { copy(userSensitiveDomains = list) } }
             SettingsRow(stringResource(R.string.ui_add_domain), divider = true, leadingIcon = Icons.Rounded.Add, onClick = { adding = true })
         }
         Spacer(Modifier.height(16.dp))
@@ -278,6 +276,28 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
                     Text(stringResource(label), style = LcTheme.text.body, color = LcTheme.colors.textPrimary)
                 }
             }
+        }
+    }
+}
+
+/**
+ * User sensitive domains. P-STABLE (L8): a deleted domain keeps its row, greyed with [되돌리기], until the screen
+ * closes, so the next row's X never slides under the finger after a tap.
+ */
+@Composable
+internal fun SensitiveDomainRows(domains: List<String>, onChange: (List<String>) -> Unit) {
+    // Deleted domain -> its index among the rows shown when it was deleted (ascending inserts rebuild the order).
+    val removed = remember { mutableStateMapOf<String, Int>() }
+    val rows = domains.toMutableList()
+    removed.entries.sortedBy { it.value }.forEach { (d, i) -> if (d !in rows) rows.add(i.coerceAtMost(rows.size), d) }
+    rows.forEachIndexed { i, d ->
+        val gone = d !in domains
+        SettingsRow(d, divider = true, enabled = !gone) {
+            if (gone) LcButton(stringResource(R.string.fb3_c_undo), {
+                removed -= d
+                onChange(domains.toMutableList().apply { add(rows.take(i).count { it in domains }, d) })
+            }, variant = ButtonVariant.Text, size = ButtonSize.Sm)
+            else LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_delete), { removed[d] = i; onChange(domains - d) }, size = IconButtonSize.Sm)
         }
     }
 }

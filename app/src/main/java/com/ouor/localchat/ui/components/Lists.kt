@@ -215,27 +215,34 @@ sealed interface ConnectionUi {
     data class Error(val reason: String) : ConnectionUi
 }
 
-/** SC-02 connection check line with recovery actions on error. */
+/**
+ * SC-02 connection check. P-STABLE (M11): the button never leaves its place: a spinner inside while checking,
+ * "다시 확인" after a failure. The result line sits below it in a slot that is always there (one line reserved).
+ * [state] null = not checked yet. [onSaveAnyway] null = no "그래도 저장" (a saved provider).
+ */
 @Composable
-fun ConnectionStatus(state: ConnectionUi, onRecheck: () -> Unit, onSaveAnyway: () -> Unit, modifier: Modifier = Modifier) {
+fun ConnectionStatus(state: ConnectionUi?, onRecheck: () -> Unit, onSaveAnyway: (() -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val c = LcTheme.colors
-    when (state) {
-        ConnectionUi.Checking -> Row(modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LcSpinner(size = 14.dp)
-            Text(stringResource(R.string.ui_conn_checking), style = LcTheme.text.body, color = c.textSecondary)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LcButton(
+                stringResource(if (state is ConnectionUi.Error) R.string.ui_conn_recheck else R.string.ui_check_connection), onRecheck,
+                variant = ButtonVariant.Outline, size = ButtonSize.Sm, enabled = enabled, loading = state == ConnectionUi.Checking,
+            )
+            if (state is ConnectionUi.Error && onSaveAnyway != null) LcButton(stringResource(R.string.ui_conn_save_anyway), onSaveAnyway, variant = ButtonVariant.Text, size = ButtonSize.Sm)
         }
-        is ConnectionUi.Ok -> Row(modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Rounded.CheckCircleOutline, null, Modifier.size(18.dp), tint = c.success)
-            Text(stringResource(R.string.ui_conn_ok, state.modelCount), style = LcTheme.text.body, color = c.textPrimary)
-        }
-        is ConnectionUi.Error -> Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.ErrorOutline, null, Modifier.size(18.dp), tint = c.danger)
-                Text(state.reason, style = LcTheme.text.body, color = c.dangerText)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LcButton(stringResource(R.string.ui_conn_recheck), onRecheck, variant = ButtonVariant.Outline, size = ButtonSize.Sm)
-                LcButton(stringResource(R.string.ui_conn_save_anyway), onSaveAnyway, variant = ButtonVariant.Text, size = ButtonSize.Sm)
+        Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (state) {
+                null -> {}
+                ConnectionUi.Checking -> Text(stringResource(R.string.ui_conn_checking), style = LcTheme.text.body, color = c.textSecondary)
+                is ConnectionUi.Ok -> {
+                    Icon(Icons.Rounded.CheckCircleOutline, null, Modifier.size(18.dp), tint = c.success)
+                    Text(stringResource(R.string.ui_conn_ok, state.modelCount), style = LcTheme.text.body, color = c.textPrimary)
+                }
+                is ConnectionUi.Error -> {
+                    Icon(Icons.Rounded.ErrorOutline, null, Modifier.size(18.dp), tint = c.danger)
+                    Text(state.reason, style = LcTheme.text.body, color = c.dangerText)
+                }
             }
         }
     }

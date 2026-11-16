@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.DropdownMenu
@@ -250,33 +251,33 @@ private fun UrlField(s: EndpointUiState, vm: EndpointEditViewModel) {
     val (helper, tone) = when {
         s.baseUrl.isNotBlank() && !s.urlValid -> stringResource(R.string.ui_url_invalid) to HelperTone.Error
         s.isHttp -> stringResource(R.string.ui_http_warning) to HelperTone.Warn
-        else -> null to HelperTone.Normal
+        else -> stringResource(R.string.fb3_c_url_hint) to HelperTone.Normal
     }
+    // P-STABLE (M7): the helper line and the http row are always there (the row disabled unless http), so the
+    // fields and buttons below do not jump while the URL is typed.
     LcTextField(s.baseUrl, vm::onUrl, label = "Base URL", kind = TextFieldKind.Url, helper = helper, helperTone = tone)
-    if (s.isHttp) Row(verticalAlignment = Alignment.CenterVertically) {
-        LcCheckbox(s.allowHttp, vm::onAllowHttp)
-        Text(stringResource(R.string.ui_allow_http), style = LcTheme.text.body, color = LcTheme.colors.textPrimary)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        LcCheckbox(s.allowHttp && s.isHttp, vm::onAllowHttp, enabled = s.isHttp)
+        Text(stringResource(R.string.ui_allow_http), style = LcTheme.text.body, color = if (s.isHttp) LcTheme.colors.textPrimary else LcTheme.colors.textDisabled)
     }
 }
 
 @Composable
-private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: () -> Unit, storedModels: Int? = null) {
-    when (val ch = s.check) {
-        null -> LcButton(stringResource(R.string.ui_check_connection), vm::check, variant = ButtonVariant.Outline, size = ButtonSize.Sm, enabled = s.urlValid)
-        CheckUi.Checking -> ConnectionStatus(ConnectionUi.Checking, vm::check, onSaveAnyway)
+private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: (() -> Unit)?, storedModels: Int? = null) {
+    val ui = when (val ch = s.check) {
+        null -> null
+        CheckUi.Checking -> ConnectionUi.Checking
         // Saved endpoint: the stored count, the same number the "모델 N" header shows.
-        is CheckUi.Ok -> ConnectionStatus(ConnectionUi.Ok(storedModels ?: ch.models), vm::check, onSaveAnyway)
-        is CheckUi.Failed -> ConnectionStatus(
-            ConnectionUi.Error((ch.error.httpStatus?.let { "$it · " } ?: "") + stringResource(errorPresentation(ch.error.kind).title)),
-            vm::check, onSaveAnyway,
-        )
+        is CheckUi.Ok -> ConnectionUi.Ok(storedModels ?: ch.models)
+        is CheckUi.Failed -> ConnectionUi.Error((ch.error.httpStatus?.let { "$it · " } ?: "") + stringResource(errorPresentation(ch.error.kind).title))
     }
+    ConnectionStatus(ui, vm::check, onSaveAnyway, enabled = s.urlValid)
 }
 
 @Composable
 private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel, storedModels: Int) {
     val pad = Modifier.padding(horizontal = 16.dp)
-    if (s.editingKey || s.keyHint == null) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (s.keyHint == null) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LcTextField(s.key, vm::onKey, label = stringResource(R.string.ui_api_key), kind = TextFieldKind.Secret, helper = stringResource(R.string.ui_key_helper))
         LcButton(stringResource(R.string.ui_save), vm::saveKey, size = ButtonSize.Sm, enabled = s.key.isNotBlank())
     } else {
@@ -285,7 +286,14 @@ private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel, storedMode
                 LcButton(stringResource(R.string.ui_replace_key), vm::editKey, variant = ButtonVariant.Text, size = ButtonSize.Sm)
             }
         }
-        Column(pad) { Check(s, vm, onSaveAnyway = {}, storedModels) }
+        Column(pad) { Check(s, vm, onSaveAnyway = null, storedModels) }
+        // P-STABLE (L12): the new key is typed in a dialog, so the check area below does not move. The dialog
+        // window inherits FLAG_SECURE from this screen (SecureFlagPolicy.Inherit).
+        if (s.editingKey) LcDialog(
+            stringResource(R.string.ui_replace_key), vm::cancelEditKey, stringResource(R.string.ui_save), vm::saveKey, confirmEnabled = s.key.isNotBlank(),
+        ) {
+            LcTextField(s.key, vm::onKey, label = stringResource(R.string.ui_api_key), kind = TextFieldKind.Secret, helper = stringResource(R.string.ui_key_helper))
+        }
     }
 }
 
@@ -295,7 +303,7 @@ private fun ModelLine(m: ModelInfo, divider: Boolean, onOpen: () -> Unit, onTogg
         if (m.caps.toolCalling.value) add(stringResource(R.string.ui_cap_tools))
         if (m.caps.imageInput.value) add(stringResource(R.string.ui_cap_image))
         if (m.caps.reasoning.value != null) add(stringResource(R.string.ui_cap_reasoning))
-        m.caps.contextWindow.value?.let { add(com.ouor.localchat.ui.chat.compact(it)) }
+        m.caps.contextWindow.value?.let { add(limitLabel(it, CONTEXT_PRESETS)) }
     }.joinToString(" · ")
     SettingsRow(
         m.displayName, modifier, subtitle = if (m.hidden) stringResource(R.string.ui_hidden) else caps, divider = divider, enabled = !m.hidden,
@@ -367,67 +375,68 @@ internal fun LimitRow(
         auto.source == CapSource.SERVER -> stringResource(R.string.fb_e3_limit_auto_server, limitLabel(autoValue, presets))
         else -> stringResource(R.string.fb_e3_limit_auto_builtin, limitLabel(autoValue, presets))
     }
-    val warn = when {
-        v != null && context != null && v > context.second -> stringResource(R.string.fb_e3_limit_warn_gt_ctx, context.first)
-        v != null && autoValue != null && auto.source == CapSource.SERVER && v > autoValue ->
-            stringResource(R.string.fb_e3_limit_warn_gt_server, limitLabel(autoValue, presets))
-        else -> null
-    }
-    Column {
-        // The menu anchors to the row itself, not to the row + warning caption.
-        Box {
-            // Value goes in the FB-2 value slot so the label keeps priority at 200% font.
-            SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
-                SourceBadge(cap.source)
-                Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
-            }
-            // FB2-1: the menu opens under (or above) the value/▾ with its end edge at the row's.
-            EndAnchoredMenu {
-                DropdownMenu(
-                    menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
-                    shape = LcRadius.sm, containerColor = c.surfaceRaised,
-                ) {
-                    LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
+    val warn = limitWarning(v, context, auto, presets)?.let { warningText(it) }
+    // P-STABLE (L6): the warning is an icon in the row (its text in the menu and for TalkBack), not a caption
+    // line under the row that pushed the next row down.
+    Box {
+        // Value goes in the FB-2 value slot so the label keeps priority at 200% font.
+        SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
+            if (warn != null) Icon(Icons.Outlined.WarningAmber, warn, Modifier.size(18.dp), tint = c.warning)
+            SourceBadge(cap.source)
+            Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
+        }
+        // FB2-1: the menu opens under (or above) the value/▾ with its end edge at the row's.
+        EndAnchoredMenu {
+            DropdownMenu(
+                menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
+                shape = LcRadius.sm, containerColor = c.surfaceRaised,
+            ) {
+                if (warn != null) {
+                    Text(warn, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = LcTheme.text.caption, color = c.warning)
                     HorizontalDivider(color = c.border)
-                    presets.forEach { p ->
-                        val label = limitLabel(p, presets)
-                        val exact = "%,d".format(p)
-                        LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
-                    }
-                    HorizontalDivider(color = c.border)
-                    val outside = v != null && v !in presets
-                    LimitItem(
-                        if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
-                        null, null, outside,
-                    ) { menu = false; custom = true }
                 }
+                LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
+                HorizontalDivider(color = c.border)
+                presets.forEach { p ->
+                    val label = limitLabel(p, presets)
+                    val exact = "%,d".format(p)
+                    LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
+                }
+                HorizontalDivider(color = c.border)
+                val outside = v != null && v !in presets
+                LimitItem(
+                    if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
+                    null, null, outside,
+                ) { menu = false; custom = true }
             }
         }
-        if (warn != null) Text(warn, Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp), style = LcTheme.text.caption, color = c.warning)
     }
     if (custom) {
         var text by remember { mutableStateOf(v?.toString().orEmpty()) }
         val parsed = parseLimit(text, range)
         val min = "%,d".format(range.first)
         val max = "%,d".format(range.last)
+        val typedWarn = (parsed as? LimitInput.Ok)?.let { limitWarning(it.value, context, auto, presets) }
         val (helper, tone) = when {
             parsed == LimitInput.NotNumber -> stringResource(R.string.fb_e3_limit_err_nan) to HelperTone.Error
             parsed == LimitInput.OutOfRange -> stringResource(R.string.fb_e3_limit_err_range, min, max) to HelperTone.Error
-            parsed is LimitInput.Ok && context != null && parsed.value > context.second ->
-                stringResource(R.string.fb_e3_limit_warn_gt_ctx, context.first) to HelperTone.Warn
+            typedWarn != null -> warningText(typedWarn) to HelperTone.Warn
             else -> stringResource(R.string.fb_e3_limit_range, min, max) to HelperTone.Normal
         }
         LcDialog(
             title, { custom = false }, stringResource(R.string.ui_save), { (parsed as? LimitInput.Ok)?.let { onSet(it.value) }; custom = false },
             confirmEnabled = parsed is LimitInput.Ok,
         ) {
-            LcTextField(
-                text, { text = it }, helper = helper, helperTone = tone,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                suffix = stringResource(R.string.fb_e3_unit_tokens),
-            )
+            // L6: two helper lines reserved, so a longer message does not shift the centred dialog's buttons.
+            LcTextField(text, { text = it }, helper = helper, helperTone = tone, kind = TextFieldKind.Number, suffix = stringResource(R.string.fb_e3_unit_tokens), helperMinLines = 2)
         }
     }
+}
+
+@Composable
+private fun warningText(w: LimitWarning) = when (w) {
+    is LimitWarning.AboveContext -> stringResource(R.string.fb_e3_limit_warn_gt_ctx, w.context)
+    is LimitWarning.AboveServer -> stringResource(R.string.fb_e3_limit_warn_gt_server, w.server)
 }
 
 @Composable
