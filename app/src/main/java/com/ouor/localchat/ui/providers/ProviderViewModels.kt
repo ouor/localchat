@@ -75,11 +75,13 @@ sealed interface EndpointEffect {
 @HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
 class EndpointEditViewModel @AssistedInject constructor(
     @Assisted val endpointId: String?,
+    @Assisted private val preset: PresetId?,
+    @Assisted private val custom: Boolean,
     private val providers: ProviderRepository,
 ) : ViewModel() {
 
     @AssistedFactory
-    interface Factory { fun create(endpointId: String?): EndpointEditViewModel }
+    interface Factory { fun create(endpointId: String?, preset: PresetId?, custom: Boolean): EndpointEditViewModel }
 
     private val _state = MutableStateFlow(EndpointUiState(isNew = endpointId == null))
     val state = _state.asStateFlow()
@@ -91,7 +93,12 @@ class EndpointEditViewModel @AssistedInject constructor(
 
     init {
         viewModelScope.launch {
-            if (endpointId == null) { pickPreset(Presets.of(PresetId.DEEPSEEK)); _state.update { it.copy(loaded = true) }; return@launch }
+            if (endpointId == null) {
+                // SC-01 "직접 입력" starts blank; otherwise the chosen (or DeepSeek) preset fills name and URL.
+                if (!custom) pickPreset(Presets.of(preset ?: PresetId.DEEPSEEK))
+                _state.update { it.copy(loaded = true) }
+                return@launch
+            }
             val e = providers.endpoints.first().firstOrNull { it.id == endpointId } ?: return@launch
             _state.update {
                 it.copy(loaded = true, name = e.name, baseUrl = e.baseUrl, preset = e.preset, allowHttp = e.allowHttp, maxRetries = e.maxRetries,

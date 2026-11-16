@@ -223,6 +223,12 @@
     <string name="ui_max_output">Max output tokens</string>
     <string name="ui_reset_defaults">Reset to defaults</string>
     <string name="ui_new_tab">New tab</string>
+    <string name="ui_onboard_title">AI chat with your own key</string>
+    <string name="ui_onboard_privacy">Chats and keys stay on this device. Requests go only to the provider you pick.</string>
+    <string name="ui_pick_provider">Choose a provider</string>
+    <string name="ui_custom_endpoint">Enter manually</string>
+    <string name="ui_custom_endpoint_sub">Any OpenAI-compatible server</string>
+    <string name="ui_later">Later</string>
     <string name="ui_key_host_title">Send the existing key to the new address (host)?</string>
     <string name="ui_key_host_send">Send</string>
     <string name="ui_key_host_reenter">Re-enter key</string>

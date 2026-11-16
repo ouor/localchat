@@ -8,7 +8,11 @@ import kotlinx.serialization.Serializable
 data class ChatKey(val sessionId: String? = null) : NavKey
 
 @Serializable
-data class EndpointKey(val endpointId: String? = null) : NavKey
+data class EndpointKey(val endpointId: String? = null, val preset: com.ouor.localchat.core.model.PresetId? = null, val custom: Boolean = false) : NavKey
+
+/** SC-01. */
+@Serializable
+data object OnboardingKey : NavKey
 
 @Serializable
 data class ModelKey(val endpointId: String, val modelId: String) : NavKey

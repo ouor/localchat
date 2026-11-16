@@ -65,7 +65,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class AppViewModel @Inject constructor(settings: SettingsStore, val renderEngine: JsRenderEngine) : ViewModel() {
+class AppViewModel @Inject constructor(settings: SettingsStore, val renderEngine: JsRenderEngine, providers: com.ouor.localchat.provider.ProviderRepository) : ViewModel() {
+    /** null until loaded; false = no provider yet (SC-01). */
+    val hasProviders = providers.endpoints.map { it.isNotEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val theme = settings.settings.map { it.theme }.stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
 }
 
@@ -78,6 +80,13 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
         CompositionLocalProvider(LocalJsRenderEngine provides app.renderEngine) {
             val backStack = rememberNavBackStack(ChatKey())
             ShareRouting { backStack.showChat(null) }
+            // shortcut: SC-01 shows once per app session while no provider exists (no "onboarded" flag in AppSettings).
+            val hasProviders by app.hasProviders.collectAsStateWithLifecycle()
+            var onboardingShown by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+            androidx.compose.runtime.LaunchedEffect(hasProviders) {
+                if (hasProviders == false && !onboardingShown && backStack.lastOrNull() == ChatKey()) { backStack.clear(); backStack.add(com.ouor.localchat.ui.nav.OnboardingKey) }
+                if (hasProviders != null) onboardingShown = true
+            }
             BoxWithConstraints(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
                 val wide = isExpandedWidth(maxWidth)
                 val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -163,17 +172,29 @@ private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
                 )
             }
             entry<EndpointKey> { key ->
-                val vm = hiltViewModel<com.ouor.localchat.ui.providers.EndpointEditViewModel, com.ouor.localchat.ui.providers.EndpointEditViewModel.Factory> { it.create(key.endpointId) }
+                val vm = hiltViewModel<com.ouor.localchat.ui.providers.EndpointEditViewModel, com.ouor.localchat.ui.providers.EndpointEditViewModel.Factory> { it.create(key.endpointId, key.preset, key.custom) }
                 com.ouor.localchat.ui.providers.EndpointRoute(
                     vm, onBack = { backStack.removeLastOrNull() },
                     // New provider: replace the form with its detail page.
-                    onSaved = { id -> if (key.endpointId == null) { backStack.removeLastOrNull(); backStack.add(EndpointKey(id)) } },
+                    onSaved = { id ->
+                        when {
+                            key.endpointId != null -> Unit
+                            com.ouor.localchat.ui.nav.OnboardingKey in backStack -> backStack.showChat(null)
+                            else -> { backStack.removeLastOrNull(); backStack.add(EndpointKey(id)) }
+                        }
+                    },
                     onModel = { e, m -> backStack.add(ModelKey(e, m)) },
                 )
             }
             entry<ModelKey> { key ->
                 val vm = hiltViewModel<com.ouor.localchat.ui.providers.ModelDetailViewModel, com.ouor.localchat.ui.providers.ModelDetailViewModel.Factory> { it.create(key.endpointId, key.modelId) }
                 com.ouor.localchat.ui.providers.ModelDetailRoute(vm) { backStack.removeLastOrNull() }
+            }
+            entry<com.ouor.localchat.ui.nav.OnboardingKey> {
+                com.ouor.localchat.ui.providers.OnboardingScreen(
+                    onPreset = { backStack.add(EndpointKey(preset = it)) }, onCustom = { backStack.add(EndpointKey(custom = true)) },
+                    onLater = { backStack.showChat(null) },
+                )
             }
             entry<ProvidersKey> {
                 com.ouor.localchat.ui.providers.ProvidersRoute(

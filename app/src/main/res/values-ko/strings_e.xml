@@ -223,6 +223,12 @@
     <string name="ui_max_output">최대 출력 토큰</string>
     <string name="ui_reset_defaults">기본값으로 되돌리기</string>
     <string name="ui_new_tab">새 탭</string>
+    <string name="ui_onboard_title">내 키로 쓰는 AI 채팅</string>
+    <string name="ui_onboard_privacy">대화와 키는 이 기기에만 저장돼요. 요청은 고른 프로바이더로만 가요.</string>
+    <string name="ui_pick_provider">프로바이더 선택</string>
+    <string name="ui_custom_endpoint">직접 입력</string>
+    <string name="ui_custom_endpoint_sub">OpenAI 호환 서버</string>
+    <string name="ui_later">나중에</string>
     <string name="ui_key_host_title">기존 키를 새 주소(호스트)로 보낼까요?</string>
     <string name="ui_key_host_send">보내기</string>
     <string name="ui_key_host_reenter">키 다시 입력</string>
