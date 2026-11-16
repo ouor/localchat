@@ -139,6 +139,7 @@ class ProviderRepositoryTest {
         val id = repo.add(draft())
         repo.addManualModel(id, " my-model ")
         repo.updateModel(id, "my-model", ModelOverrides(contextWindow = 4096))
+        assertEquals(ModelOverrides(contextWindow = 4096), repo.overrides(id, "my-model"))
         repo.addManualModel(id, "my-model") // already there: untouched
         assertEquals(4096, repo.models(id).first().single().caps.contextWindow.value)
         assertTrue(repo.models(id).first().single().manual)

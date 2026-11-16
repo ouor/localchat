@@ -109,6 +109,11 @@ class ProviderRepository @Inject constructor(
         if (dao.model(endpointId, id) == null) dao.upsertModels(listOf(ModelRecord(endpointId, id, manual = true).toEntity()))
     }
 
+    /** The stored user values (SC-02a form start); [ModelInfo] only has the resolved result. */
+    suspend fun overrides(endpointId: String, modelId: String): ModelOverrides =
+        dao.model(endpointId, modelId)?.toRecord()?.overrides ?: ModelOverrides()
+
+    /** Replaces all user values of the model. */
     suspend fun updateModel(endpointId: String, modelId: String, overrides: ModelOverrides) =
         edit(endpointId, modelId) { it.copy(overrides = overrides) }
 
