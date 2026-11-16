@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb3_d_file_too_large">%1$s: over 64 MB</string>
+</resources>

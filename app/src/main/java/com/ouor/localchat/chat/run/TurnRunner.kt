@@ -100,7 +100,7 @@ class TurnRunner @Inject constructor(
         fun phase(phase: RunPhase) = handle.update { it.copy(phase = phase) }
 
         fun fail(e: Exception) = publish(
-            body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.PROTOCOL, message = e.message ?: e::class.simpleName)),
+            body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.PROTOCOL, message = e.message ?: UNEXPECTED)),
         )
 
         suspend fun save() {
@@ -122,7 +122,8 @@ class TurnRunner @Inject constructor(
             }
             store.session(sessionId) ?: return // deleted meanwhile
             var path = MessageTree.ancestors(node, store.nodes(sessionId))
-            val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
+            var tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
+            // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
                 ?: SystemPrompt.build(clock.now(), ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
@@ -135,6 +136,10 @@ class TurnRunner @Inject constructor(
             var step = if (mode == Mode.CONTINUE) body.blocks.maxOfOrNull { it.step } ?: 0 else body.steps
             var compacted = false
             var askedAt = -1
+            // Audit #10: a switch turned off during the run drops its tools from the next step on; turning on never widens.
+            var switches = prefs.lastOptions
+            var search = body.options.search
+            var browserOn = body.options.browser
             publish(body.copy(status = ReplyStatus.STREAMING, systemContext = system, finishReason = null, error = null))
             handle.update { it.copy(maxSteps = maxSteps) }
 
@@ -150,11 +155,20 @@ class TurnRunner @Inject constructor(
                     }
                 }
                 handle.update { it.copy(phase = RunPhase.Requesting, step = step) }
+                val now = settings.settings.first().lastOptions
+                if (switches.search && !now.search) search = false
+                if (switches.browser && !now.browser) browserOn = false
+                switches = now
+                if (tools.isNotEmpty()) {
+                    val keep = toolPort.exposed(model.caps, search, browserOn).map { it.name }.toSet()
+                    tools = tools.filter { it.name in keep }
+                    executor.tools = tools
+                }
 
                 var request = assemble(path, model, tools, system)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
-                if (!compacted && window != null && input > window * 0.8) {
+                if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
                     // Spent even when nothing could be summarized: the path is fixed for the turn, so a second
                     // attempt on ContextOverflow would find the same nothing (SE 13 c reviewed, left as is).
                     compacted = true
@@ -323,6 +337,8 @@ class TurnRunner @Inject constructor(
         /** Architecture 8.1: streaming writes at most once a second, plus at step boundaries and the end. */
         const val SAVE_INTERVAL_MS = 1000L
         const val MAX_CALLS_PER_STEP = 10
+        /** A class name would be R8-obfuscated in release builds, so a message-less exception gets fixed text. */
+        const val UNEXPECTED = "Unexpected error"
         const val TOO_MANY_CALLS = "Not run: at most 10 tool calls per step. Call it again in the next step if still needed."
 
         /** RunPhase.RunningTool name shown as "reading: {site}" (architecture 5.7). */

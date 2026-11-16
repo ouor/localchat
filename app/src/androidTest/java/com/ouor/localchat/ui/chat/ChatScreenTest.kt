@@ -188,6 +188,19 @@ class ChatScreenTest {
         rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(1)
     }
 
+    @Test fun oldOfficeAndTooLargeFilesSayWhyAndOfferNoRetry() { // FB3 D
+        fun file(id: String, name: String, reason: String) = com.ouor.localchat.core.model.Attachment(
+            id, name, "application/octet-stream", 10, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
+            com.ouor.localchat.core.model.PrepState.Failed(reason), hasOriginal = true, createdAt = 0,
+        )
+        show(ChatUiState(loading = false), ComposerUiState(attachments = listOf(
+            file("b", "huge.pdf", com.ouor.localchat.attach.PrepFailure.TOO_LARGE),
+            file("d", "old.doc", com.ouor.localchat.attach.PrepFailure.LEGACY_OFFICE),
+        )))
+        rule.onNodeWithText(ctx.getString(R.string.fb3_d_file_too_large, "huge.pdf")).assertIsDisplayed()
+        rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(0)
+    }
+
     @Test fun readAloudButtonReadsTheReply() { // BUG-01
         show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello there")))))
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_read_aloud)).performClick()

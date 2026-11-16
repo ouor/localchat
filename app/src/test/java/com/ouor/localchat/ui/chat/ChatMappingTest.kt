@@ -61,4 +61,14 @@ class ChatMappingTest {
         assertEquals("a\n\nb", replyText(listOf(t("a\n\n", 0), t("b", 1))))
         assertEquals("b", replyText(listOf(t("", 0), t("b", 1))))
     }
+
+    @Test fun `only failures a retry can fix keep the retry - old Office and over 64 MB do not`() {
+        fun failed(reason: String) = com.ouor.localchat.core.model.Attachment(
+            "a", "f", "application/octet-stream", 1, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
+            com.ouor.localchat.core.model.PrepState.Failed(reason), hasOriginal = true, createdAt = 0,
+        )
+        val p = com.ouor.localchat.attach.PrepFailure
+        listOf(p.UNSUPPORTED_TYPE, p.LEGACY_OFFICE, p.TOO_LARGE).forEach { org.junit.Assert.assertTrue(it, isUnsupported(failed(it))) }
+        org.junit.Assert.assertFalse(isUnsupported(failed(p.READ_FAILED)))
+    }
 }

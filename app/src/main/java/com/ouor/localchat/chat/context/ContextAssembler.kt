@@ -118,14 +118,20 @@ object ContextAssembler {
 
     /**
      * M-1: a user max output bigger than the room the input leaves would make vLLM-style servers answer
-     * 400 "maximum context length", read as ContextOverflow (a needless compaction). Cut it to the room,
-     * or omit it when less than [MIN_OUTPUT] is left.
+     * 400 "maximum context length", read as ContextOverflow (a needless compaction). Cut it to the room.
+     * Audit #6: under [MIN_OUTPUT] TurnRunner compacts first; whatever room is still left is sent, since
+     * omitting the field would let the server default overrun it. No room at all: omitted, the server's overflow
+     * error says the rest.
      */
     fun fitOutput(request: ChatRequest, window: Int?, inputEstimate: Int): ChatRequest {
         val user = request.maxTokens ?: return request
         val room = (window ?: return request) - inputEstimate
-        return request.copy(maxTokens = if (room >= MIN_OUTPUT) minOf(user, room) else null)
+        return request.copy(maxTokens = if (room > 0) minOf(user, room) else null)
     }
+
+    /** Audit #6: a user max output with under [MIN_OUTPUT] room left asks for compaction before sending. */
+    fun tooLittleRoom(request: ChatRequest, window: Int?, inputEstimate: Int): Boolean =
+        request.maxTokens != null && window != null && window - inputEstimate < MIN_OUTPUT
 
     const val MIN_OUTPUT = 256
 

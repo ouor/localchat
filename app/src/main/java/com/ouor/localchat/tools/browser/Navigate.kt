@@ -14,7 +14,7 @@ object Navigate : Tool {
     private val ACTIONS = setOf("back", "forward", "reload")
 
     override val name = "navigate"
-    override val groups = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER)
+    override val groups = setOf(ToolGroup.BROWSER)
     override val labelRes = R.string.tool_navigate
     override val description =
         "Load a URL in your tab, or go back, forward or reload. Waits for the page to load. " +

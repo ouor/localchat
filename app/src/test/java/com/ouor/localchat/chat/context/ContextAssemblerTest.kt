@@ -24,6 +24,7 @@ import com.ouor.localchat.core.model.Usage
 import com.ouor.localchat.llm.LlmTarget
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -186,12 +187,17 @@ class ContextAssemblerTest {
     }
 
     @Test
-    fun `M-1 a user max output larger than the room left is cut to the room, or omitted under 256`() {
+    fun `M-1 a user max output larger than the room left is cut to the room, whatever room is left`() {
         val req = ContextAssembler.build(input(listOf(user("u", "q")))).copy(maxTokens = 4096)
         // Window 8K, input 7K, user 4K: what is sent fits the 1K left.
         assertEquals(1024, ContextAssembler.fitOutput(req, 8192, 7168).maxTokens)
         assertEquals(4096, ContextAssembler.fitOutput(req, 32768, 7168).maxTokens)
-        assertNull(ContextAssembler.fitOutput(req, 8192, 8000).maxTokens)
+        // Audit #6: under 256 left the room is still sent (omitting it lets the server default overrun it).
+        assertEquals(192, ContextAssembler.fitOutput(req, 8192, 8000).maxTokens)
+        assertNull(ContextAssembler.fitOutput(req, 8192, 8192).maxTokens)
+        assertTrue(ContextAssembler.tooLittleRoom(req, 8192, 8000))
+        assertFalse(ContextAssembler.tooLittleRoom(req, 8192, 7168))
+        assertFalse(ContextAssembler.tooLittleRoom(req.copy(maxTokens = null), 8192, 8000))
         assertEquals(4096, ContextAssembler.fitOutput(req, null, 7168).maxTokens)
         assertNull(ContextAssembler.fitOutput(req.copy(maxTokens = null), 8192, 7168).maxTokens)
     }

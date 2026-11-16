@@ -3,6 +3,7 @@ package com.ouor.localchat.llm
 import com.ouor.localchat.core.model.Usage
 import com.ouor.localchat.llm.wire.ChatChunk
 import com.ouor.localchat.llm.wire.ChatRequest
+import com.ouor.localchat.llm.wire.Thinking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -191,7 +192,8 @@ class ChatCompletionsClient internal constructor(
         val message = error.serverMessage ?: return null
         return when {
             body.streamOptions != null && named(message, "stream_options") -> body.copy(streamOptions = null)
-            body.thinking != null && named(message, "thinking") -> body.copy(thinking = null)
+            // Audit #7: never drop DISABLED; DeepSeek-style servers read a missing `thinking` as ON.
+            body.thinking == Thinking.ENABLED && named(message, "thinking") -> body.copy(thinking = null)
             body.maxTokens != null && (named(message, "max_tokens") || named(message, "max_completion_tokens")) ->
                 body.copy(maxTokens = null)
             else -> null

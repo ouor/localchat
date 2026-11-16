@@ -56,8 +56,9 @@ class ToolsTest {
 
     @Test
     fun `search alone exposes the search bundle`() {
+        // Audit #11: navigate is browser-only; request_handoff stays for search-time CAPTCHAs.
         assertEquals(
-            setOf("web_search", "open_tab", "navigate", "page_text", "close_tab", "request_handoff"),
+            setOf("web_search", "open_tab", "page_text", "close_tab", "request_handoff"),
             names(caps(), search = true, browser = false),
         )
     }
