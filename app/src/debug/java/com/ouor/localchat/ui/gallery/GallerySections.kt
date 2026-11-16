@@ -395,6 +395,9 @@ graph TD
 1. 첫째 항목
 2. 둘째 항목 `inline code`
 
+- 글머리 항목
+- 다크 모드에서도 점이 보여야 해요
+
 [링크 예시](https://example.com)를 누르면 앱 내 브라우저로 열려요."""
 
 private fun LazyListScope.markdown() {
