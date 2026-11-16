@@ -9,6 +9,7 @@ import com.ouor.localchat.browser.Control
 import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
@@ -18,6 +19,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +60,10 @@ data class BrowserUiState(
     fun isMine(t: TabInfo) = t.owner is Owner.Ai && (t.owner as Owner.Ai).sessionId == sessionId
 }
 
+/** Re-marks sensitive tabs when the tabs or the rule change (a settings change alone must update the banner). */
+internal fun Flow<BrowserUiState>.withSensitive(rule: Flow<SensitiveUrls>): Flow<BrowserUiState> =
+    combine(rule) { s, r -> s.copy(sensitive = s.tabs.filter { r.isSensitive(it.url) }.mapTo(HashSet()) { it.id }) }
+
 @HiltViewModel(assistedFactory = BrowserViewModel.Factory::class)
 class BrowserViewModel @AssistedInject constructor(
     @Assisted private val sessionId: String?,
@@ -77,13 +83,12 @@ class BrowserViewModel @AssistedInject constructor(
     val state: StateFlow<BrowserUiState> = combine(local, engine.tabs, activity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
         l.copy(
             tabs = tabs, aiActivity = ai, highlight = h,
-            sensitive = tabs.filter { engine.sensitiveUrls.isSensitive(it.url) }.mapTo(HashSet()) { it.id },
             prompt = prompts.firstOrNull { p ->
                 // AI-tab JS dialogs belong to the dialog_handle tool (api-spec BrowserEngine.prompts).
                 !(p is BrowserPrompt.Dialog && tabs.firstOrNull { it.id == p.tabId }?.owner is Owner.Ai)
             },
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
+    }.withSensitive(engine.sensitive).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
 
     init {
         viewModelScope.launch {

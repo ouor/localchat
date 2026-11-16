@@ -20,6 +20,7 @@ import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.core.model.AppSettings
 import com.ouor.localchat.storage.SettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -90,15 +91,18 @@ class BrowserEngine @Inject constructor(
 
     private val builtInDomains =
         SensitiveUrls.parseList(context.assets.open("browser/sensitive_domains.txt").bufferedReader().use { it.readText() })
-    private val builtInSensitive = SensitiveUrls(builtInDomains)
 
     /** FB2-2: entries in the built-in list, for the settings subtitle. */
     val builtInSensitiveCount: Int get() = builtInDomains.size
 
-    /** B-S3 rule with the user's additions applied. */
-    @Volatile
-    var sensitiveUrls: SensitiveUrls = builtInSensitive
-        private set
+    // Before settings load: the full built-in list (fail safe).
+    private val _sensitive = MutableStateFlow(SensitiveUrls(builtInDomains, emptyList()))
+
+    /** B-S3 rule with the user's settings applied; the panel's sensitive banner follows it. */
+    val sensitive: StateFlow<SensitiveUrls> = _sensitive.asStateFlow()
+
+    /** Current [sensitive] rule; callers read it at each check. */
+    val sensitiveUrls: SensitiveUrls get() = _sensitive.value
 
     /** S-05 engine for web_search. */
     @Volatile
@@ -108,7 +112,7 @@ class BrowserEngine @Inject constructor(
     init {
         scope.launch {
             settings.settings.collect { s ->
-                sensitiveUrls = builtInSensitive.withUser(s.userSensitiveDomains, s.builtInSensitiveEnabled)
+                _sensitive.value = sensitiveRule(builtInDomains, s)
                 searchEngine = s.searchEngine
             }
         }
@@ -426,6 +430,10 @@ class BrowserEngine @Inject constructor(
     }
 
     companion object {
+        /** FB2-2: the built-in list only while its switch is on; user domains always. */
+        internal fun sensitiveRule(builtIn: List<String>, s: AppSettings) =
+            SensitiveUrls(if (s.builtInSensitiveEnabled) builtIn else emptyList(), s.userSensitiveDomains)
+
         const val MAX_TABS = 10
         const val HIGHLIGHT_MS = 1_000L
         const val BLANK = "about:blank"
