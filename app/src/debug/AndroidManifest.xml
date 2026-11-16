@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only spike screens (Phase 0), started with adb am start. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".spike.MathSpikeActivity"
+            android:exported="true" />
+        <activity
+            android:name=".spike.WebViewSpikeActivity"
+            android:exported="true" />
+    </application>
+</manifest>
