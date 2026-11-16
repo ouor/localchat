@@ -78,7 +78,7 @@ class Fb2UTest {
     private fun nav(reduced: Boolean = false) = rule.setContent {
         LocalchatTheme(darkTheme = true) {
             CompositionLocalProvider(LocalReducedMotion provides reduced) {
-                LcNavDisplay(stack, { stack.removeAt(stack.lastIndex) }, listOf(rememberSaveableStateHolderNavEntryDecorator())) { key ->
+                LcNavDisplay(stack, { stack.removeAt(stack.lastIndex) }, listOf(rememberSaveableStateHolderNavEntryDecorator()), Modifier.background(LcTheme.colors.surface)) { key ->
                     NavEntry(key) {
                         Column(Modifier.fillMaxSize().testTag("page-$key").background(LcTheme.colors.surface)) {
                             LcTopBar("screen-$key")
@@ -102,8 +102,9 @@ class Fb2UTest {
         assertTrue(left("detail") > 0.dp)
         val rootWidth = rule.onRoot().getBoundsInRoot().run { right - left }
         assertEquals(rootWidth.value, rule.onNodeWithTag("page-detail").getBoundsInRoot().run { right - left }.value, 0.5f) // no scale
+        rule.mainClock.advanceTimeBy(100) // ~150ms: old screen faded out, new one fading in near its resting place
         Shots.save("fb2-u-push-mid")
-        rule.mainClock.advanceTimeBy(400)
+        rule.mainClock.advanceTimeBy(300)
         rule.onNodeWithText("screen-home").assertDoesNotExist()
         assertEquals(0f, left("detail").value, 0.5f)
 
@@ -130,8 +131,8 @@ class Fb2UTest {
         nav(reduced = true)
         rule.mainClock.autoAdvance = false
         rule.runOnIdle { stack.add("detail") }
-        rule.mainClock.advanceTimeByFrame()
-        rule.mainClock.advanceTimeByFrame()
+        // A normal push still shows the old screen sliding out at 100ms; reduced motion has already settled.
+        rule.mainClock.advanceTimeBy(100)
         rule.onNodeWithText("screen-home").assertDoesNotExist()
         assertEquals(0f, left("detail").value, 0.5f)
     }
