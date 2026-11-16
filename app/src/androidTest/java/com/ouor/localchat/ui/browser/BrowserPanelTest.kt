@@ -78,17 +78,24 @@ class BrowserPanelTest {
 
     private val aiTab = TabInfo(1, "인사 규정", "https://wiki.corp.example/hr", Owner.Ai("A"), Control.AI, loading = false)
 
-    private fun show(state: BrowserUiState) {
+    private val covers = mutableListOf<Int>()
+    /** Screen height in px: swipes are fractions of it, so they cross the same anchors on any density. */
+    private var rootH = 0f
+
+    private fun show(state: BrowserUiState, reduced: Boolean = false, idle: Boolean = true) {
         s = state
         rule.setContent {
-            LocalchatTheme(false) {
-                Box(Modifier.fillMaxSize()) {
-                    Column { BrowserPeek(s, actions) }
-                    BrowserOverlay(s, actions) { cover = it }
+            androidx.compose.runtime.CompositionLocalProvider(com.ouor.localchat.ui.components.LocalReducedMotion provides reduced) {
+                LocalchatTheme(false) {
+                    Box(Modifier.fillMaxSize()) {
+                        Column { BrowserPeek(s, actions) }
+                        BrowserOverlay(s, actions) { cover = it; covers += it }
+                    }
                 }
             }
         }
-        rule.waitForIdle()
+        if (idle) rule.waitForIdle()
+        rootH = rule.onRoot().fetchSemanticsNode().size.height.toFloat()
     }
 
     private fun handle() = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd))
@@ -119,10 +126,10 @@ class BrowserPanelTest {
     @Test fun handleDragsHalfToFullAndDownToPeek() {
         show(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "A"))
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_collapse)).assertDoesNotExist()
-        handle().performTouchInput { swipeUp(startY = centerY, endY = centerY - 900f, durationMillis = 250) }
+        handle().performTouchInput { swipeUp(startY = centerY, endY = centerY - rootH * 0.5f, durationMillis = 250) }
         rule.waitForIdle()
         assertEquals(PanelState.Full, panels.last())
-        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + 3000f, durationMillis = 300) }
+        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + rootH, durationMillis = 300) }
         rule.waitForIdle()
         assertEquals(PanelState.Peek, panels.last())
         assertEquals(0, cover)
@@ -132,7 +139,7 @@ class BrowserPanelTest {
     @Test fun pageAreaDragDoesNotMoveThePanel() {
         show(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "A"))
         val h = rule.onRoot().fetchSemanticsNode().size.height.toFloat()
-        rule.onRoot().performTouchInput { swipeUp(startY = h - 100f, endY = h - 900f, durationMillis = 250) }
+        rule.onRoot().performTouchInput { swipeUp(startY = h * 0.9f, endY = h * 0.6f, durationMillis = 250) }
         rule.waitForIdle()
         assertTrue(panels.isEmpty())
     }
@@ -168,18 +175,18 @@ class BrowserPanelTest {
             val before = rule.runOnIdle { page!!.scrollY }
             val n = panels.size
             val h = rule.onRoot().fetchSemanticsNode().size.height.toFloat()
-            rule.onRoot().performTouchInput { swipeUp(startY = h - 200f, endY = h - 600f, durationMillis = 300) }
+            rule.onRoot().performTouchInput { swipeUp(startY = h * 0.9f, endY = h * 0.75f, durationMillis = 300) }
             rule.waitForIdle()
             assertTrue("page scrolls", rule.runOnIdle { page!!.scrollY } > before)
             assertEquals("page drag leaves the panel alone", n, panels.size)
         }
         scrollPage()
-        handle().performTouchInput { swipeUp(startY = centerY, endY = centerY - 900f, durationMillis = 250) }
+        handle().performTouchInput { swipeUp(startY = centerY, endY = centerY - rootH * 0.5f, durationMillis = 250) }
         rule.waitForIdle()
         assertEquals(PanelState.Full, panels.last())
         shot("full")
         scrollPage()
-        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + 500f, durationMillis = 400) }
+        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + rootH * 0.3f, durationMillis = 400) }
         rule.waitForIdle()
         assertEquals(PanelState.Half, panels.last())
         scrollPage()
@@ -190,5 +197,45 @@ class BrowserPanelTest {
         val dir = ctx.getExternalFilesDir("shots") ?: return
         val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
         java.io.File(dir, "fb1-e4-$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    // ---- R2a ----
+
+    @Test fun coverIsReportedOnlyWhenSettledAndNeverForFull() { // R2a-1
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
+        rule.onNodeWithText("인사 규정", substring = true).performClick()
+        rule.waitForIdle()
+        val half = cover
+        assertTrue(half > 0)
+        assertEquals("only the settled heights, no animation frames", listOf(0, half), covers.distinct())
+        handle().performTouchInput { swipeUp(startY = centerY, endY = centerY - rootH * 0.5f, durationMillis = 250) }
+        rule.waitForIdle()
+        assertEquals(PanelState.Full, panels.last())
+        assertEquals("Full is not reported", listOf(0, half), covers.distinct())
+    }
+
+    @Test fun reducedMotionSnapsThePanelAndStopsTheWorkingBar() { // R2a-2
+        rule.mainClock.autoAdvance = false
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true), reduced = true, idle = false)
+        rule.mainClock.advanceTimeByFrame()
+        val strip = rule.onNodeWithText("인사 규정", substring = true)
+        val a = strip.captureToImage().asAndroidBitmap()
+        rule.mainClock.advanceTimeBy(600)
+        val b = strip.captureToImage().asAndroidBitmap()
+        assertTrue("working bar stands still", a.sameAs(b))
+        rule.runOnIdle { s = s.copy(panel = PanelState.Half) }
+        rule.mainClock.advanceTimeByFrame()
+        rule.mainClock.advanceTimeByFrame()
+        val top = handle().fetchSemanticsNode().boundsInRoot.top
+        assertEquals("no slide: Half on the next frames", rootH * 0.45f, top, rootH * 0.05f)
+    }
+
+    @Test fun panelAlreadyHalfStartsAtHalf() { // R2a-4: recreation (rotation) keeps Half, no slide from Peek
+        rule.mainClock.autoAdvance = false
+        show(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "A"), idle = false)
+        rule.mainClock.advanceTimeByFrame()
+        val top = handle().fetchSemanticsNode().boundsInRoot.top
+        assertEquals(rootH * 0.45f, top, rootH * 0.05f)
+        assertTrue(panels.isEmpty())
     }
 }

@@ -100,19 +100,36 @@ import com.ouor.localchat.ui.browser.BrowserActions
 import com.ouor.localchat.ui.browser.BrowserOverlay
 import com.ouor.localchat.ui.browser.BrowserPeek
 import com.ouor.localchat.ui.browser.BrowserUiState
-import com.ouor.localchat.ui.browser.PanelState
 import com.ouor.localchat.ui.components.IconButtonSize
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 
 /** What the chat needs from the app shell (navigation lives in AppScaffold). */
 class ChatNav(
@@ -154,7 +171,7 @@ fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, browser: com.ouo
     LaunchedEffect(composer) {
         composer.effects.collect { e ->
             when (e) {
-                is ComposerEffect.Sent -> if (chat.sessionId == null) nav.openSession(e.sessionId)
+                is ComposerEffect.Sent -> if (chat.sessionId == null) { NewChatOptions.carry(e.sessionId); nav.openSession(e.sessionId) }
                 is ComposerEffect.Rejected -> snackbar.showSnackbar(rejectText(e.reason))
             }
         }
@@ -197,11 +214,18 @@ internal fun ChatScreen(
         }
     }
     LaunchedEffect(list) { androidx.compose.runtime.snapshotFlow { list.canScrollForward }.collect { if (!it) follow = true } }
-    LaunchedEffect(state.turns.size) { follow = true }
+    // P-STABLE H3: content growth is followed while a reply streams, or until the user touches the list (a tap that
+    // expands a block must keep its header in place). A new message re-arms it.
+    val running by androidx.compose.runtime.rememberUpdatedState(state.running)
+    var touched by remember { mutableStateOf(false) }
+    suspend fun toBottom() { if (list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE) }
+    LaunchedEffect(state.turns.size) { follow = true; touched = false }
     LaunchedEffect(list) {
-        androidx.compose.runtime.snapshotFlow { follow && list.canScrollForward && !list.isScrollInProgress }.collect {
-            if (it && list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
-        }
+        androidx.compose.runtime.snapshotFlow { follow && (running || !touched) && list.canScrollForward && !list.isScrollInProgress }.collect { if (it) toBottom() }
+    }
+    // The list itself shrinking (options, a caption, the keyboard) keeps a followed bottom in view.
+    LaunchedEffect(list) {
+        androidx.compose.runtime.snapshotFlow { list.layoutInfo.viewportSize.height }.collect { if (follow && list.canScrollForward) toBottom() }
     }
 
     val context = LocalContext.current
@@ -224,23 +248,24 @@ internal fun ChatScreen(
             scope.launch { snackbar.showSnackbar(context.getString(R.string.ui_no_app_to_open)) }
         }
     }
-    // FB-1b: options open by default only in an empty chat; a user toggle sticks for this chat.
-    var userOpen by rememberSaveable(chat.sessionId) { mutableStateOf<Boolean?>(null) }
+    // FB-1b: options open by default only in an empty chat; a user toggle sticks for this chat, including across the first
+    // send (null → id), which may also move the chat to its own nav entry (see NewChatOptions). Another chat resets it.
+    val carried = remember { NewChatOptions.take(chat.sessionId) }
+    var userOpen by rememberSaveable { mutableStateOf(carried?.open) }
+    val inputFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    if (carried?.focus == true) LaunchedEffect(Unit) { inputFocus.requestFocus() }
+    var openFor by rememberSaveable { mutableStateOf(chat.sessionId) }
+    if (openFor != chat.sessionId) {
+        if (openFor != null) userOpen = null
+        openFor = chat.sessionId
+    }
     val optionsOpen = userOpen ?: (state.turns.isEmpty() && !state.loading)
 
     // FB-1c: at Half the browser panel covers the screen bottom; pad the list so its last line can scroll above the panel.
-    // The panel reports its height every frame while it moves; only the settled height reaches the list (no per-frame relayout).
+    // The panel reports only settled heights (not Full), so the list never relayouts while the panel moves.
     val density = LocalDensity.current
     var bottomPx by remember { mutableIntStateOf(0) }
-    val coverRaw = remember { mutableIntStateOf(0) }
     var cover by remember { mutableIntStateOf(0) }
-    val panelNow by rememberUpdatedState(browserState.panel)
-    LaunchedEffect(Unit) {
-        snapshotFlow { coverRaw.intValue }.collectLatest {
-            delay(120)
-            if (panelNow != PanelState.Full) cover = it // Full hides the list anyway; keep the Half padding.
-        }
-    }
     val panelPad = with(density) { (cover - bottomPx).coerceAtLeast(0).toDp() }
 
     val picks = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { composer.attach(it) }
@@ -254,13 +279,12 @@ internal fun ChatScreen(
                 actions = {
                     LcIconButton(Icons.Outlined.Web, stringResource(R.string.ui_browser), { browserActions.open(null) })
                     LcIconButton(Icons.Outlined.EditNote, stringResource(R.string.ui_new_chat), nav.newChat, enabled = chat.sessionId != null)
-                    if (chat.sessionId != null) {
-                        Box {
-                            LcIconButton(Icons.Rounded.MoreVert, stringResource(R.string.ui_more), { menu = true })
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem({ Text(stringResource(R.string.ui_rename)) }, { menu = false; renaming = state.title })
-                                DropdownMenuItem({ Text(stringResource(R.string.ui_delete), color = c.dangerText) }, { menu = false; deleting = true })
-                            }
+                    // P-STABLE H1: ⋮ is always there (disabled in a new chat) so 🗔 and ✎ keep their slots after the first send.
+                    Box {
+                        LcIconButton(Icons.Rounded.MoreVert, stringResource(R.string.ui_more), { menu = true }, enabled = chat.sessionId != null)
+                        DropdownMenu(menu && chat.sessionId != null, { menu = false }) {
+                            DropdownMenuItem({ Text(stringResource(R.string.ui_rename)) }, { menu = false; renaming = state.title })
+                            DropdownMenuItem({ Text(stringResource(R.string.ui_delete), color = c.dangerText) }, { menu = false; deleting = true })
                         }
                     }
                 },
@@ -276,7 +300,9 @@ internal fun ChatScreen(
                 if (state.turns.isEmpty() && !state.loading) {
                     Welcome(cs, Modifier.align(Alignment.Center))
                 } else {
-                    LazyColumn(Modifier.fillMaxSize(), list, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + panelPad), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LazyColumn(Modifier.fillMaxSize().pointerInput(Unit) {
+                        awaitEachGesture { awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial); touched = true }
+                    }, list, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + panelPad), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(state.turns, key = { it.user.node.id }) { turn ->
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 UserTurn(turn.user, cs, chat, state.attachments, composer::thumbnail)
@@ -325,11 +351,12 @@ internal fun ChatScreen(
                 BrowserPeek(browserState, browserActions, Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp))
                 ComposerArea(cs, state, composer, chat, nav, onPicker = { picker = true }, onAttach = { picks.launch(arrayOf("*/*")) },
                     onMic = { mic.launch(android.Manifest.permission.RECORD_AUDIO) }, onGauge = { contextCard = true },
-                    open = optionsOpen, onToggleOpen = { userOpen = !optionsOpen })
+                    open = optionsOpen, onToggleOpen = { userOpen = !optionsOpen; if (chat.sessionId == null) NewChatOptions.pending = userOpen },
+                    inputModifier = Modifier.focusRequester(inputFocus).onFocusChanged { if (chat.sessionId == null) NewChatOptions.focused = it.hasFocus })
             }
         }
         LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + 8.dp))
-        BrowserOverlay(browserState, browserActions) { coverRaw.intValue = it }
+        BrowserOverlay(browserState, browserActions) { cover = it }
     }
 
     // ---- sheets and dialogs ----
@@ -379,6 +406,21 @@ internal fun ChatScreen(
     }
 }
 
+/**
+ * FB-1b: the options choice made in a new chat ([pending]) outlives the first send, which opens the chat in a new nav entry.
+ * Process memory only: a lost choice falls back to the default, nothing else depends on it.
+ */
+internal object NewChatOptions {
+    var pending: Boolean? = null
+    /** P-STABLE H6: the new chat's input had focus, so the opened chat takes it back and the keyboard stays up. */
+    var focused = false
+    data class Carry(val open: Boolean?, val focus: Boolean)
+    private val carried = mutableMapOf<String, Carry>()
+    fun carry(sessionId: String) { carried[sessionId] = Carry(pending, focused); pending = null; focused = false }
+    /** Initial state for a screen: a fresh new chat clears what is pending; an opened chat takes what its first send carried. */
+    fun take(sessionId: String?): Carry? = if (sessionId == null) { pending = null; focused = false; null } else carried.remove(sessionId)
+}
+
 /** Greeting + the model's capability icons; the model chip lives only under the composer (FB-1, lead decision 1). */
 @Composable
 private fun Welcome(cs: ComposerUiState, modifier: Modifier) {
@@ -405,6 +447,7 @@ private fun ComposerArea(
     onGauge: () -> Unit,
     open: Boolean,
     onToggleOpen: () -> Unit,
+    inputModifier: Modifier,
 ) {
     val c = LcTheme.colors
     Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -416,59 +459,28 @@ private fun ComposerArea(
                 stackedActions = true,
             )
         }
-        val voice = cs.voice
-        val mode = when {
-            cs.running -> ComposerMode.Running
-            voice is VoiceState.Listening -> ComposerMode.Voice
-            else -> ComposerMode.Idle
+        // Order, top to bottom: status captions, options (model row, toggle row), input. Everything that comes and goes sits
+        // above the input, so a caption or opening the options never moves the input or its buttons (P-STABLE H2; the list shrinks).
+        val failed = cs.attachments.count { it.state is PrepState.Failed }
+        val retry = state.runPhase as? RunPhase.Retrying
+        val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
+        if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
+                    cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
+                }
+                retry?.let { RetryStatus(it.attempt, it.max) }
+                reading?.let { Text(stringResource(R.string.ui_reading_link, siteOf(it.callId)), style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
         }
-        Column {
-            ComposerPanel(
-                cs.text, composer::onText, composer::send, { chat.stop() }, onAttach, onMic,
-                mode = mode, canSend = cs.canSend,
-                attachments = if (cs.attachments.isEmpty()) null else ({
-                    cs.attachments.forEach { a ->
-                        AttachmentTile(
-                            a.name.ifEmpty { "…" },
-                            if (a.kind == AttachmentKind.IMAGE) TileKind.Image else TileKind.Document,
-                            when (a.state) { PrepState.Preparing -> TileState.Preparing; is PrepState.Failed -> TileState.Failed; PrepState.Ready -> if (a.hasOriginal) TileState.Ready else TileState.Missing },
-                            thumbnail = composer.thumbnail(a),
-                            onRemove = { composer.remove(a.id) },
-                            onRetry = { composer.retry(a.id) },
-                        )
-                    }
-                }),
-                voice = if (voice is VoiceState.Listening) ({
-                    VoiceRecorderRow(
-                        "%d:%02d".format(voice.elapsedMs / 60000, voice.elapsedMs / 1000 % 60),
-                        rmsLevels(voice.rmsDb), stringResource(R.string.ui_voice_input), composer::cancelVoice, composer::stopVoice,
-                    )
-                }) else null,
-            ) {
-                // FB-1b: the bar is [+][options] field [mic|send]; the options button never takes focus so the keyboard stays.
-                LcIconButton(
-                    Icons.Rounded.Tune, stringResource(if (open) R.string.fb_e1_options_hide else R.string.fb_e1_options_show), onToggleOpen,
-                    Modifier.focusProperties { canFocus = false }, variant = if (open) IconButtonVariant.Tonal else IconButtonVariant.Ghost, size = IconButtonSize.Sm,
-                )
-            }
-            // Status captions stay visible whether the options are open or not.
-            val failed = cs.attachments.count { it.state is PrepState.Failed }
-            val retry = state.runPhase as? RunPhase.Retrying
-            val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
-            if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
-                Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                    when {
-                        failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
-                        cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
-                    }
-                    retry?.let { RetryStatus(it.attempt, it.max) }
-                    reading?.let { Text(stringResource(R.string.ui_reading_link, siteOf(it.callId)), style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                }
-            }
-            if (open) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 2.dp, end = 2.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Toggles(cs, composer, nav)
-                }
+        val reduced = com.ouor.localchat.ui.components.reducedMotion()
+        AnimatedVisibility(
+            open,
+            enter = if (reduced) EnterTransition.None else expandVertically(tween(200), expandFrom = Alignment.Bottom) + fadeIn(tween(200)),
+            exit = if (reduced) ExitTransition.None else shrinkVertically(tween(120), shrinkTowards = Alignment.Bottom) + fadeOut(tween(120)),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 ComposerRail(
                     start = {
                         val m = cs.model
@@ -477,7 +489,51 @@ private fun ComposerArea(
                     },
                     end = { if (chat.sessionId != null) ContextGauge(state.gaugePercent, onGauge, tokensText = state.usageTokens?.let { stringResource(R.string.ui_tokens, compact(it)) }) },
                 )
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Toggles(cs, composer, nav)
+                }
             }
+        }
+        val voice = cs.voice
+        val mode = when {
+            cs.running -> ComposerMode.Running
+            voice is VoiceState.Listening -> ComposerMode.Voice
+            else -> ComposerMode.Idle
+        }
+        ComposerPanel(
+            cs.text, composer::onText, composer::send, { chat.stop() }, onAttach, onMic,
+            modifier = inputModifier, mode = mode, canSend = cs.canSend,
+            attachments = if (cs.attachments.isEmpty()) null else ({
+                cs.attachments.forEach { a ->
+                    AttachmentTile(
+                        a.name.ifEmpty { "…" },
+                        if (a.kind == AttachmentKind.IMAGE) TileKind.Image else TileKind.Document,
+                        when (a.state) { PrepState.Preparing -> TileState.Preparing; is PrepState.Failed -> TileState.Failed; PrepState.Ready -> if (a.hasOriginal) TileState.Ready else TileState.Missing },
+                        thumbnail = composer.thumbnail(a),
+                        onRemove = { composer.remove(a.id) },
+                        onRetry = { composer.retry(a.id) },
+                    )
+                }
+            }),
+            voice = if (voice is VoiceState.Listening) ({
+                VoiceRecorderRow(
+                    "%d:%02d".format(voice.elapsedMs / 60000, voice.elapsedMs / 1000 % 60),
+                    rmsLevels(voice.rmsDb), stringResource(R.string.ui_voice_input), composer::cancelVoice, composer::stopVoice,
+                )
+            }) else null,
+        ) {
+            // FB-1b: the bar is [+][options] field [mic|send]; the options button never takes focus so the keyboard stays.
+            // LcIconButton's modifier sits outside its clickable node, so this one node carries label, state and click.
+            val stateDesc = stringResource(if (open) R.string.fb_e3_group_expanded else R.string.fb_e3_group_collapsed)
+            val label = stringResource(if (open) R.string.fb_e1_options_hide else R.string.fb_e1_options_show)
+            LcIconButton(
+                Icons.Rounded.Tune, label, onToggleOpen,
+                Modifier.focusProperties { canFocus = false }.clearAndSetSemantics {
+                    contentDescription = label; stateDescription = stateDesc; role = Role.Button
+                    onClick { onToggleOpen(); true }
+                },
+                variant = if (open) IconButtonVariant.Tonal else IconButtonVariant.Ghost, size = IconButtonSize.Sm,
+            )
         }
     }
 }

@@ -47,6 +47,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -157,9 +159,24 @@ fun ComposerPanel(
     }
 }
 
-/** 2dp sweeping accent bar on top of the composer while a reply runs (1.2s loop). */
+/** Test override for [reducedMotion]; null = read the system animator scale. */
+val LocalReducedMotion = staticCompositionLocalOf<Boolean?> { null }
+
+/** System "remove animations" (animator duration scale 0): motion jumps to its end, loops stand still. */
+@Composable
+fun reducedMotion(): Boolean {
+    LocalReducedMotion.current?.let { return it }
+    val resolver = LocalContext.current.contentResolver
+    return remember { android.provider.Settings.Global.getFloat(resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
+}
+
+/** 2dp sweeping accent bar on top of the composer while a reply runs (1.2s loop); a still 35% bar when motion is reduced. */
 @Composable
 fun WorkingBar(modifier: Modifier = Modifier, color: Color = LcTheme.colors.accent) {
+    if (reducedMotion()) {
+        Box(modifier.fillMaxWidth().height(2.dp).drawBehind { drawRect(color, size = Size(size.width * 0.35f, size.height)) })
+        return
+    }
     val t = rememberInfiniteTransition(label = "working")
     val x by t.animateFloat(-0.4f, 1f, infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart), label = "x")
     Box(
