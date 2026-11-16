@@ -67,7 +67,7 @@ class ChatScreenTest {
         override fun startVoice() {}
         override fun stopVoice() {}
         override fun cancelVoice() {}
-        override fun thumbnail(id: String): Any = id
+        override fun thumbnail(a: com.ouor.localchat.core.model.Attachment): Any? = null
         override fun sendWithoutImages() {}
         override fun send() {}
     }

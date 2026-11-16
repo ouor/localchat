@@ -353,7 +353,7 @@ private fun ComposerArea(
                             a.name.ifEmpty { "…" },
                             if (a.kind == AttachmentKind.IMAGE) TileKind.Image else TileKind.Document,
                             when (a.state) { PrepState.Preparing -> TileState.Preparing; is PrepState.Failed -> TileState.Failed; PrepState.Ready -> if (a.hasOriginal) TileState.Ready else TileState.Missing },
-                            thumbnail = if (a.kind == AttachmentKind.IMAGE) composer.thumbnail(a.id) else null,
+                            thumbnail = composer.thumbnail(a),
                             onRemove = { composer.remove(a.id) },
                             onRetry = { composer.retry(a.id) },
                         )

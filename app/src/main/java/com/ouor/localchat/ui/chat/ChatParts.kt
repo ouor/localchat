@@ -66,7 +66,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
-internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, attachments: Map<String, Attachment> = emptyMap(), thumbnail: (String) -> Any? = { null }) {
+internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, attachments: Map<String, Attachment> = emptyMap(), thumbnail: (Attachment) -> Any? = { null }) {
     var editing by rememberSaveable(user.node.id) { mutableStateOf<String?>(null) }
     val e = editing
     if (e != null) {
@@ -86,7 +86,7 @@ internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, atta
                         AttachmentTile(
                             a?.name ?: "…", if (image) TileKind.Image else TileKind.Document,
                             if (a == null || !a.hasOriginal) TileState.Missing else TileState.Ready,
-                            thumbnail = if (image && a.hasOriginal) thumbnail(id) else null,
+                            thumbnail = if (image && a.hasOriginal) thumbnail(a) else null,
                         )
                     }
                 }

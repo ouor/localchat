@@ -20,7 +20,6 @@ import com.ouor.localchat.core.model.ReasoningWire
 import com.ouor.localchat.provider.ProviderRepository
 import com.ouor.localchat.speech.VoiceInput
 import com.ouor.localchat.speech.VoiceState
-import com.ouor.localchat.storage.AttachmentFiles
 import com.ouor.localchat.storage.SettingsStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -87,7 +86,6 @@ class ComposerViewModel @AssistedInject constructor(
     private val ingest: AttachmentIngest,
     private val settings: SettingsStore,
     private val voiceInput: VoiceInput,
-    private val files: AttachmentFiles,
     providers: ProviderRepository,
     private val sessions: SessionRepository,
 ) : ViewModel(), ComposerActions {
@@ -214,7 +212,7 @@ class ComposerViewModel @AssistedInject constructor(
     fun stop() { sessionId?.let(engine::stop) }
 
     /** Coil model for an image tile (the original file). */
-    override fun thumbnail(id: String): Any = files.original(id)
+    override fun thumbnail(a: Attachment): Any? = ingest.imageModel(a)
 
     /** I-03 "이미지 빼고 보내기". */
     override fun sendWithoutImages() {

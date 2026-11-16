@@ -36,7 +36,7 @@ interface ComposerActions {
     fun stopVoice()
     fun cancelVoice()
     /** Coil model for an image tile. */
-    fun thumbnail(id: String): Any
+    fun thumbnail(a: com.ouor.localchat.core.model.Attachment): Any?
     fun sendWithoutImages()
     fun send()
 }
