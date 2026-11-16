@@ -48,8 +48,7 @@ class ArchitectureTest {
     private val dbLayers = setOf("storage", "chat", "provider", "attach", "backup", "app")
 
     /** Violations found when the rules were tightened (review F-07); the owner removes the entry with the fix. */
-    private val known = listOf(
-        "ui/chat/ComposerViewModel.kt: not in the 10.2 surface: storage.AttachmentFiles",
+    private val known = listOf<String>(
     )
 
     /** Layers that must stay free of Android so they can move to a JVM module (2.1). */

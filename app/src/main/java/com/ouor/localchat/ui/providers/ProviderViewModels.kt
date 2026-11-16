@@ -10,6 +10,7 @@ import com.ouor.localchat.core.model.ModelOverrides
 import com.ouor.localchat.core.model.PresetId
 import com.ouor.localchat.provider.ConnectionResult
 import com.ouor.localchat.provider.EndpointDraft
+import com.ouor.localchat.provider.KeyHostChanged
 import com.ouor.localchat.provider.Preset
 import com.ouor.localchat.provider.Presets
 import com.ouor.localchat.provider.ProviderRepository
@@ -57,6 +58,8 @@ data class EndpointUiState(
     val editingKey: Boolean = false,
     val check: CheckUi? = null,
     val refreshing: Boolean = false,
+    /** SE 25: the base URL origin changed but no new key was typed; ask before sending the old key there. */
+    val confirmKeyHost: Boolean = false,
 ) {
     val isHttp get() = baseUrl.trim().startsWith("http://", ignoreCase = true)
     val urlValid get() = Regex("^https?://[^\\s/]+.*", RegexOption.IGNORE_CASE).matches(baseUrl.trim())
@@ -72,11 +75,13 @@ sealed interface EndpointEffect {
 @HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
 class EndpointEditViewModel @AssistedInject constructor(
     @Assisted val endpointId: String?,
+    @Assisted private val preset: PresetId?,
+    @Assisted private val custom: Boolean,
     private val providers: ProviderRepository,
 ) : ViewModel() {
 
     @AssistedFactory
-    interface Factory { fun create(endpointId: String?): EndpointEditViewModel }
+    interface Factory { fun create(endpointId: String?, preset: PresetId?, custom: Boolean): EndpointEditViewModel }
 
     private val _state = MutableStateFlow(EndpointUiState(isNew = endpointId == null))
     val state = _state.asStateFlow()
@@ -88,7 +93,12 @@ class EndpointEditViewModel @AssistedInject constructor(
 
     init {
         viewModelScope.launch {
-            if (endpointId == null) { pickPreset(Presets.of(PresetId.DEEPSEEK)); _state.update { it.copy(loaded = true) }; return@launch }
+            if (endpointId == null) {
+                // SC-01 "직접 입력" starts blank; otherwise the chosen (or DeepSeek) preset fills name and URL.
+                if (!custom) pickPreset(Presets.of(preset ?: PresetId.DEEPSEEK))
+                _state.update { it.copy(loaded = true) }
+                return@launch
+            }
             val e = providers.endpoints.first().firstOrNull { it.id == endpointId } ?: return@launch
             _state.update {
                 it.copy(loaded = true, name = e.name, baseUrl = e.baseUrl, preset = e.preset, allowHttp = e.allowHttp, maxRetries = e.maxRetries,
@@ -107,23 +117,41 @@ class EndpointEditViewModel @AssistedInject constructor(
     private fun draft(s: EndpointUiState) =
         EndpointDraft(s.name.trim(), s.baseUrl.trim(), s.key.trim().takeIf { it.isNotEmpty() }?.let(::ApiKey), s.preset, s.allowHttp, s.maxRetries)
 
+    /** The call that hit [KeyHostChanged]; rerun with keepKeyForNewHost = true once the user confirms. */
+    private var pendingKeyHost: (suspend () -> Unit)? = null
+
+    /** Runs [op]; on KeyHostChanged asks the user (SE 25) and remembers [retry] for "보내기". */
+    private fun keyGuarded(retry: suspend () -> Unit, op: suspend () -> Unit) = viewModelScope.launch {
+        try { op() } catch (_: KeyHostChanged) {
+            pendingKeyHost = retry
+            _state.update { it.copy(confirmKeyHost = true, check = null) }
+        }
+    }
+
+    /** "보내기" = keep the stored key for the new host; "키 다시 입력" = open the key field. */
+    fun confirmKeyHost(send: Boolean) {
+        val retry = pendingKeyHost
+        pendingKeyHost = null
+        _state.update { it.copy(confirmKeyHost = false, editingKey = it.editingKey || !send) }
+        if (send && retry != null) viewModelScope.launch { retry() }
+    }
+
     fun check() {
         val s = _state.value
         _state.update { it.copy(check = CheckUi.Checking) }
-        viewModelScope.launch {
-            val r = providers.checkConnection(draft(s), endpointId)
-            _state.update { it.copy(check = r.toUi()) }
-        }
+        suspend fun run(keep: Boolean) { _state.update { it.copy(check = providers.checkConnection(draft(s), endpointId, keep).toUi()) } }
+        keyGuarded({ _state.update { it.copy(check = CheckUi.Checking) }; run(true) }) { run(false) }
     }
 
     fun save() {
         val s = _state.value
         if (!s.canSave) return
-        viewModelScope.launch {
-            val id = endpointId?.also { providers.update(it, draft(s)) } ?: providers.add(draft(s))
+        suspend fun run(keep: Boolean) {
+            val id = endpointId?.also { providers.update(it, draft(s), keep) } ?: providers.add(draft(s))
             _effects.send(EndpointEffect.Saved(id))
             providers.refreshModels(id)
         }
+        keyGuarded({ run(true) }) { run(false) }
     }
 
     /** Detail screen: key replaced in place (P-02 "키 교체"). */
@@ -152,7 +180,8 @@ class EndpointEditViewModel @AssistedInject constructor(
     fun retries(delta: Int) {
         _state.update { it.copy(maxRetries = (it.maxRetries + delta).coerceIn(0, 10)) }
         val id = endpointId ?: return
-        viewModelScope.launch { providers.update(id, draft(_state.value).copy(apiKey = null)) }
+        val d = draft(_state.value).copy(apiKey = null)
+        keyGuarded({ providers.update(id, d, true) }) { providers.update(id, d) }
     }
     fun delete() {
         val id = endpointId ?: return

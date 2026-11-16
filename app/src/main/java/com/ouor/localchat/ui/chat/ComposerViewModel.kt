@@ -20,7 +20,6 @@ import com.ouor.localchat.core.model.ReasoningWire
 import com.ouor.localchat.provider.ProviderRepository
 import com.ouor.localchat.speech.VoiceInput
 import com.ouor.localchat.speech.VoiceState
-import com.ouor.localchat.storage.AttachmentFiles
 import com.ouor.localchat.storage.SettingsStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -33,6 +32,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -76,7 +77,7 @@ sealed interface ComposerEffect {
 }
 
 /** I-01 composer (architecture 10.3). Draft key = session id or [Draft.NEW_CHAT]. */
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel(assistedFactory = ComposerViewModel.Factory::class)
 class ComposerViewModel @AssistedInject constructor(
     @Assisted private val sessionId: String?,
@@ -85,10 +86,9 @@ class ComposerViewModel @AssistedInject constructor(
     private val ingest: AttachmentIngest,
     private val settings: SettingsStore,
     private val voiceInput: VoiceInput,
-    private val files: AttachmentFiles,
     providers: ProviderRepository,
-    sessions: SessionRepository,
-) : ViewModel() {
+    private val sessions: SessionRepository,
+) : ViewModel(), ComposerActions {
 
     @AssistedFactory
     interface Factory { fun create(sessionId: String?): ComposerViewModel }
@@ -161,6 +161,16 @@ class ComposerViewModel @AssistedInject constructor(
             }
         }
         viewModelScope.launch {
+            // Restored/shared draft ids arrive without metadata; fill them in when the rows exist.
+            attachments.map { list -> list.filter { it.name.isEmpty() }.map { it.id } }.distinctUntilChanged()
+                .flatMapLatest { ids -> sessions.observeAttachments(ids) }
+                .collect { rows ->
+                    if (rows.isEmpty()) return@collect
+                    val byId = rows.associateBy { it.id }
+                    attachments.update { list -> list.map { a -> if (a.name.isEmpty()) byId[a.id] ?: a else a } }
+                }
+        }
+        viewModelScope.launch {
             // I-05: send once everything is ready.
             attachments.collect { list ->
                 if (local.value.waiting && list.none { it.state is PrepState.Preparing }) { local.update { it.copy(waiting = false) }; send() }
@@ -176,42 +186,42 @@ class ComposerViewModel @AssistedInject constructor(
         }
     }
 
-    fun onText(value: String) { text.value = value; local.update { it.copy(imageIssue = false) } }
+    override fun onText(value: String) { text.value = value; local.update { it.copy(imageIssue = false) } }
 
-    fun attach(uris: List<Uri>) = uris.forEach { uri -> collect(ingest.ingest(uri)) }
+    override fun attach(uris: List<Uri>) = uris.forEach { uri -> collect(ingest.ingest(uri)) }
 
-    fun retry(id: String) = runCatching { collect(ingest.retry(id)) }
+    override fun retry(id: String) { runCatching { collect(ingest.retry(id)) } }
 
-    fun remove(id: String) = attachments.update { list -> list.filterNot { it.id == id } }
+    override fun remove(id: String) = attachments.update { list -> list.filterNot { it.id == id } }
 
-    fun selectModel(ref: ModelRef) {
+    override fun selectModel(ref: ModelRef) {
         picked.value = ref
         local.update { it.copy(imageIssue = false) }
         if (sessionId == null) viewModelScope.launch { settings.update { copy(defaultModel = ref) } }
     }
 
-    fun toggleReasoning() = options { copy(reasoning = !reasoning) }
-    fun setEffort(effort: String?) = options { copy(reasoning = effort != null, reasoningEffort = effort ?: reasoningEffort) }
-    fun toggleSearch() = options { copy(search = !search) }
-    fun toggleBrowser() = options { copy(browser = !browser) }
+    override fun toggleReasoning() = options { copy(reasoning = !reasoning) }
+    override fun setEffort(effort: String?) = options { copy(reasoning = effort != null, reasoningEffort = effort ?: reasoningEffort) }
+    override fun toggleSearch() = options { copy(search = !search) }
+    override fun toggleBrowser() = options { copy(browser = !browser) }
 
-    fun startVoice() = voiceInput.start(Locale.getDefault().toLanguageTag())
-    fun stopVoice() = voiceInput.stop()
-    fun cancelVoice() = voiceInput.cancel()
+    override fun startVoice() = voiceInput.start(Locale.getDefault().toLanguageTag())
+    override fun stopVoice() = voiceInput.stop()
+    override fun cancelVoice() = voiceInput.cancel()
 
     fun stop() { sessionId?.let(engine::stop) }
 
     /** Coil model for an image tile (the original file). */
-    fun thumbnail(id: String): Any = files.original(id)
+    override fun thumbnail(a: Attachment): Any? = ingest.imageModel(a)
 
     /** I-03 "이미지 빼고 보내기". */
-    fun sendWithoutImages() {
+    override fun sendWithoutImages() {
         attachments.update { list -> list.filterNot { it.kind == AttachmentKind.IMAGE } }
         local.update { it.copy(imageIssue = false) }
         send()
     }
 
-    fun send() {
+    override fun send() {
         val s = state.value
         val model = s.model ?: return
         val atts = attachments.value

@@ -1,5 +1,12 @@
 package com.ouor.localchat.ui.chat
 
+import com.ouor.localchat.core.model.Attachment
+import com.ouor.localchat.core.model.AttachmentKind
+import com.ouor.localchat.ui.components.AttachmentTile
+import com.ouor.localchat.ui.components.TileKind
+import com.ouor.localchat.ui.components.TileState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -59,7 +66,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
-internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatViewModel) {
+internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, attachments: Map<String, Attachment> = emptyMap(), thumbnail: (Attachment) -> Any? = { null }) {
     var editing by rememberSaveable(user.node.id) { mutableStateOf<String?>(null) }
     val e = editing
     if (e != null) {
@@ -71,6 +78,19 @@ internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatViewModel) {
         UserMessage(
             user.text,
             onLongClick = { editing = user.text },
+            attachments = if (user.attachmentIds.isEmpty()) null else ({
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    user.attachmentIds.forEach { id ->
+                        val a = attachments[id]
+                        val image = a?.kind == AttachmentKind.IMAGE
+                        AttachmentTile(
+                            a?.name ?: "…", if (image) TileKind.Image else TileKind.Document,
+                            if (a == null || !a.hasOriginal) TileState.Missing else TileState.Ready,
+                            thumbnail = if (image && a.hasOriginal) thumbnail(a) else null,
+                        )
+                    }
+                }
+            }),
             footer = if (user.versions.size > 1) ({ Versions(user.version, user.versions, chat::selectVersion) }) else null,
         )
     }
@@ -92,6 +112,7 @@ internal fun AssistantTurn(
     onSources: () -> Unit,
     onLink: (String) -> Unit,
     onErrorAction: (ErrorAction) -> Unit,
+    toolStep: (ToolCallBlock) -> com.ouor.localchat.chat.ToolStep? = { null },
 ) {
     val body = reply.body
     val running = reply.live && state.running
@@ -102,7 +123,7 @@ internal fun AssistantTurn(
         val calls = body.blocks.filterIsInstance<ToolCallBlock>()
         if (calls.isNotEmpty()) {
             val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.callId }
-            val steps = calls.map { stepOf(it, results[it.callId]) }
+            val steps = calls.map { stepOf(it, results[it.callId], toolStep(it)) }
             val failed = steps.count { it.state == StepState.Failed }
             val browser = calls.any { toolVisual(it.name).agent }
             val listState = when {
@@ -153,7 +174,7 @@ private fun Thinking(t: ThinkingData, live: Boolean, stopped: Boolean) {
 }
 
 @Composable
-private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?): StepItemData {
+private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor.localchat.chat.ToolStep?): StepItemData {
     val v = toolVisual(call.name)
     val state = when (call.state) {
         ToolCallState.RUNNING -> StepState.Running
@@ -163,18 +184,12 @@ private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?): StepItemData 
         ToolCallState.DENIED -> StepState.Denied
         ToolCallState.CANCELLED -> StepState.Stopped
     }
-    return StepItemData(v.icon, toolLabel(call.name), state, argSummary(call.argumentsJson), result?.summary, v.agent)
+    return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, result?.summary, v.agent)
 }
 
 @Composable
 internal fun toolLabel(name: String): String = toolVisual(name).label?.let { stringResource(it) } ?: name
 
-/** The most telling argument (query, url, element text …) for the step chip. */
-private fun argSummary(json: String): String? = runCatching {
-    val o = Json.parseToJsonElement(json) as? JsonObject ?: return null
-    listOf("query", "url", "text", "element", "description", "selector", "key").firstNotNullOfOrNull { k -> (o[k] as? JsonPrimitive)?.content }
-        ?: o.values.firstNotNullOfOrNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
-}.getOrNull()?.take(60)
 
 internal fun sources(body: MessageBody.Assistant): List<Source> =
     body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }.distinctBy { it.n }.sortedBy { it.n }
