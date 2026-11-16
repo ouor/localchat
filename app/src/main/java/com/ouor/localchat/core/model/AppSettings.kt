@@ -24,8 +24,10 @@ data class AppSettings(
     /** A-09 custom instructions. */
     val userInstructions: String = "",
     val searchEngine: SearchEngine = SearchEngine.DUCKDUCKGO,
-    /** B-S3 user additions; the built-in list cannot be removed. */
+    /** B-S3 user additions; they apply even when the built-in list is off. */
     val userSensitiveDomains: List<String> = emptyList(),
+    /** FB2-2: the built-in sensitive-site list is applied. */
+    val builtInSensitiveEnabled: Boolean = true,
     /** C-06 wide-screen session panel. */
     val sessionPanelCollapsed: Boolean = false,
     /** SC-01: the onboarding sheet was finished or skipped once; the UI sets it. */

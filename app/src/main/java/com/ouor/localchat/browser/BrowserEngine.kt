@@ -88,9 +88,12 @@ class BrowserEngine @Inject constructor(
     /** B-09 ③: tab id of an AI tab the user touched (not an injected tap). UI offers "take control". */
     val userTouches: SharedFlow<Int> = _userTouches.asSharedFlow()
 
-    private val builtInSensitive = SensitiveUrls(
-        SensitiveUrls.parseList(context.assets.open("browser/sensitive_domains.txt").bufferedReader().use { it.readText() }),
-    )
+    private val builtInDomains =
+        SensitiveUrls.parseList(context.assets.open("browser/sensitive_domains.txt").bufferedReader().use { it.readText() })
+    private val builtInSensitive = SensitiveUrls(builtInDomains)
+
+    /** FB2-2: entries in the built-in list, for the settings subtitle. */
+    val builtInSensitiveCount: Int get() = builtInDomains.size
 
     /** B-S3 rule with the user's additions applied. */
     @Volatile
@@ -105,7 +108,7 @@ class BrowserEngine @Inject constructor(
     init {
         scope.launch {
             settings.settings.collect { s ->
-                sensitiveUrls = builtInSensitive.withUser(s.userSensitiveDomains)
+                sensitiveUrls = builtInSensitive.withUser(s.userSensitiveDomains, s.builtInSensitiveEnabled)
                 searchEngine = s.searchEngine
             }
         }

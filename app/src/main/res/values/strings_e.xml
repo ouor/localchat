@@ -312,7 +312,6 @@
     <string name="ui_clear_browser_data">Clear browser data</string>
     <string name="ui_sensitive_sites">Sensitive sites</string>
     <string name="ui_sensitive_builtin">Built-in list</string>
-    <string name="ui_sensitive_builtin_sub">Banks, payments, government and more. Read-only.</string>
     <string name="ui_add_domain">Add domain</string>
     <string name="ui_safety_summary">The AI cannot type passwords, and asks every time before submitting, paying, deleting or running code.</string>
     <string name="ui_cookies">Cookies</string>

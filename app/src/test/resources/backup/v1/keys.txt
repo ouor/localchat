@@ -137,6 +137,7 @@ sessions/*.json.summaries[].createdAt
 sessions/*.json.summaries[].id
 sessions/*.json.summaries[].sessionId
 sessions/*.json.summaries[].text
+settings.json.builtInSensitiveEnabled
 settings.json.defaultModel
 settings.json.defaultModel.displayName
 settings.json.defaultModel.endpointId

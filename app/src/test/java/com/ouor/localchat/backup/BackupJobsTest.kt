@@ -33,7 +33,7 @@ class BackupJobsTest {
         providers = BackupFixtures.providers
         keys = mapOf("ep1" to ApiKey("sk-test-not-a-real-key"))
     }
-    private val settings = AppSettings(theme = ThemeMode.DARK, maxSteps = 40)
+    private val settings = AppSettings(theme = ThemeMode.DARK, maxSteps = 40, builtInSensitiveEnabled = false)
 
     private fun jobs(store: BackupStore, files: AttachmentFiles) = BackupJobs(store, files, Clock { 1_700_000_000_000 }, "1.0 (1)")
 

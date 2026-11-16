@@ -5,7 +5,7 @@ import java.net.URI
 
 /**
  * B-S3: sites the AI may not read or operate. [builtIn] comes from assets/browser/sensitive_domains.txt and
- * cannot be removed; [user] is AppSettings.userSensitiveDomains (additions only). A domain matches itself and
+ * can be switched off as a whole (FB2-2); [user] is AppSettings.userSensitiveDomains. A domain matches itself and
  * every subdomain.
  */
 class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = emptyList()) {
@@ -19,7 +19,9 @@ class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = empt
             .any { it in domains }
     }
 
-    fun withUser(user: Collection<String>): SensitiveUrls = SensitiveUrls(domains, user)
+    /** Call on the built-in-only instance. [builtIn] false (FB2-2) drops it; user domains and fail-closed stay. */
+    fun withUser(user: Collection<String>, builtIn: Boolean = true): SensitiveUrls =
+        SensitiveUrls(if (builtIn) domains else emptyList(), user)
 
     companion object {
         /** In every refusal for a sensitive site; chat's step reason looks for it (BUG-10). */
