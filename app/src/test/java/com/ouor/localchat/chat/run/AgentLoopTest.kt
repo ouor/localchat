@@ -517,6 +517,23 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `audit 6 a user max output with under 256 room left compacts first even below 80 percent`() = runTest {
+        fun userMax(window: Int) = caps(window = window).copy(maxOutputTokens = com.ouor.localchat.core.model.Sourced(4000, com.ouor.localchat.core.model.CapSource.USER))
+        val h = Harness(this, models = FakeModelPort(userMax(100_000)))
+        val sid = threeTurns(h, usage = Usage(760, 0))
+        val before = h.store.summaryList.size
+        // Turn 4 estimates about 760 of 1000: under 80 percent, but under 256 left for the reply.
+        h.models.caps = userMax(1000)
+        h.llm.results.addLast(LlmResult.Ok("S", "stop", null))
+        h.llm.text("a4")
+        h.engine.send(sid, draft("q4"), GenOptions(), TEST_MODEL)
+        advanceUntilIdle()
+        assertEquals("S", h.store.summaryList.drop(before).single().text)
+        // After compaction the room is large again: the user value (cut to the room) is sent, never omitted.
+        assertTrue(h.llm.requests.single().maxTokens!! >= ContextAssembler.MIN_OUTPUT)
+    }
+
+    @Test
     fun `continue appends to the last text block`() = runTest {
         val h = Harness(this)
         h.llm.scripts.addLast { emit(LlmEvent.TextDelta("Once upon")); awaitCancellation() }
@@ -683,6 +700,19 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `message-less exceptions leave fixed text, never a class name that R8 renames`() = runTest {
+        val h = Harness(this, tools = listOf(FakeTool("page_text") { _, _ -> throw IllegalStateException() }))
+        h.llm.events(call("c1", "page_text"), finished("tool_calls"))
+        h.llm.scripts.addLast { throw IllegalStateException() }
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        val tool = reply.blocks.filterIsInstance<ToolResultBlock>().single().content
+        assertTrue(tool, "Tool failed" in tool && "IllegalStateException" !in tool)
+        assertEquals("Unexpected error", reply.error?.message)
+    }
+
+    @Test
     fun `an unexpected exception in the loop is saved as ERROR instead of escaping`() = runTest {
         val h = Harness(this)
         h.llm.scripts.addLast { emit(LlmEvent.TextDelta("half")); throw IllegalStateException("bad row") }
@@ -720,6 +750,38 @@ class AgentLoopTest {
         advanceUntilIdle()
         assertTrue(h.llm.requests.single().tools.isNullOrEmpty())
         assertTrue(h.attachments.saved.values.single().text!!.contains("page body"))
+    }
+
+    @Test
+    fun `a switch turned off mid-run drops its tools from the next step, and turning it on again does not widen`() = runTest {
+        // Audit #10.
+        lateinit var h: Harness
+        val searchTool = FakeTool("web_search") { _, _ ->
+            h.settings.update { copy(lastOptions = lastOptions.copy(browser = true)) }
+            ToolOutcome("found")
+        }
+        val browserTool = FakeTool("click") { _, _ ->
+            h.settings.update { copy(lastOptions = lastOptions.copy(browser = false)) }
+            ToolOutcome("clicked")
+        }
+        val port = object : ToolPort {
+            override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) =
+                listOfNotNull(searchTool.takeIf { search }, browserTool.takeIf { browser })
+            override fun byName(name: String) = listOf(searchTool, browserTool).firstOrNull { it.name == name }
+        }
+        h = Harness(this, toolPort = port, models = FakeModelPort(caps(tools = true)))
+        h.settings.update { copy(lastOptions = GenOptions(search = true, browser = true)) }
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        h.llm.events(call("c2", "web_search"), finished("tool_calls"))
+        h.llm.text("done")
+        val sid = h.engine.send(null, draft("q"), GenOptions(search = true, browser = true), TEST_MODEL)
+        advanceUntilIdle()
+        // Turned back on before step 2 ran: still narrowed.
+        fun names(i: Int) = h.llm.requests[i].tools.orEmpty().map { it.function.name }
+        assertEquals(listOf("web_search", "click"), names(0))
+        assertEquals(listOf("web_search"), names(1))
+        assertEquals(listOf("web_search"), names(2))
+        assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
     }
 
     @Test

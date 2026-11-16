@@ -36,7 +36,8 @@ class ToolExecutor(
     private val attachments: AttachmentPort,
     private val browserPort: BrowserPort,
     private val handle: RunRegistry.RunHandle,
-    private val tools: List<Tool>,
+    /** Narrowed by TurnRunner when a switch is turned off mid-run (audit #10). */
+    var tools: List<Tool>,
     existingSources: List<Source>,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
     private val onState: (callKey: String, ToolCallState) -> Unit,
@@ -109,7 +110,8 @@ class ToolExecutor(
             error(call, e.message ?: "Tool failed")
         } catch (e: Exception) {
             // PageError and anything else may carry page text (alert(), option labels, a thrown cookie): SE 4.
-            error(call, seal(e.message ?: "Tool failed: ${e::class.simpleName}", lastTabId, startUrl))
+            // No class name: R8 renames it in release builds.
+            error(call, seal(e.message ?: "Tool failed", lastTabId, startUrl))
         } finally {
             approvedPage = null
             if (lastTabId != null) browserPort.clearAiActivity(sessionId)
