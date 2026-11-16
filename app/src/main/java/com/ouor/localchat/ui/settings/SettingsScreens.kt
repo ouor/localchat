@@ -119,7 +119,10 @@ private fun SelectRow(title: String, value: String, options: List<MenuOption>, s
     var open by remember { mutableStateOf(false) }
     Box {
         SettingsRow(title, subtitle = subtitle, value = value, divider = divider, onClick = { open = true })
-        LcSelectMenu(open, { open = false }, options, selected, { open = false; onSelect(it) })
+        // FB2-1: the value sits at the row's right edge, so the menu opens there too.
+        Box(Modifier.align(Alignment.BottomEnd)) {
+            LcSelectMenu(open, { open = false }, options, selected, { open = false; onSelect(it) })
+        }
     }
 }
 

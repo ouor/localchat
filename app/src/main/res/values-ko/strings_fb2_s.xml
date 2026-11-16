@@ -3,7 +3,7 @@
     <plurals name="fb2_s_builtin_on">
         <item quantity="other">은행·결제·정부 사이트 등 %1$d개</item>
     </plurals>
-    <string name="fb2_s_builtin_off">꺼짐 · AI가 이 사이트들도 읽고 조작할 수 있어요</string>
+    <string name="fb2_s_builtin_off">꺼짐 · AI가 이 사이트에도 접근해요</string>
     <string name="fb2_s_off_title">기본 차단 목록을 끌까요?</string>
     <string name="fb2_s_off_body">은행·결제·정부 사이트에서도 AI가 페이지를 읽고 조작할 수 있게 돼요. 비밀번호·카드 입력 금지와 제출·결제 전 확인은 그대로 유지돼요.</string>
     <string name="fb2_s_off_confirm">끄기</string>
