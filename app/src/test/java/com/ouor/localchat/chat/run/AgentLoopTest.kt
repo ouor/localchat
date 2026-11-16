@@ -337,7 +337,7 @@ class AgentLoopTest {
             ),
         )
         h.store.messages["a"] = node
-        StartupRecovery(h.store, h.clock).run()
+        StartupRecovery(h.store, h.registry, h.clock).run()
         val reply = h.store.reply("a")
         assertEquals(ReplyStatus.STOPPED, reply.status)
         assertEquals(SystemPrompt.INTERRUPTED, reply.blocks.filterIsInstance<ToolResultBlock>().single().content)

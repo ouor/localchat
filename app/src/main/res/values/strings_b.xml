@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Track B (chat) -->
+<resources>
+    <string name="chat_run_channel">Reply generation</string>
+    <plurals name="chat_run_generating">
+        <item quantity="one">Generating a reply (%d chat)</item>
+        <item quantity="other">Generating replies (%d chats)</item>
+    </plurals>
+    <string name="chat_run_needs_attention">Your confirmation is needed</string>
+    <string name="chat_run_stop">Stop</string>
+</resources>

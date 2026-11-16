@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Track B (chat) -->
+<resources>
+    <string name="chat_run_channel">응답 생성</string>
+    <plurals name="chat_run_generating">
+        <item quantity="other">응답 생성 중 (%d개 대화)</item>
+    </plurals>
+    <string name="chat_run_needs_attention">확인이 필요합니다</string>
+    <string name="chat_run_stop">중지</string>
+</resources>

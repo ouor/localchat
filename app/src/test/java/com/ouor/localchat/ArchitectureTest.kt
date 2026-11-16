@@ -48,7 +48,8 @@ class ArchitectureTest {
                 val target = appImport.find(line)?.groupValues?.get(1)
                 val problem = when {
                     layer in noAndroid && line.startsWith("import android.") -> "Android import"
-                    target == null -> null
+                    // Generated resources (R) are shared by every layer that has Android access.
+                    target == null || target == "R" -> null
                     else -> {
                         val targetLayer = layerOfImport(target)
                         when {
