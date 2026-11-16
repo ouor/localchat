@@ -110,6 +110,37 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a title in the wrong script is retried once, then the question is the title`() = runTest {
+        // QA1c: Flash titled English questions in Chinese despite the language rule.
+        val h = Harness(this)
+        h.llm.results.addLast(LlmResult.Ok("Moon页面点击Earth链接", "stop", null))
+        h.llm.results.addLast(LlmResult.Ok("Moon page and Earth link", "stop", null))
+        h.llm.text("a")
+        val retried = h.sendNew("Open the Moon page and click Earth")
+        advanceUntilIdle()
+        assertEquals("Moon page and Earth link", h.store.sessions.getValue(retried).title)
+
+        h.llm.results.addLast(LlmResult.Ok("关于月球的事实", "stop", null))
+        h.llm.results.addLast(LlmResult.Ok("月球事实", "stop", null))
+        h.llm.text("b")
+        val fallback = h.sendNew("List facts about the Moon please")
+        advanceUntilIdle()
+        assertEquals(4, h.llm.completeRequests.size)
+        assertEquals("List facts about the Moon plea", h.store.sessions.getValue(fallback).title)
+        assertEquals(TitleSource.AUTO, h.store.sessions.getValue(fallback).titleSource)
+    }
+
+    @Test
+    fun `title script check`() {
+        assertTrue(TitleGenerator.fits("Facts about the Moon", "the language of the question"))
+        assertFalse(TitleGenerator.fits("Moon页面点击Earth链接", "the language of the question"))
+        assertTrue(TitleGenerator.fits("달 이야기", "Korean"))
+        assertFalse(TitleGenerator.fits("Moon facts", "Korean"))
+        assertTrue(TitleGenerator.fits("月の話", "Japanese"))
+        assertFalse(TitleGenerator.fits("月の話", "Chinese"))
+    }
+
+    @Test
     fun `title language follows the question's script, else the app language`() {
         assertEquals("Korean", TitleGenerator.titleLanguage("달에 대해 알려줘", "en"))
         assertEquals("Japanese", TitleGenerator.titleLanguage("月について教えて", "en"))

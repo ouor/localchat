@@ -26,11 +26,18 @@ class TitleGenerator @Inject constructor(
             // The language rule goes last: DeepSeek otherwise drifts to Chinese (BUG-02).
             "Question:\n${question.take(1000)}\n\nAnswer:\n${answer.take(1000)}\n\nWrite the title in $language.",
         )
-        val result = llm.complete(model.target, request) as? LlmResult.Ok ?: return
-        val title = clean(result.text) ?: return
+        // QA1c: Flash still answered English questions with Chinese titles; retry once, then use the question.
+        var title: String? = null
+        repeat(2) {
+            if (title == null) {
+                val result = llm.complete(model.target, request) as? LlmResult.Ok ?: return
+                title = clean(result.text)?.takeIf { fits(it, language) }
+            }
+        }
+        val chosen = title ?: firstPrompt(question).ifEmpty { return }
         store.updateSession(sessionId) {
             // Another reply's title or a user rename may have landed while the request ran.
-            if (replaceable(it.titleSource)) it.copy(title = title, titleSource = TitleSource.AUTO) else it
+            if (replaceable(it.titleSource)) it.copy(title = chosen, titleSource = TitleSource.AUTO) else it
         }
     }
 
@@ -59,6 +66,20 @@ class TitleGenerator @Inject constructor(
                 Character.UnicodeScript.HAN in scripts -> "Chinese"
                 scripts.isNotEmpty() -> "the language of the question"
                 else -> Locale.forLanguageTag(appLanguage).getDisplayLanguage(Locale.ENGLISH).ifEmpty { "English" }
+            }
+        }
+
+        /** Whether [title]'s script matches [language] from [titleLanguage]; non-CJK languages only reject CJK letters. */
+        fun fits(title: String, language: String): Boolean {
+            val s = title.codePoints().toArray().filter(Character::isLetter).map(Character.UnicodeScript::of).toSet()
+            val kana = Character.UnicodeScript.HIRAGANA in s || Character.UnicodeScript.KATAKANA in s
+            val hangul = Character.UnicodeScript.HANGUL in s
+            val han = Character.UnicodeScript.HAN in s
+            return when (language) {
+                "Korean" -> hangul
+                "Japanese" -> (kana || han) && !hangul
+                "Chinese" -> han && !kana && !hangul
+                else -> !kana && !hangul && !han
             }
         }
 
