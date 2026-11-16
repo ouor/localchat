@@ -47,6 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.swipeDown
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -501,6 +504,82 @@ class ChatScreenTest {
             val chipH = rule.onNodeWithText(label).fetchSemanticsNode().boundsInRoot.height
             assertTrue("$label text $textH > chip $chipH", textH <= chipH + 0.5f)
         }
+    }
+
+    // ---- FB3 track A: P-STABLE M3, M4, L1, L3, L4, L11 ----
+
+    @Test fun tapWhileStreamingStopsFollowing() { // M3
+        val long = (1..40).joinToString("\n\n") { "Paragraph $it." }
+        var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("hi", reply("$long\n\nTAIL-MARKER", ReplyStatus.STREAMING), live = true)), runPhase = RunPhase.Streaming))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+        val target = rule.onNodeWithText("TAIL-MARKER", substring = true)
+        val before = target.fetchSemanticsNode().boundsInRoot
+        target.performTouchInput { down(center); up() }
+        rule.runOnIdle { state = state.copy(turns = listOf(turn("hi", reply("$long\n\nTAIL-MARKER\n\n" + (1..10).joinToString("\n\n") { "More $it." }, ReplyStatus.STREAMING), live = true))) }
+        rule.waitForIdle()
+        assertEquals(before, target.fetchSemanticsNode().boundsInRoot)
+    }
+
+    @Test fun recordingKeepsTheControlSlots() { // M4
+        var cs by mutableStateOf(ComposerUiState())
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))), cs, BrowserUiState(), chat, composer, browser, nav) } }
+        val mic = bounds(R.string.ui_voice_input)
+        val send = bounds(R.string.ui_send)
+        val attach = bounds(R.string.ui_attach)
+        rule.runOnIdle { cs = ComposerUiState(voice = com.ouor.localchat.speech.VoiceState.Listening(7_000, 3f)) }
+        assertEquals(mic, bounds(R.string.ui_cancel))
+        assertEquals(send, bounds(R.string.ui_done))
+        assertEquals(attach, bounds(R.string.ui_attach))
+    }
+
+    @Test fun bannersFloatOverTheWelcome() { // L1, and no "no provider" before the models load
+        var cs by mutableStateOf(ComposerUiState(modelsLoaded = false))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false), cs, BrowserUiState(), chat, composer, browser, nav) } }
+        rule.onNodeWithText(ctx.getString(R.string.ui_no_provider)).assertDoesNotExist()
+        val title = rule.onNodeWithText(ctx.getString(R.string.ui_welcome_title)).fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { cs = ComposerUiState() }
+        rule.onNodeWithText(ctx.getString(R.string.ui_no_provider)).assertIsDisplayed()
+        assertEquals(title, rule.onNodeWithText(ctx.getString(R.string.ui_welcome_title)).fetchSemanticsNode().boundsInRoot)
+    }
+
+    @Test fun snackbarStaysClearOfTheScrollButton() { // L3
+        val snackbar = androidx.compose.material3.SnackbarHostState()
+        val long = (1..40).joinToString("\n\n") { "Paragraph $it." }
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply(long)))), ComposerUiState(), BrowserUiState(), chat, composer, browser, nav, snackbar) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("Paragraph 39.", substring = true).performTouchInput { swipeDown() }
+        val fab = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_scroll_bottom))
+        rule.waitUntil(5_000) { runCatching { fab.assertIsDisplayed() }.isSuccess }
+        val before = fab.fetchSemanticsNode().boundsInRoot
+        val scope = kotlinx.coroutines.MainScope()
+        rule.runOnIdle { scope.launch { snackbar.showSnackbar("SNACK") } }
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("SNACK").assertIsDisplayed() }.isSuccess }
+        val snack = rule.onNodeWithText("SNACK").fetchSemanticsNode().boundsInRoot
+        assertEquals(before, fab.fetchSemanticsNode().boundsInRoot)
+        assertTrue("snackbar $snack over the button $before", snack.bottom <= before.top)
+        scope.cancel()
+    }
+
+    @Test fun actionBarStaysWhileTheReplyRuns() { // L4
+        var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello", ReplyStatus.STREAMING), live = true)), runPhase = RunPhase.Streaming))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        val regen = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_regenerate))
+        regen.assertIsNotEnabled()
+        val before = regen.fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { state = ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))) }
+        regen.assertIsEnabled()
+        assertEquals(before, regen.fetchSemanticsNode().boundsInRoot)
+    }
+
+    @Test fun newChatOptionsStayOpenAfterTheFirstSend() { // L11
+        sid = null
+        var state by mutableStateOf(ChatUiState(loading = false))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        val chip = rule.onNodeWithText(ctx.getString(R.string.ui_choose_model), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { sid = "new"; state = ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertIsDisplayed()
+        assertEquals(chip, rule.onNodeWithText(ctx.getString(R.string.ui_choose_model), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
     }
 
     private fun shot(node: androidx.compose.ui.test.SemanticsNodeInteraction, name: String) = saveBitmap(node.captureToImage().asAndroidBitmap(), name)
