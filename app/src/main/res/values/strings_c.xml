@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Track C: browser tool step labels (A-04) and highlight labels (B-09). -->
+<resources>
+    <string name="tool_web_search">Web search</string>
+    <string name="tool_open_tab">Open tab</string>
+    <string name="tool_navigate">Navigate</string>
+    <string name="tool_page_text">Read page</string>
+    <string name="tool_close_tab">Close tab</string>
+    <string name="tool_request_handoff">Hand over to you</string>
+    <string name="tool_get_tabs">List tabs</string>
+    <string name="tool_snapshot">Read page structure</string>
+    <string name="tool_screenshot">Screenshot</string>
+    <string name="tool_click">Click</string>
+    <string name="tool_type">Type</string>
+    <string name="tool_keyboard">Press key</string>
+    <string name="tool_scroll">Scroll</string>
+    <string name="tool_hover">Hover</string>
+    <string name="tool_select_option">Select option</string>
+    <string name="tool_wait_for_selector">Wait for element</string>
+    <string name="tool_wait_for_navigation">Wait for page</string>
+    <string name="tool_execute">Run script</string>
+    <string name="tool_dialog_handle">Answer dialog</string>
+    <string name="tool_console_logs">Console logs</string>
+    <string name="tool_print_to_pdf">Save as PDF</string>
+
+    <string name="browser_highlight_click">Clicking</string>
+    <string name="browser_highlight_type">Typing</string>
+    <string name="browser_highlight_scroll">Scrolling</string>
+    <string name="browser_highlight_hover">Hovering</string>
+    <string name="browser_highlight_select">Selecting</string>
+</resources>

@@ -48,7 +48,8 @@ class ArchitectureTest {
                 val target = appImport.find(line)?.groupValues?.get(1)
                 val problem = when {
                     layer in noAndroid && line.startsWith("import android.") -> "Android import"
-                    target == null -> null
+                    // Generated resources (Tool.labelRes, Highlight.labelRes) belong to no layer.
+                    target == null || target == "R" || target.startsWith("R.") -> null
                     else -> {
                         val targetLayer = layerOfImport(target)
                         when {
