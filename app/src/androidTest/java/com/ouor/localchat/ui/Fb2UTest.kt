@@ -105,7 +105,8 @@ class Fb2UTest {
                 Column(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
                     Spacer(Modifier.weight(1f))
                     SettingsGroup { LimitRow("최대 출력 토큰", Sourced(4_096, CapSource.USER), Sourced(null, CapSource.UNKNOWN), small, CONTEXT_RANGE, null, false) {} }
-                    Spacer(Modifier.height(8.dp))
+                    // Inside the popup's window margin (system bar + 48dp), yet too little room below for the menu.
+                    Spacer(Modifier.height(120.dp))
                 }
             }
         }
