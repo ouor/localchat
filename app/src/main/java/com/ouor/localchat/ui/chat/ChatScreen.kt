@@ -135,6 +135,8 @@ fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, browser: com.ouo
                 ChatEffect.CompactFailed -> snackbar.showSnackbar(context.getString(R.string.ui_compact_failed))
                 ChatEffect.NothingToCompact -> snackbar.showSnackbar(context.getString(R.string.ui_compact_nothing))
                 ChatEffect.ReadAloudUnavailable -> snackbar.showSnackbar(context.getString(R.string.ui_read_aloud_unavailable))
+                is ChatEffect.FileSaved -> snackbar.showSnackbar(context.getString(R.string.ui_file_saved, e.name))
+                ChatEffect.FileSaveFailed -> snackbar.showSnackbar(context.getString(R.string.ui_file_save_failed))
             }
         }
     }
@@ -191,9 +193,28 @@ internal fun ChatScreen(
         }
     }
 
+    val context = LocalContext.current
+    // BUG-17: tool artifacts (PDF) open in another app, share, or save through SAF.
+    var saving by remember { mutableStateOf<com.ouor.localchat.core.model.Attachment?>(null) }
+    val saveDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+        val a = saving
+        saving = null
+        if (uri != null && a != null) chat.saveFile(a, uri)
+    }
+    fun openFile(a: com.ouor.localchat.core.model.Attachment, share: Boolean) {
+        val uri = chat.fileUri(a) ?: run { scope.launch { snackbar.showSnackbar(context.getString(R.string.ui_file_missing)) }; return }
+        val intent = if (share) {
+            android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType(a.mime).putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), null)
+        } else {
+            android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, a.mime).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try { context.startActivity(intent) } catch (_: android.content.ActivityNotFoundException) {
+            scope.launch { snackbar.showSnackbar(context.getString(R.string.ui_no_app_to_open)) }
+        }
+    }
     val picks = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { composer.attach(it) }
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) composer.startVoice() }
-    val context = LocalContext.current
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().imePadding()) {
@@ -240,6 +261,10 @@ internal fun ChatScreen(
                                         onLink = { browserActions.open(it) },
                                         toolStep = chat::toolStep,
                                         onReadAloud = { chat.readAloud(reply.node.id, it) },
+                                        thumbnail = composer::thumbnail,
+                                        onOpenFile = { a -> openFile(a, false) },
+                                        onShareFile = { a -> openFile(a, true) },
+                                        onSaveFile = { a -> saving = a; saveDoc.launch(a.name) },
                                         onErrorAction = { a ->
                                             when (a) {
                                                 ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) }
@@ -310,7 +335,8 @@ internal fun ChatScreen(
             )
         }
         is Pause.StepLimit -> LcDialog(
-            stringResource(R.string.ui_step_limit_title, p.reached), { }, stringResource(R.string.ui_continue),
+            // BUG-18: "중지" and back end the run (A-02).
+            stringResource(R.string.ui_step_limit_title, p.reached), { chat.resolve(Resolution.StepLimitAnswer(false)) }, stringResource(R.string.ui_continue),
             { chat.resolve(Resolution.StepLimitAnswer(true)) }, text = stringResource(R.string.ui_step_limit_body),
             dismissLabel = stringResource(R.string.ui_stop),
         )

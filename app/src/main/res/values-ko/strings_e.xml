@@ -250,6 +250,17 @@
     <string name="ui_attachments">첨부</string>
     <string name="ui_backup_plain_note">백업은 일반 ZIP 파일이에요. 대화와 첨부는 암호화되지 않고, 비밀번호는 API 키(secrets.enc)에만 적용돼요.</string>
     <string name="ui_approval_preview">페이지의 대상 요소</string>
+    <string name="ui_open_page">열기</string>
+    <string name="ui_usage_title">토큰 사용량</string>
+    <string name="ui_usage_body">입력 %1$s · 출력 %2$s</string>
+    <string name="ui_usage_cached">캐시 적중 %1$s</string>
+    <string name="ui_screenshot">스크린샷</string>
+    <string name="ui_stopped_no_undo">이미 실행된 브라우저 동작은 되돌리지 않아요</string>
+    <string name="ui_share">공유</string>
+    <string name="ui_file_saved">저장됨 · %1$s</string>
+    <string name="ui_file_save_failed">파일을 저장하지 못했어요.</string>
+    <string name="ui_file_missing">파일이 기기에 더 이상 없어요.</string>
+    <string name="ui_no_app_to_open">이 파일을 열 수 있는 앱이 없어요.</string>
     <string name="ui_include_keys">API 키 포함</string>
     <string name="ui_password">비밀번호</string>
     <string name="ui_password_short">8자 이상</string>

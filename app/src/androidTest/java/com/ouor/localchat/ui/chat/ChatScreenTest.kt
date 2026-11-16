@@ -32,6 +32,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +48,7 @@ class ChatScreenTest {
 
     private val resolved = mutableListOf<Resolution>()
     private val read = mutableListOf<Pair<String, String>>()
+    private val opened = mutableListOf<String?>()
 
     private val chat = object : ChatActions {
         override val sessionId = "s"
@@ -60,7 +63,7 @@ class ChatScreenTest {
         override fun delete() {}
         override fun compactNow() {}
         override fun readAloud(messageId: String, text: String) { read += messageId to text }
-        override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock) =
+        override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock, result: com.ouor.localchat.core.model.ToolResultBlock?) =
             com.ouor.localchat.chat.ToolStep(R.string.ui_read_aloud, "bank.example", failureRes = R.string.chat_step_fail_sensitive)
     }
 
@@ -87,7 +90,7 @@ class ChatScreenTest {
         override fun select(id: Int) {}
         override fun showTabs(v: Boolean) {}
         override fun close(id: Int) {}
-        override fun open(url: String?) {}
+        override fun open(url: String?) { opened += url }
         override fun newTab(url: String?) {}
         override fun navigate(input: String) {}
         override fun back() {}
@@ -174,5 +177,51 @@ class ChatScreenTest {
         show(ChatUiState(loading = false, turns = listOf(turn("read it", body))))
         rule.onNodeWithText(ctx.getString(R.string.ui_steps_failed, 1, 1)).performClick()
         rule.onNodeWithText(ctx.getString(R.string.chat_step_fail_sensitive), substring = true).assertIsDisplayed()
+    }
+
+    @Test fun stepLimitStopEndsTheRun() { // BUG-18
+        show(ChatUiState(loading = false, turns = listOf(turn("go", reply(""), live = true)), runPhase = RunPhase.Paused(Pause.StepLimit(5))))
+        rule.onNodeWithText(ctx.getString(R.string.ui_stop)).performClick()
+        rule.runOnIdle { assertEquals(listOf<Resolution>(Resolution.StepLimitAnswer(false)), resolved) }
+    }
+
+    @Test fun modelNameLongPressShowsUsage() { // BUG-14
+        val body = MessageBody.Assistant(listOf(TextBlock("Hi", 0)), ReplyStatus.DONE, model = ModelRef("e", "m", "Model-X"), options = GenOptions(),
+            usage = com.ouor.localchat.core.model.Usage(1200, 34, 1000))
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", body))))
+        rule.onNodeWithText("Model-X").performTouchInput { longClick() }
+        rule.onNodeWithText(ctx.getString(R.string.ui_usage_title)).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_usage_body, "1,200", "34"), substring = true).assertIsDisplayed()
+    }
+
+    @Test fun citationBadgeOpensPreviewFirst() { // BUG-15
+        val src = com.ouor.localchat.core.model.Source(1, "https://kotlinlang.org", "Kotlin releases", "Kotlin 2.x is the latest.")
+        val result = com.ouor.localchat.core.model.ToolResultBlock("c1", 0, "", false, sources = listOf(src))
+        val body = MessageBody.Assistant(listOf(result, TextBlock("Kotlin [1]: latest.", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
+        show(ChatUiState(loading = false, turns = listOf(turn("kotlin?", body))))
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_citation_desc, 1)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_open_page)).assertIsDisplayed()
+        rule.runOnIdle { assertEquals(emptyList<String?>(), opened) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_open_page)).performClick()
+        rule.runOnIdle { assertEquals(listOf<String?>("https://kotlinlang.org"), opened) }
+    }
+
+    @Test fun stoppedBrowserRunSaysActionsStay() { // BUG-16
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "click", "{}", 0, com.ouor.localchat.core.model.ToolCallState.CANCELLED, 1)
+        val body = MessageBody.Assistant(listOf(call), ReplyStatus.STOPPED, model = null, options = GenOptions())
+        show(ChatUiState(loading = false, turns = listOf(turn("do it", body))))
+        rule.onNodeWithText(ctx.getString(R.string.ui_stopped_no_undo), substring = true).assertIsDisplayed()
+    }
+
+    @Test fun pdfArtifactShowsFileCardWithActions() { // BUG-17
+        val pdf = com.ouor.localchat.core.model.Attachment("f1", "Example_Domain.pdf", "application/pdf", 120_000, com.ouor.localchat.core.model.AttachmentKind.ARTIFACT,
+            com.ouor.localchat.core.model.PrepState.Ready, hasOriginal = true, createdAt = 1)
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "print_to_pdf", "{}", 0, com.ouor.localchat.core.model.ToolCallState.DONE, 1)
+        val result = com.ouor.localchat.core.model.ToolResultBlock("c1", 0, "saved", false, artifactIds = listOf("f1"))
+        val body = MessageBody.Assistant(listOf(call, result, TextBlock("Saved.", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
+        show(ChatUiState(loading = false, turns = listOf(turn("pdf", body)), attachments = mapOf("f1" to pdf)))
+        rule.onNodeWithText("Example_Domain.pdf").assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_share)).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_save)).assertIsDisplayed()
     }
 }
