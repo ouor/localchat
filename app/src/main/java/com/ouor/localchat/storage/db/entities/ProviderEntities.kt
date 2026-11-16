@@ -35,9 +35,8 @@ data class ModelEntity(
     val serverJson: String?,
     val inServerList: Boolean,
     val manual: Boolean,
-    val displayNameUser: String?,
     val hidden: Boolean,
-    /** core.model.ModelOverrides in AppJson, null = none. */
+    /** core.model.ModelOverrides in AppJson (display name included), null = none. */
     val capsUserJson: String?,
     val lastUsedAt: Long?,
 )

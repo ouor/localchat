@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "3bb97dc5beb7b95f64bac2ee1d67fd09",
+    "identityHash": "18c2f00f36e30e54e07514f71eda26c1",
     "entities": [
       {
         "tableName": "sessions",
@@ -490,7 +490,7 @@
       },
       {
         "tableName": "models",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpointId` TEXT NOT NULL, `modelId` TEXT NOT NULL, `serverJson` TEXT, `inServerList` INTEGER NOT NULL, `manual` INTEGER NOT NULL, `displayNameUser` TEXT, `hidden` INTEGER NOT NULL, `capsUserJson` TEXT, `lastUsedAt` INTEGER, PRIMARY KEY(`endpointId`, `modelId`), FOREIGN KEY(`endpointId`) REFERENCES `endpoints`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpointId` TEXT NOT NULL, `modelId` TEXT NOT NULL, `serverJson` TEXT, `inServerList` INTEGER NOT NULL, `manual` INTEGER NOT NULL, `hidden` INTEGER NOT NULL, `capsUserJson` TEXT, `lastUsedAt` INTEGER, PRIMARY KEY(`endpointId`, `modelId`), FOREIGN KEY(`endpointId`) REFERENCES `endpoints`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "endpointId",
@@ -520,11 +520,6 @@
             "columnName": "manual",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "displayNameUser",
-            "columnName": "displayNameUser",
-            "affinity": "TEXT"
           },
           {
             "fieldPath": "hidden",
@@ -578,7 +573,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3bb97dc5beb7b95f64bac2ee1d67fd09')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '18c2f00f36e30e54e07514f71eda26c1')"
     ]
   }
 }

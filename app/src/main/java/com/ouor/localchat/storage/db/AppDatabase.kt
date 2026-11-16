@@ -4,7 +4,8 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.ouor.localchat.storage.db.dao.AttachmentDao
 import com.ouor.localchat.storage.db.dao.ChatDao
-import com.ouor.localchat.storage.db.dao.ProviderDao
+import com.ouor.localchat.storage.db.dao.EndpointDao
+import com.ouor.localchat.storage.db.dao.ModelDao
 import com.ouor.localchat.storage.db.entities.AttachmentEntity
 import com.ouor.localchat.storage.db.entities.AttachmentRefEntity
 import com.ouor.localchat.storage.db.entities.DraftEntity
@@ -26,7 +27,8 @@ import com.ouor.localchat.storage.db.entities.SummaryEntity
 abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
     abstract fun attachmentDao(): AttachmentDao
-    abstract fun providerDao(): ProviderDao
+    abstract fun endpointDao(): EndpointDao
+    abstract fun modelDao(): ModelDao
 
     companion object {
         const val NAME = "localchat.db"
