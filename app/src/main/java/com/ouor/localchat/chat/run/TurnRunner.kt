@@ -129,7 +129,7 @@ class TurnRunner @Inject constructor(
             val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
-            if (mode == Mode.NEW && body.steps == 0 && !model.caps.toolCalling.value) path = prefetchLinks(path, executor)
+            if (mode == Mode.NEW && body.steps == 0 && tools.isEmpty()) path = prefetchLinks(path, executor)
             // A restored or hand-edited settings file may hold 0 (AN 10).
             val maxSteps = prefs.maxSteps.takeIf { it > 0 } ?: AppSettings().maxSteps
             var step = if (mode == Mode.CONTINUE) body.blocks.maxOfOrNull { it.step } ?: 0 else body.steps

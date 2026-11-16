@@ -35,7 +35,7 @@ interface Tool {
     suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome
 }
 
-enum class ToolGroup { LINK, SEARCH, BROWSER }
+enum class ToolGroup { SEARCH, BROWSER }
 
 enum class ApprovalMode {
     NONE,

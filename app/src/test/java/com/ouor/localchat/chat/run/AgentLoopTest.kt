@@ -7,6 +7,8 @@ import com.ouor.localchat.chat.ToolStep
 import com.ouor.localchat.chat.FakeModelPort
 import com.ouor.localchat.chat.FakeTool
 import com.ouor.localchat.chat.Harness
+import com.ouor.localchat.chat.ToolPort
+import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.chat.TEST_MODEL
 import com.ouor.localchat.chat.caps
 import com.ouor.localchat.chat.context.ContextAssembler
@@ -702,6 +704,22 @@ class AgentLoopTest {
         val sid = h.sendNew()
         advanceUntilIdle()
         assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
+    }
+
+    @Test
+    fun `a tool-calling model with search and browser off gets no tools, and the app prefetches the pasted link`() = runTest {
+        val page = FakeTool("page_text") { _, _ -> ToolOutcome("page body") }
+        val port = object : ToolPort {
+            override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) =
+                if (search || browser) listOf(page) else emptyList()
+            override fun byName(name: String) = page.takeIf { it.name == name }
+        }
+        val h = Harness(this, toolPort = port, models = FakeModelPort(caps(tools = true)))
+        h.llm.text("ok")
+        h.sendNew("read https://example.com/a")
+        advanceUntilIdle()
+        assertTrue(h.llm.requests.single().tools.isNullOrEmpty())
+        assertTrue(h.attachments.saved.values.single().text!!.contains("page body"))
     }
 
     @Test

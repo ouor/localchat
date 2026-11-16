@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonObject
 
 object OpenTab : Tool {
     override val name = "open_tab"
-    override val groups = setOf(ToolGroup.LINK, ToolGroup.SEARCH, ToolGroup.BROWSER)
+    override val groups = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER)
     override val labelRes = R.string.tool_open_tab
     override val description =
         "Open a URL in a new browser tab of your own and make it your current tab. Use it to read a link " +

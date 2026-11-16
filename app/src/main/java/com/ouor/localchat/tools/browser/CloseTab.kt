@@ -11,7 +11,7 @@ import kotlinx.serialization.json.JsonObject
 
 object CloseTab : Tool {
     override val name = "close_tab"
-    override val groups = setOf(ToolGroup.LINK, ToolGroup.SEARCH, ToolGroup.BROWSER)
+    override val groups = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER)
     override val labelRes = R.string.tool_close_tab
     override val description = "Close one of your tabs (default: your current tab). The user's tabs cannot be closed."
     override val parameters = params { tabIdParam() }
