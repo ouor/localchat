@@ -14,6 +14,7 @@ import com.ouor.localchat.core.model.AttachmentKind
 import com.ouor.localchat.core.model.Draft
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.Endpoint
+import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.PrepState
@@ -130,12 +131,6 @@ class ComposerViewModel @AssistedInject constructor(
         val wanted = pick ?: sModel ?: app.defaultModel
         val model = wanted?.let { w -> models.firstOrNull { it.endpointId == w.endpointId && it.modelId == w.modelId } }
             ?: if (wanted == null) models.maxByOrNull { it.lastUsedAt ?: 0L } else null
-        val caps = model?.caps
-        val reasoningSpec = caps?.reasoning?.value
-        // An EFFORT model has no "off" on the wire: omitting reasoning_effort means the server's default effort.
-        val alwaysOn = reasoningSpec?.wire == ReasoningWire.ALWAYS_ON || reasoningSpec?.wire == ReasoningWire.EFFORT
-        val tools = caps?.toolCalling?.value == true
-        val o = app.lastOptions
         ComposerUiState(
             text = t,
             attachments = atts,
@@ -143,16 +138,11 @@ class ComposerViewModel @AssistedInject constructor(
             modelMissing = wanted != null && model == null,
             models = models,
             endpointNames = pickerEndpoints(endpoints).associate { it.id to it.name },
-            reasoning = ToggleUi(alwaysOn || (o.reasoning && reasoningSpec != null), reasoningSpec != null && !alwaysOn, locked = alwaysOn),
-            effort = o.reasoningEffort?.takeIf { reasoningSpec?.efforts?.contains(it) == true } ?: reasoningSpec?.defaultEffort,
-            efforts = reasoningSpec?.efforts.orEmpty(),
-            search = ToggleUi(o.search && tools, tools),
-            browser = ToggleUi(o.browser && tools, tools),
             running = sessionId != null && runs.containsKey(sessionId),
             voice = voice.takeUnless { it == l.handledVoice } ?: VoiceState.Idle,
             imageIssue = l.imageIssue,
             waitingForFiles = l.waiting,
-        )
+        ).withSwitches(model?.caps, app.lastOptions)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ComposerUiState())
 
     init {
@@ -285,3 +275,21 @@ class ComposerViewModel @AssistedInject constructor(
 }
 
 private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+/**
+ * The switch row for [caps] from the remembered choices [o]: what the user sees is exactly what [ComposerUiState.options]
+ * sends (send, regenerate, edit-resend). Pure, so the switch rules are unit-tested.
+ */
+internal fun ComposerUiState.withSwitches(caps: ModelCapabilities?, o: GenOptions): ComposerUiState {
+    val spec = caps?.reasoning?.value
+    // An EFFORT model has no "off" on the wire: omitting reasoning_effort means the server's default effort.
+    val alwaysOn = spec?.wire == ReasoningWire.ALWAYS_ON || spec?.wire == ReasoningWire.EFFORT
+    val tools = caps?.toolCalling?.value == true
+    return copy(
+        reasoning = ToggleUi(alwaysOn || (o.reasoning && spec != null), spec != null && !alwaysOn, locked = alwaysOn),
+        effort = o.reasoningEffort?.takeIf { spec?.efforts?.contains(it) == true } ?: spec?.defaultEffort,
+        efforts = spec?.efforts.orEmpty(),
+        search = ToggleUi(o.search && tools, tools),
+        browser = ToggleUi(o.browser && tools, tools),
+    )
+}

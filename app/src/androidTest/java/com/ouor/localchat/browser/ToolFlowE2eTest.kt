@@ -285,6 +285,43 @@ class ToolFlowE2eTest {
     }
 
     @Test
+    fun toolCapableModelWithSwitchesOffGetsNoToolsAndCannotOpenATab() {
+        // The model tries anyway: the call is not in the exposed list, so nothing opens.
+        llm.enqueue(Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""), Scenario.text("plain"))
+        val sid = send("open the start page", browserOn = false)
+        val reply = awaitEnd(sid)
+        assertFalse(modelRequests().first().contains("\"tools\""))
+        assertTrue(reply.calls().none { it.state == ToolCallState.DONE })
+        assertTrue("/start" !in pageHits)
+        assertTrue(browser.tabs.value.isEmpty())
+    }
+
+    @Test
+    fun regenerateWithSwitchesOffSendsNoTools() {
+        llm.enqueue(Scenario.toolCall("open_tab", """{"url":"${url("/p1")}"}"""), Scenario.text("first"))
+        val sid = send("open p1")
+        val first = store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }
+        assertEquals(listOf("open_tab"), awaitEnd(sid).calls().map { it.name })
+        modelRequests()
+        llm.enqueue(Scenario.text("second"))
+        runBlocking { engine.regenerate(first.id, MODEL, GenOptions()) }
+        val second = runBlocking {
+            withTimeout(30_000) {
+                var done: MessageBody.Assistant? = null
+                while (done == null) {
+                    done = store.messages.values.lastOrNull { it.sessionId == sid && it.body is MessageBody.Assistant && it.id != first.id }
+                        ?.let { it.body as MessageBody.Assistant }?.takeIf { it.status == ReplyStatus.DONE }
+                    if (done == null) kotlinx.coroutines.delay(100)
+                }
+                done
+            }
+        }
+        assertTrue(second.calls().isEmpty())
+        // The regenerated turn is the last request (the first run's may still be queued).
+        assertFalse(modelRequests().last().contains("\"tools\""))
+    }
+
+    @Test
     fun linkPrefetchReadsThreeAndSkipsSensitive() {
         caps = caps(tools = false)
         llm.enqueue(Scenario.text("summary"))
