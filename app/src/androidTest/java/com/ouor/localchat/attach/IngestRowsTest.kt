@@ -66,4 +66,19 @@ class IngestRowsTest {
         val image = doc.copy(id = "crash2", kind = com.ouor.localchat.core.model.AttachmentKind.IMAGE)
         assertEquals(PrepState.Failed(PrepFailure.IMAGE_DECODE), ingest.guarded(image) { throw OutOfMemoryError() }.state)
     }
+
+    @Test
+    fun imageModelPrefersRequestImage() {
+        val ingest = AttachmentIngest(context, files, dao, Clock.System)
+        val image = com.ouor.localchat.core.model.Attachment(
+            "img1", "a.png", "image/png", 1, com.ouor.localchat.core.model.AttachmentKind.IMAGE,
+            PrepState.Ready, hasOriginal = true, createdAt = 0,
+        )
+        assertEquals(null, ingest.imageModel(image))
+        files.original(image.id).writeText("o")
+        assertEquals(files.original(image.id), ingest.imageModel(image))
+        files.requestImage(image.id).writeText("r")
+        assertEquals(files.requestImage(image.id), ingest.imageModel(image))
+        assertEquals(null, ingest.imageModel(image.copy(kind = com.ouor.localchat.core.model.AttachmentKind.DOCUMENT)))
+    }
 }
