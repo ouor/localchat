@@ -2,6 +2,7 @@
 <!-- Track E (ui.theme, ui.components, ui.markdown) -->
 <resources>
     <string name="ui_ai">AI</string>
+    <string name="ui_ai_tab_idle">대기 중</string>
     <string name="ui_ai_operating">조작 중</string>
     <string name="ui_allow">허용</string>
     <string name="ui_attach">첨부</string>
@@ -247,6 +248,7 @@
     <string name="ui_chats">대화</string>
     <string name="ui_attachments">첨부</string>
     <string name="ui_backup_plain_note">백업은 일반 ZIP 파일이에요. 대화와 첨부는 암호화되지 않고, 비밀번호는 API 키(secrets.enc)에만 적용돼요.</string>
+    <string name="ui_approval_preview">페이지의 대상 요소</string>
     <string name="ui_include_keys">API 키 포함</string>
     <string name="ui_password">비밀번호</string>
     <string name="ui_password_short">8자 이상</string>

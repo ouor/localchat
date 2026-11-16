@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -47,8 +48,13 @@ data class BrowserUiState(
     val touchedAiTab: Int? = null,
     /** Tabs on a sensitive site: the AI may not read or operate them (B-S3, SE 28). */
     val sensitive: Set<Int> = emptySet(),
+    /** This chat's run is going (B-09 ②). */
+    val running: Boolean = false,
 ) {
-    val current: TabInfo? get() = tabs.firstOrNull { it.id == currentId } ?: tabs.lastOrNull()
+    /** BUG-04: by default the panel and peek show only user tabs and this chat's AI tabs. */
+    val visible: List<TabInfo> get() = tabs.filter { it.owner !is Owner.Ai || isMine(it) }
+    /** A picked tab (even another chat's, chosen in the tab list); a closed one falls back to [visible]. */
+    val current: TabInfo? get() = tabs.firstOrNull { it.id == currentId } ?: visible.lastOrNull()
     fun isMine(t: TabInfo) = t.owner is Owner.Ai && (t.owner as Owner.Ai).sessionId == sessionId
 }
 
@@ -65,7 +71,10 @@ class BrowserViewModel @AssistedInject constructor(
 
     private val local = MutableStateFlow(BrowserUiState(sessionId = sessionId))
 
-    val state: StateFlow<BrowserUiState> = combine(local, engine.tabs, engine.aiActivity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
+    // B-09 ②: only this chat's AI activity drives its "AI is operating" bar.
+    private val activity = sessionId?.let(engine::sessionActivity) ?: flowOf(emptyMap())
+
+    val state: StateFlow<BrowserUiState> = combine(local, engine.tabs, activity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
         l.copy(
             tabs = tabs, aiActivity = ai, highlight = h,
             sensitive = tabs.filter { engine.sensitiveUrls.isSensitive(it.url) }.mapTo(HashSet()) { it.id },
@@ -84,6 +93,8 @@ class BrowserViewModel @AssistedInject constructor(
 
     /** Called with the chat's run phase: auto-peek when the AI browses, full screen on handoff (B-02, B-05). */
     fun onRunPhase(phase: RunPhase?) {
+        // The auto-peek belongs to the run; it goes away with it (an opened panel stays).
+        local.update { it.copy(running = phase != null, panel = if (phase == null && it.panel == PanelState.Peek) PanelState.Hidden else it.panel) }
         when (phase) {
             is RunPhase.RunningTool -> phase.tabId?.let { id ->
                 local.update { it.copy(currentId = id, panel = if (it.panel == PanelState.Hidden) PanelState.Peek else it.panel) }
@@ -99,7 +110,7 @@ class BrowserViewModel @AssistedInject constructor(
 
     /** Top-bar browser button / link tap: show the current tab, or open a user tab. */
     override fun open(url: String?) {
-        if (url != null || state.value.tabs.isEmpty()) newTab(url)
+        if (url != null || state.value.visible.isEmpty()) newTab(url)
         else local.update { it.copy(panel = maxOf(it.panel, PanelState.Half)) }
     }
 

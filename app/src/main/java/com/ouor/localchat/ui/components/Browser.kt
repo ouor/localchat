@@ -78,7 +78,7 @@ enum class BrowserOwner { Ai, Me, Waiting }
  * Ai = purple "AI 조작 중 · {tool}" + [직접 조작]; Me = "나" + [AI에게 맡기기]; Waiting = warning (handoff, AI waits).
  */
 @Composable
-fun OwnershipBar(owner: BrowserOwner, modifier: Modifier = Modifier, toolName: String? = null, onTakeOver: () -> Unit = {}, onGiveBack: () -> Unit = {}) {
+fun OwnershipBar(owner: BrowserOwner, modifier: Modifier = Modifier, toolName: String? = null, onTakeOver: () -> Unit = {}, onGiveBack: () -> Unit = {}, idle: Boolean = false) {
     val c = LcTheme.colors
     val (bg, fg) = when (owner) {
         BrowserOwner.Ai -> c.agentContainer to c.onAgentContainer
@@ -87,14 +87,15 @@ fun OwnershipBar(owner: BrowserOwner, modifier: Modifier = Modifier, toolName: S
     }
     Row(
         modifier.fillMaxWidth().height(40.dp).background(bg).drawBehind {
-            if (owner == BrowserOwner.Ai) drawRect(c.agent, topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width * 0.35f, 2.dp.toPx()))
+            if (owner == BrowserOwner.Ai && !idle) drawRect(c.agent, topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width * 0.35f, 2.dp.toPx()))
         }.padding(start = 12.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when (owner) {
             BrowserOwner.Ai -> {
                 LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
-                Text(stringResource(R.string.ui_ai_operating) + (toolName?.let { " · " } ?: ""), style = LcTheme.text.label, color = fg)
+                // B-09 ②: "operating" only while the chat's run is going; otherwise an idle AI tab.
+                Text(stringResource(if (idle) R.string.ui_ai_tab_idle else R.string.ui_ai_operating) + (toolName?.let { " · " } ?: ""), style = LcTheme.text.label, color = fg)
                 if (toolName != null) Text(toolName, style = LcTheme.text.label.copy(fontWeight = FontWeight.SemiBold), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(x = (-8).dp))
                 Box(Modifier.weight(1f))
                 BarButton(stringResource(R.string.ui_take_over), Icons.Outlined.FrontHand, onTakeOver)
@@ -359,6 +360,8 @@ fun ApprovalContent(
     modifier: Modifier = Modifier,
     code: String? = null,
     allowLabel: String = stringResource(R.string.ui_allow),
+    /** SC-13 crop around the target element (an image model for Coil); null hides it. */
+    preview: Any? = null,
 ) {
     val c = LcTheme.colors
     Column(modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -372,6 +375,13 @@ fun ApprovalContent(
             }
         }
         Text(description, style = LcTheme.text.body, color = c.textSecondary)
+        if (preview != null) {
+            coil3.compose.AsyncImage(
+                preview, stringResource(R.string.ui_approval_preview),
+                Modifier.fillMaxWidth().heightIn(max = 180.dp).clip(LcRadius.md).border(1.dp, c.border, LcRadius.md),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            )
+        }
         if (code != null) {
             SelectionContainer {
                 Text(

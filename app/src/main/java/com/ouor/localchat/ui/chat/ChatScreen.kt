@@ -305,6 +305,7 @@ internal fun ChatScreen(
                 onDeny = { chat.resolve(Resolution.ApprovalAnswer(p.id, false)) },
                 onAllow = { chat.resolve(Resolution.ApprovalAnswer(p.id, true)) },
                 code = r.code,
+                preview = r.screenshotId?.let(state.attachments::get)?.let(composer::thumbnail),
             )
         }
         is Pause.StepLimit -> LcDialog(

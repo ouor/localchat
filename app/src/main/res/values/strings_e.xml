@@ -2,6 +2,7 @@
 <!-- Track E (ui.theme, ui.components, ui.markdown) -->
 <resources>
     <string name="ui_ai">AI</string>
+    <string name="ui_ai_tab_idle">Idle</string>
     <string name="ui_ai_operating">Operating</string>
     <string name="ui_allow">Allow</string>
     <string name="ui_attach">Attach</string>
@@ -247,6 +248,7 @@
     <string name="ui_chats">Chats</string>
     <string name="ui_attachments">Attachments</string>
     <string name="ui_backup_plain_note">The backup is a regular ZIP: chats and attachments are not encrypted. The password protects only the API keys (secrets.enc).</string>
+    <string name="ui_approval_preview">Target on the page</string>
     <string name="ui_include_keys">Include API keys</string>
     <string name="ui_password">Password</string>
     <string name="ui_password_short">At least 8 characters</string>

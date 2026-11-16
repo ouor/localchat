@@ -141,7 +141,11 @@ class ChatViewModel @AssistedInject constructor(
                 lastModel = s?.lastModel,
             )
         }
-    }.onEach { s -> attachmentIds.value = s.turns.flatMap { it.user.attachmentIds } }
+    }.onEach { s ->
+        // + the SC-13 approval preview, an ARTIFACT attachment (track C 9).
+        val preview = ((s.runPhase as? RunPhase.Paused)?.pause as? Pause.Approval)?.request?.screenshotId
+        attachmentIds.value = s.turns.flatMap { it.user.attachmentIds } + listOfNotNull(preview)
+    }
         .combine(attachmentIds.flatMapLatest { sessions.observeAttachments(it) }) { s, rows -> s.copy(attachments = rows.associateBy { it.id }) }
         .combine(tts.state) { s, r -> s.copy(readingId = (r as? com.ouor.localchat.speech.ReadAloudState.Speaking)?.messageId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())

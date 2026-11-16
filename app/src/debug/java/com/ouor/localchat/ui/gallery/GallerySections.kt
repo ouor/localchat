@@ -446,6 +446,7 @@ private fun FakePage(mini: Boolean = false, highlight: Boolean = false) {
 private fun LazyListScope.browser() {
     cell("OwnershipBar · AI / 나 / 넘겨받음(대기)", horizontalPadding = false) {
         OwnershipBar(BrowserOwner.Ai, toolName = "click")
+        OwnershipBar(BrowserOwner.Ai, idle = true)
         OwnershipBar(BrowserOwner.Me)
         OwnershipBar(BrowserOwner.Waiting)
     }
