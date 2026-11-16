@@ -32,6 +32,7 @@ import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.llm.ToolCallRequest
 import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.HandoffRequest
+import com.ouor.localchat.tools.ToolGroup
 import com.ouor.localchat.tools.ToolOutcome
 import com.ouor.localchat.tools.ToolExposure
 import kotlinx.coroutines.CompletableDeferred
@@ -752,20 +753,15 @@ class AgentLoopTest {
     fun `a switch turned off mid-run drops its tools from the next step, and turning it on again does not widen`() = runTest {
         // Audit #10.
         lateinit var h: Harness
-        val searchTool = FakeTool("web_search") { _, _ ->
+        val searchTool = FakeTool("web_search", groups = setOf(ToolGroup.SEARCH)) { _, _ ->
             h.settings.update { copy(lastOptions = lastOptions.copy(browser = true)) }
             ToolOutcome("found")
         }
-        val browserTool = FakeTool("click") { _, _ ->
+        val browserTool = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, _ ->
             h.settings.update { copy(lastOptions = lastOptions.copy(browser = false)) }
             ToolOutcome("clicked")
         }
-        val port = object : ToolPort {
-            override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) =
-                listOfNotNull(searchTool.takeIf { search }, browserTool.takeIf { browser })
-            override fun byName(name: String) = listOf(searchTool, browserTool).firstOrNull { it.name == name }
-        }
-        h = Harness(this, toolPort = port, models = FakeModelPort(caps(tools = true)))
+        h = Harness(this, tools = listOf(searchTool, browserTool), models = FakeModelPort(caps(tools = true)))
         h.settings.update { copy(lastOptions = GenOptions(search = true, browser = true)) }
         h.llm.events(call("c1", "click"), finished("tool_calls"))
         h.llm.events(call("c2", "web_search"), finished("tool_calls"))
