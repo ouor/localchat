@@ -95,10 +95,7 @@ internal class BackupJobs(
             open().use { input ->
                 ZipImporter.read(input, object : ImportSink {
                     override fun file(attachment: Attachment, data: InputStream) {
-                        val target = files.original(attachment.id)
-                        if (target.exists()) return
-                        created += attachment.id
-                        target.outputStream().use { data.copyTo(it) }
+                        if (copyOriginal(attachment, data)) created += attachment.id
                     }
                 })
             }
@@ -125,8 +122,23 @@ internal class BackupJobs(
      */
     suspend fun restore(open: () -> InputStream, inspection: Inspection, choice: RestoreChoice, copySuffix: String): AppSettings? {
         val c = inspection.contents
-        fun secondPass(insert: (SessionFile) -> Unit, map: (SessionFile) -> SessionFile = { it }) {
-            open().use { ZipImporter.read(it, object : ImportSink { override fun session(file: SessionFile) = insert(map(file)) }) }
+        val created = mutableListOf<String>()
+        fun secondPass(insert: (SessionFile) -> Unit, map: (SessionFile) -> SessionFile = { it }) = try {
+            open().use {
+                ZipImporter.read(it, object : ImportSink {
+                    override fun session(file: SessionFile) = insert(map(file))
+
+                    // Pass-1 copies have no row until this commits, so an attachment GC may have removed them.
+                    override fun file(attachment: Attachment, data: InputStream) {
+                        if (copyOriginal(attachment, data)) created += attachment.id
+                    }
+                })
+            }
+            Unit
+        } catch (e: Exception) {
+            // The transaction rolls back; files this pass wrote (maybe failing sha256) must not stay under their ids.
+            created.forEach(files::delete)
+            throw e
         }
         when (c.kind) {
             RestorePlan.Kind.FULL -> {
@@ -152,6 +164,21 @@ internal class BackupJobs(
             }
         }
         return null
+    }
+
+    /** Writes the original only when no file has that id (same id, same content). Returns whether it wrote. */
+    private fun copyOriginal(a: Attachment, data: InputStream): Boolean {
+        val target = files.original(a.id)
+        if (target.exists()) return false
+        // Via a temp name: a half-written file under the real id would be "already there" next time.
+        val part = java.io.File(target.parentFile, target.name + ".part")
+        try {
+            part.outputStream().use { data.copyTo(it) }
+            if (!part.renameTo(target)) throw java.io.IOException("rename failed")
+        } finally {
+            part.delete()
+        }
+        return true
     }
 
     private suspend fun sessionIds(scope: BackupScope): List<String> = when (scope) {
