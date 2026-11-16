@@ -3,6 +3,7 @@ package com.ouor.localchat.browser
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ouor.localchat.MainActivity
+import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.chat.CatalogToolPort
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.ClientLlmPort
@@ -59,6 +60,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Collections
@@ -70,6 +72,8 @@ import java.util.Collections
  */
 @RunWith(AndroidJUnit4::class)
 class ToolFlowE2eTest {
+
+    @get:Rule val screen = ScreenOnRule()
 
     private lateinit var pages: MockWebServer
     private val pageHits: MutableList<String> = Collections.synchronizedList(mutableListOf())
@@ -221,6 +225,8 @@ class ToolFlowE2eTest {
         engine.resolve(sid, Resolution.ApprovalAnswer(post.id, allow = false))
         val del = awaitPause(sid) as Pause.Approval
         assertEquals("RISKY_KEYWORD", del.request.reason?.name)
+        // SC-13: the approval carries a crop of the target element (null when none could be made).
+        assertEquals("artifact-approval-preview.jpg", del.request.screenshotId)
         engine.resolve(sid, Resolution.ApprovalAnswer(del.id, allow = true))
         val exec = awaitPause(sid) as Pause.Approval
         assertEquals("execute", exec.request.toolName)
@@ -353,6 +359,21 @@ class ToolFlowE2eTest {
         assertEquals("click", browser.aiActivity.value[tab.id])
         browser.clearAiActivity("s1")
         withTimeout(5_000) { browser.aiActivity.first { tab.id !in it } }
+    }
+
+    @Test
+    fun tabsAndActivityPerChatAndCloseOnDelete() = runBlocking<Unit> {
+        val a = browser.acquireAiTab("chatA", null, "snapshot")
+        val b = browser.acquireAiTab("chatB", null, "click")
+        assertEquals(listOf(a.id), browser.sessionTabs("chatA").first().map { it.id })
+        assertEquals(mapOf(b.id to "click"), browser.sessionActivity("chatB").first())
+        browser.clearAiActivity("chatB")
+        withTimeout(5_000) { browser.sessionActivity("chatB").first { it.isEmpty() } }
+        assertEquals(mapOf(a.id to "snapshot"), browser.sessionActivity("chatA").first()) // other chat untouched
+        browser.closeSessionTabs("chatA") // from a worker thread
+        withTimeout(5_000) { browser.sessionTabs("chatA").first { it.isEmpty() } }
+        assertEquals(listOf(b.id), browser.tabs.value.map { it.id })
+        assertTrue(a.id !in browser.aiActivity.value)
     }
 
     /** Chat request bodies sent to the fake model so far. */

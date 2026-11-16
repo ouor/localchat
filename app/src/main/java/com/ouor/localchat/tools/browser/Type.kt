@@ -49,7 +49,7 @@ object Type : Tool {
             guardInput(at.info, at.sensitive)
             if (!at.editable) throw ToolError("${at.info.label()} is not a text field.")
             val insecure = if (tab.url.startsWith("http://", ignoreCase = true)) IrreversibleAction.Reason.INSECURE_INPUT else null
-            if (!ctx.guardActivate(name, tab, insecure, at.info.label())) return@onMain ToolOutcome.DENIED
+            if (!ctx.guardActivate(name, tab, insecure, at.info.label(), at)) return@onMain ToolOutcome.DENIED
             ctx.highlight(tab, at, R.string.browser_highlight_type)
             val r = PageScript.call<TypeResult>(tab, "type", targetArgs(target) { put("text", text); put("clear", clear) })
             ToolOutcome("Typed into ${at.info.label()}. Value now: \"${r.value}\"${dialogSuffix(tab)}", summary = at.info.label())

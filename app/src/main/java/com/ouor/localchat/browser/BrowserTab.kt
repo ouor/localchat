@@ -24,6 +24,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.view.drawToBitmap
+import com.ouor.localchat.browser.script.CssRect
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -186,6 +187,17 @@ class BrowserTab internal constructor(
     fun capture(): Bitmap? =
         if (webView.isAttachedToWindow && webView.width > 0 && webView.height > 0) runCatching { webView.drawToBitmap() }.getOrNull() else null
 
+    /**
+     * SC-13 preview: the element at [rect] (CSS px, viewport of [innerWidth]) with a margin, from the visible
+     * area. Null when not laid out or off screen. Main thread.
+     */
+    fun captureElement(rect: CssRect, innerWidth: Float): Bitmap? {
+        if (innerWidth <= 0f) return null
+        val box = TabRules.cropBox(rect, webView.width / innerWidth, webView.width, webView.height) ?: return null
+        val full = capture() ?: return null
+        return Bitmap.createBitmap(full, box[0], box[1], box[2], box[3]).also { if (it !== full) full.recycle() }
+    }
+
     /** Downscaled last view of the page for the tab switcher; refreshed after load and when parked. */
     var thumbnail: Bitmap? = null
         private set
@@ -337,6 +349,7 @@ class BrowserTab internal constructor(
     companion object {
         const val CONSOLE_MAX = 200
         const val THUMB_WIDTH = 240
+
         /** Pages keep painting after onPageFinished (fonts, images). */
         private const val THUMB_DELAY_MS = 800L
         private const val TAP_MS = 50L

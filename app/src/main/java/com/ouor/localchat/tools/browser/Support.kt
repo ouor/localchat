@@ -1,5 +1,6 @@
 package com.ouor.localchat.tools.browser
 
+import android.graphics.Bitmap
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.safety.ElementInfo
 import com.ouor.localchat.browser.safety.IrreversibleAction
@@ -22,6 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.ByteArrayOutputStream
 
 /** Shared by the browser tools: common parameters, Main-thread hop, URL checks, post-action settling. */
 
@@ -66,9 +68,35 @@ internal fun guardInput(target: ElementInfo?, scriptSensitive: Boolean) {
     }
 }
 
-/** B-S2 for every activating tool (SE 15): asks SC-13 when [reason] is set; false when the user denied. */
-internal suspend fun ToolContext.guardActivate(tool: String, tab: BrowserTab, reason: IrreversibleAction.Reason?, what: String): Boolean =
-    reason == null || requireApproval(ApprovalRequest(tool, what, tab.url, reason = reason))
+/**
+ * B-S2 for every activating tool (SE 15): asks SC-13 when [reason] is set; false when the user denied. With [at]
+ * the request carries a cropped image of the element (SC-13 design), never of a password/OTP/card field.
+ * Main thread.
+ */
+internal suspend fun ToolContext.guardActivate(
+    tool: String,
+    tab: BrowserTab,
+    reason: IrreversibleAction.Reason?,
+    what: String,
+    at: Located? = null,
+): Boolean {
+    if (reason == null) return true
+    return requireApproval(ApprovalRequest(tool, what, tab.url, screenshotId = at?.let { approvalPreview(tab, it) }, reason = reason))
+}
+
+private suspend fun ToolContext.approvalPreview(tab: BrowserTab, at: Located): String? {
+    if (at.sensitive || SensitiveFields.isSensitive(at.info)) return null
+    val crop = tab.captureElement(at.rect, at.innerWidth) ?: return null
+    val jpeg = ByteArrayOutputStream().use { out ->
+        crop.compress(Bitmap.CompressFormat.JPEG, PREVIEW_QUALITY, out)
+        crop.recycle()
+        out.toByteArray()
+    }
+    // Stored like any artifact; nothing references it after the answer, so attachment GC removes it.
+    return saveArtifact("approval-preview.jpg", "image/jpeg", jpeg)
+}
+
+private const val PREVIEW_QUALITY = 85
 
 internal fun pageLine(tab: BrowserTab) = "Page: ${tab.title.ifBlank { "(untitled)" }} — ${tab.url}"
 

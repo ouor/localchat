@@ -77,6 +77,7 @@ data class ApprovalRequest(
     val toolName: String,
     val targetText: String?,
     val url: String?,
+    /** SC-13 preview: artifact attachment id of a JPEG crop of the target element (never of a sensitive field). */
     val screenshotId: String? = null,
     /** execute: full code shown before running. */
     val code: String? = null,
