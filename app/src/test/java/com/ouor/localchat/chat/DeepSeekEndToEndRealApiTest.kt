@@ -154,17 +154,20 @@ class DeepSeekEndToEndRealApiTest {
         val tools = object : ToolPort {
             override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool> =
                 if (caps.toolCalling.value) listOf(Weather) else emptyList()
+            override fun byName(name: String): Tool? = Weather.takeIf { it.name == name }
         }
         val images = HashMap<String, AttachmentPayload>()
         val attachments = object : AttachmentPort {
             override suspend fun payload(id: String) = images[id]
             override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = error("unused")
+            override suspend fun saveText(name: String, text: String) = error("unused")
         }
         val compactor = Compactor(store, llm, Clock.System)
+        val browserPort = FakeBrowserPort()
         val registry = RunRegistry(scope)
         val runner = TurnRunner(
-            store, llm, models, tools, attachments, FakeBrowserPort(), { error("browser used") },
-            settings, compactor, TitleGenerator(store, llm), Clock.System, scope,
+            store, llm, models, tools, attachments, browserPort, { error("browser used") },
+            settings, compactor, TitleGenerator(store, llm), LinkPrefetcher(tools, browserPort, attachments), Clock.System, scope,
         )
         val recovery = StartupRecovery(store, Clock.System)
         val engine = ChatEngine(store, registry, runner, recovery, models, tools, compactor, settings, Clock.System)
