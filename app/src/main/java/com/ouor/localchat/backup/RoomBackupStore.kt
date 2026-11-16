@@ -3,12 +3,13 @@ package com.ouor.localchat.backup
 import com.ouor.localchat.backup.format.ModelRecord
 import com.ouor.localchat.backup.format.ProvidersFile
 import com.ouor.localchat.backup.format.SessionFile
-import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.model.ApiKey
 import com.ouor.localchat.core.model.Attachment
 import com.ouor.localchat.core.model.Endpoint
 import com.ouor.localchat.core.model.ModelOverrides
 import com.ouor.localchat.core.model.PresetId
+import com.ouor.localchat.provider.toEntity
+import com.ouor.localchat.provider.toRecord
 import com.ouor.localchat.storage.SecretStore
 import com.ouor.localchat.storage.db.AppDatabase
 import com.ouor.localchat.storage.db.attachmentIds
@@ -20,6 +21,8 @@ import com.ouor.localchat.storage.db.entities.ModelEntity
 import com.ouor.localchat.storage.db.toEntity
 import com.ouor.localchat.storage.db.toModel
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.JsonObject
+import com.ouor.localchat.provider.ModelRecord as StoredModel
 import javax.inject.Inject
 
 /** [BackupStore] on Room and SecretStore (track-d.md 4.3 query table). */
@@ -49,7 +52,7 @@ class RoomBackupStore @Inject constructor(
         val withKey = secrets.endpointIds.first()
         return ProvidersFile(
             endpoints = dao.endpoints().map { it.toModel(it.id in withKey) },
-            models = dao.models().map { it.toRecord() },
+            models = dao.models().map { it.toBackup() },
         )
     }
 
@@ -65,7 +68,7 @@ class RoomBackupStore @Inject constructor(
             dao.deleteAllSessions()
             dao.deleteAllEndpoints()
             dao.insertEndpoints(providers.endpoints.mapIndexed { i, e -> e.toEntity(i) })
-            dao.insertModels(providers.models.map { it.toEntity() })
+            dao.insertModels(providers.models.map { it.toRow() })
             dao.upsertAttachments(attachments.map { it.toEntity() })
             sessions(::insert)
         }
@@ -118,32 +121,30 @@ private fun Endpoint.toEntity(index: Int) = EndpointEntity(
     maxRetries = maxRetries, allowHttp = allowHttp, sortOrder = index, createdAt = index.toLong(),
 )
 
-private fun ModelEntity.toRecord(): ModelRecord {
-    val overrides = capsUserJson?.let { runCatching { AppJson.decodeFromString(ModelOverrides.serializer(), it) }.getOrNull() }
-    return ModelRecord(
-        endpointId = endpointId,
-        modelId = modelId,
-        server = serverJson?.let { runCatching { AppJson.parseToJsonElement(it) }.getOrNull() },
-        inServerList = inServerList,
-        manual = manual,
-        displayNameUser = overrides?.displayName,
-        hidden = hidden,
-        overrides = overrides,
-        lastUsedAt = lastUsedAt,
+/** Rows go through provider's own mapping; only the backup DTO shape is converted here (AR F-05). */
+internal fun ModelEntity.toBackup(): ModelRecord = toRecord().let { r ->
+    ModelRecord(
+        endpointId = r.endpointId,
+        modelId = r.modelId,
+        server = r.serverJson,
+        inServerList = r.inServerList,
+        manual = r.manual,
+        displayNameUser = r.overrides.displayName,
+        hidden = r.hidden,
+        overrides = r.overrides.takeIf { it != ModelOverrides() },
+        lastUsedAt = r.lastUsedAt,
     )
 }
 
-private fun ModelRecord.toEntity(): ModelEntity {
+internal fun ModelRecord.toRow(): ModelEntity = StoredModel(
+    endpointId = endpointId,
+    modelId = modelId,
+    // /models entries are objects; anything else was never valid.
+    serverJson = server as? JsonObject,
+    inServerList = inServerList,
+    manual = manual,
+    hidden = hidden,
     // Older backups may carry the name only in displayNameUser.
-    val o = (overrides ?: ModelOverrides()).let { if (it.displayName == null && displayNameUser != null) it.copy(displayName = displayNameUser) else it }
-    return ModelEntity(
-        endpointId = endpointId,
-        modelId = modelId,
-        serverJson = server?.toString(),
-        inServerList = inServerList,
-        manual = manual,
-        hidden = hidden,
-        capsUserJson = o.takeIf { it != ModelOverrides() }?.let { AppJson.encodeToString(ModelOverrides.serializer(), it) },
-        lastUsedAt = lastUsedAt,
-    )
-}
+    overrides = (overrides ?: ModelOverrides()).let { if (it.displayName == null && displayNameUser != null) it.copy(displayName = displayNameUser) else it },
+    lastUsedAt = lastUsedAt,
+).toEntity()
