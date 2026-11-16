@@ -133,6 +133,7 @@ fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, browser: com.ouo
                 is ChatEffect.Rejected -> snackbar.showSnackbar(rejectText(e.reason))
                 ChatEffect.Deleted -> nav.closeSession()
                 ChatEffect.CompactFailed -> snackbar.showSnackbar(context.getString(R.string.ui_compact_failed))
+                ChatEffect.NothingToCompact -> snackbar.showSnackbar(context.getString(R.string.ui_compact_nothing))
                 ChatEffect.ReadAloudUnavailable -> snackbar.showSnackbar(context.getString(R.string.ui_read_aloud_unavailable))
             }
         }

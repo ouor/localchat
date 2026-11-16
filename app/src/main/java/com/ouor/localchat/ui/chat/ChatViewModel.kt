@@ -86,6 +86,7 @@ sealed interface ChatEffect {
     data class Rejected(val reason: ChatRejected.Reason) : ChatEffect
     data object Deleted : ChatEffect
     data object CompactFailed : ChatEffect
+    data object NothingToCompact : ChatEffect
     data object ReadAloudUnavailable : ChatEffect
 }
 
@@ -168,7 +169,7 @@ class ChatViewModel @AssistedInject constructor(
     }
     override fun compactNow() = guarded {
         val id = sessionId ?: return@guarded
-        try { engine.compactNow(id) } catch (e: Exception) {
+        try { if (!engine.compactNow(id)) _effects.send(ChatEffect.NothingToCompact) } catch (e: Exception) {
             if (e is ChatRejected) throw e
             _effects.send(ChatEffect.CompactFailed)
         }

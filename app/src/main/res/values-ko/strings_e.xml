@@ -176,6 +176,7 @@
     <string name="ui_reject_run_active">응답이 끝난 뒤에 보낼 수 있어요.</string>
     <string name="ui_reject_model">모델을 쓸 수 없어요. 다른 모델을 고르세요.</string>
     <string name="ui_reject_not_allowed">이 메시지에서는 할 수 없어요.</string>
+    <string name="ui_compact_nothing">아직 요약할 만큼 길지 않아요. 최근 질문 두 개는 항상 그대로 둬요.</string>
     <string name="ui_compact_failed">요약하지 못했어요.</string>
     <string name="ui_handoff_title">브라우저에서 직접 할 일이 있어요</string>
     <string name="ui_reading_link">읽는 중: %1$s</string>

@@ -176,6 +176,7 @@
     <string name="ui_reject_run_active">Wait until the current reply finishes.</string>
     <string name="ui_reject_model">This model is unavailable. Choose another one.</string>
     <string name="ui_reject_not_allowed">Not possible for this message.</string>
+    <string name="ui_compact_nothing">Not long enough to summarize yet. The last two questions always stay as they are.</string>
     <string name="ui_compact_failed">Could not summarize.</string>
     <string name="ui_handoff_title">Your turn in the browser</string>
     <string name="ui_reading_link">Reading: %1$s</string>
