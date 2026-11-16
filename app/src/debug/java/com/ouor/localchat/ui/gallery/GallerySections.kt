@@ -343,6 +343,8 @@ private fun LazyListScope.chat() {
         ChatErrorCard(ChatError(ChatErrorKind.BALANCE, 402), {})
         ChatErrorCard(ChatError(ChatErrorKind.BAD_REQUEST, 400), {}, usedOptionalFeatures = true)
         ChatErrorCard(ChatError(ChatErrorKind.CONTEXT_OVERFLOW), {})
+        ChatErrorCard(ChatError(ChatErrorKind.MODEL_UNAVAILABLE), {})
+        ChatErrorCard(ChatError(ChatErrorKind.CONFIG), {})
         RefusalCard(noop)
         UserMessageEditor("이 표를 월별 합계로 정리해줘", {}, noop, noop)
         UserMessage("이 파일 요약해줘", attachments = { FileCard("계약서.pdf", "PDF · 1.2MB", "pdf") })
