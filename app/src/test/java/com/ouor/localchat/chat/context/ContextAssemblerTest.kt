@@ -171,6 +171,17 @@ class ContextAssemblerTest {
     }
 
     @Test
+    fun `M-1 a user max output larger than the room left is cut to the room, or omitted under 256`() {
+        val req = ContextAssembler.build(input(listOf(user("u", "q")))).copy(maxTokens = 4096)
+        // Window 8K, input 7K, user 4K: what is sent fits the 1K left.
+        assertEquals(1024, ContextAssembler.fitOutput(req, 8192, 7168).maxTokens)
+        assertEquals(4096, ContextAssembler.fitOutput(req, 32768, 7168).maxTokens)
+        assertNull(ContextAssembler.fitOutput(req, 8192, 8000).maxTokens)
+        assertEquals(4096, ContextAssembler.fitOutput(req, null, 7168).maxTokens)
+        assertNull(ContextAssembler.fitOutput(req.copy(maxTokens = null), 8192, 7168).maxTokens)
+    }
+
+    @Test
     fun `only older bulky results are trimmed`() {
         val big = "x".repeat(3000)
         val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "snapshot", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
