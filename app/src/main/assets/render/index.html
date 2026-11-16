@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Hidden render page for ui.markdown.JsRenderEngine. Assets only; Mermaid 11.17.2 at mermaid/mermaid.min.js. -->
+<script src="mermaid/mermaid.min.js"></script>
+</head>
+<body>
+<script>
+  let theme = null;
+  window.lcRender = async function (id, src, dark) {
+    try {
+      if (typeof mermaid === 'undefined') throw new Error('mermaid not loaded');
+      const t = dark ? 'dark' : 'default';
+      if (theme !== t) {
+        // htmlLabels:false → pure SVG text (AndroidSVG has no <foreignObject>).
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: t, htmlLabels: false,
+          flowchart: { htmlLabels: false }, fontFamily: 'sans-serif' });
+        theme = t;
+      }
+      const { svg } = await mermaid.render('lc' + id, src);
+      LcBridge.done(id, svg, null);
+    } catch (e) {
+      const stray = document.getElementById('dlc' + id);
+      if (stray) stray.remove();
+      LcBridge.done(id, null, String((e && e.message) || e));
+    }
+  };
+  LcBridge.ready();
+</script>
+</body>
+</html>

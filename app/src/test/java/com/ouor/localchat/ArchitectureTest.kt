@@ -49,6 +49,7 @@ class ArchitectureTest {
                 val problem = when {
                     layer in noAndroid && line.startsWith("import android.") -> "Android import"
                     target == null -> null
+                    target == "R" -> null // generated resources, every layer with strings needs them
                     else -> {
                         val targetLayer = layerOfImport(target)
                         when {
