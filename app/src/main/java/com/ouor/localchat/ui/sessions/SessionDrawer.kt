@@ -56,8 +56,13 @@ fun ColumnScope.SessionDrawer(
     onDelete: (String) -> Unit,
     onSettings: () -> Unit,
     onProviders: () -> Unit,
+    orderKey: Any? = Unit,
 ) {
     val c = LcTheme.colors
+    // P-STABLE L10: rows keep the order they had when [orderKey] (drawer opened, chat switched) or the query last changed.
+    val shown = remember(orderKey, state.query) { arrayOfNulls<List<Pair<SessionGroup, List<String>>>>(1) }
+    val groups = shown[0]?.let { SessionListViewModel.keepOrder(state.groups, it) } ?: state.groups
+    androidx.compose.runtime.SideEffect { if (state.loaded) shown[0] = groups.map { (g, rows) -> g to rows.map { it.session.id } } }
     var menuFor by remember { mutableStateOf<Session?>(null) }
     var renaming by remember { mutableStateOf<Session?>(null) }
     var deleting by remember { mutableStateOf<Session?>(null) }
@@ -70,7 +75,7 @@ fun ColumnScope.SessionDrawer(
         if (state.query.isNotEmpty()) {
             item { SectionLabel(stringResource(R.string.ui_search_results, state.groups.sumOf { it.second.size })) }
         }
-        state.groups.forEach { (group, rows) ->
+        groups.forEach { (group, rows) ->
             if (state.query.isEmpty()) item(key = "g" + group) { SectionLabel(groupLabel(group)) }
             items(rows, key = { it.session.id }) { row ->
                 Box {

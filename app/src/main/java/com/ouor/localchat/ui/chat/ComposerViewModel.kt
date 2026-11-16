@@ -73,6 +73,8 @@ data class ComposerUiState(
     val imageIssue: Boolean = false,
     /** I-05: send waits for preparing files. */
     val waitingForFiles: Boolean = false,
+    /** False only until the model list first arrives (P-STABLE L1: no "no provider" banner flash). */
+    val modelsLoaded: Boolean = true,
 ) {
     val canSend: Boolean get() = !running && model != null && (text.isNotBlank() || attachments.isNotEmpty()) &&
         attachments.none { it.state is PrepState.Failed }
@@ -153,7 +155,7 @@ class ComposerViewModel @AssistedInject constructor(
             imageIssue = l.imageIssue,
             waitingForFiles = l.waiting,
         )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, ComposerUiState())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, ComposerUiState(modelsLoaded = false))
 
     init {
         viewModelScope.launch {

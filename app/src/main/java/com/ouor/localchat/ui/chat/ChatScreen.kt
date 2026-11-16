@@ -215,20 +215,20 @@ internal fun ChatScreen(
             }
         }
     }
-    LaunchedEffect(list) { androidx.compose.runtime.snapshotFlow { list.canScrollForward }.collect { if (!it) follow = true } }
-    // P-STABLE H3: content growth is followed while a reply streams, or until the user touches the list (a tap that
-    // expands a block must keep its header in place). A new message re-arms it.
-    val running by androidx.compose.runtime.rememberUpdatedState(state.running)
-    var touched by remember { mutableStateOf(false) }
+    // P-STABLE H3, M3: any touch on the list stops following, streaming or not, so a block the user expands or a link they
+    // aim at stays under the finger. Reaching the bottom (scroll, FAB), a new message or a new run at the bottom re-arms it.
     // Layout-state flows can emit while a measure pass runs; scrolling then forces a nested remeasure (crash), so wait for
     // the next frame's animation phase, before layout, and check again.
     suspend fun toBottom() {
         androidx.compose.runtime.withFrameNanos { }
         if (list.canScrollForward && list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
     }
+    var touched by remember { mutableStateOf(false) }
+    LaunchedEffect(list) { androidx.compose.runtime.snapshotFlow { list.canScrollForward }.collect { if (!it) { follow = true; touched = false } } }
     LaunchedEffect(state.turns.size) { follow = true; touched = false }
+    LaunchedEffect(state.running) { if (state.running && !list.canScrollForward) touched = false }
     LaunchedEffect(list) {
-        androidx.compose.runtime.snapshotFlow { follow && (running || !touched) && list.canScrollForward && !list.isScrollInProgress }.collect { if (it) toBottom() }
+        androidx.compose.runtime.snapshotFlow { follow && !touched && list.canScrollForward && !list.isScrollInProgress }.collect { if (it) toBottom() }
     }
     // The list itself shrinking (options, a caption, the keyboard) keeps a followed bottom in view.
     LaunchedEffect(list) {
@@ -258,7 +258,9 @@ internal fun ChatScreen(
     // FB-1b: options open by default only in an empty chat; a user toggle sticks for this chat, including across the first
     // send (null → id), which may also move the chat to its own nav entry (see NewChatOptions). Another chat resets it.
     val carried = remember { NewChatOptions.take(chat.sessionId) }
-    var userOpen by rememberSaveable { mutableStateOf(carried?.open) }
+    // P-STABLE L11: a new chat starts open as an explicit state, and hands it to its first send, so sending never folds them.
+    var userOpen by rememberSaveable { mutableStateOf(carried?.open ?: if (chat.sessionId == null) true else null) }
+    if (chat.sessionId == null) androidx.compose.runtime.SideEffect { NewChatOptions.pending = userOpen }
     val inputFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     if (carried?.focus == true) LaunchedEffect(Unit) { inputFocus.requestFocus() }
     var openFor by rememberSaveable { mutableStateOf(chat.sessionId) }
@@ -297,12 +299,6 @@ internal fun ChatScreen(
                 },
                 scrolled = list.canScrollBackward,
             )
-            if (state.saveFailing) {
-                Banner(stringResource(R.string.ui_save_failed), BannerVariant.Err, Modifier.padding(horizontal = 12.dp), actions = listOf(BannerAction(stringResource(R.string.ui_retry), chat::retryWrites)))
-            }
-            if (cs.models.isEmpty() && !state.loading) {
-                Banner(stringResource(R.string.ui_no_provider), BannerVariant.Info, Modifier.padding(horizontal = 12.dp), actions = listOf(BannerAction(stringResource(R.string.ui_add_provider), nav.addProvider)))
-            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.turns.isEmpty() && !state.loading) {
                     Welcome(cs, Modifier.align(Alignment.Center))
@@ -351,6 +347,16 @@ internal fun ChatScreen(
                         hasNew = state.running,
                     )
                 }
+                // P-STABLE L1: banners float over the top of the list / welcome instead of pushing it down.
+                Column(Modifier.align(Alignment.TopCenter).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.saveFailing) {
+                        Banner(stringResource(R.string.ui_save_failed), BannerVariant.Err, actions = listOf(BannerAction(stringResource(R.string.ui_retry), chat::retryWrites)))
+                    }
+                    // modelsLoaded: no "no provider" flash before the model list first arrives.
+                    if (cs.models.isEmpty() && cs.modelsLoaded && !state.loading) {
+                        Banner(stringResource(R.string.ui_no_provider), BannerVariant.Info, actions = listOf(BannerAction(stringResource(R.string.ui_add_provider), nav.addProvider)))
+                    }
+                }
             }
             // Status strip + composer: a sibling below the list, so they never cover it (FB-1c).
             Column(Modifier.onSizeChanged { bottomPx = it.height }) {
@@ -362,7 +368,8 @@ internal fun ChatScreen(
                     inputModifier = Modifier.focusRequester(inputFocus).onFocusChanged { if (chat.sessionId == null) NewChatOptions.focused = it.hasFocus })
             }
         }
-        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + 8.dp))
+        // P-STABLE L3: snackbars sit above the "scroll to bottom" button's slot (8dp + 40dp + 8dp), never over it.
+        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + 56.dp))
         BrowserOverlay(browserState, browserActions) { cover = it }
     }
 
@@ -496,7 +503,8 @@ private fun ComposerArea(
                         if (m != null) ModelChip(m.endpointName(cs), m.displayName, endpointDotColor(m.endpointName(cs)), onPicker, Modifier.weight(1f, fill = false))
                         else ModelChip("", stringResource(R.string.ui_choose_model), c.textTertiary, onPicker, Modifier.weight(1f, fill = false), state = if (cs.modelMissing) ModelChipState.Missing else ModelChipState.Normal)
                     },
-                    end = { if (chat.sessionId != null) ContextGauge(state.gaugePercent, onGauge, tokensText = state.usageTokens?.let { stringResource(R.string.ui_tokens, compact(it)) }) },
+                    // P-STABLE L11: the gauge holds its place in a new chat too (disabled), so the model chip keeps its width.
+                    end = { ContextGauge(state.gaugePercent, onGauge, tokensText = state.usageTokens?.let { stringResource(R.string.ui_tokens, compact(it)) }, enabled = chat.sessionId != null) },
                 )
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Toggles(cs, composer, nav)
@@ -527,9 +535,10 @@ private fun ComposerArea(
             voice = if (voice is VoiceState.Listening) ({
                 VoiceRecorderRow(
                     "%d:%02d".format(voice.elapsedMs / 60000, voice.elapsedMs / 1000 % 60),
-                    rmsLevels(voice.rmsDb), stringResource(R.string.ui_voice_input), composer::cancelVoice, composer::stopVoice,
+                    rmsLevels(voice.rmsDb), stringResource(R.string.ui_voice_input),
                 )
             }) else null,
+            onVoiceCancel = composer::cancelVoice, onVoiceDone = composer::stopVoice,
         ) {
             // FB-1b: the bar is [+][options] field [mic|send]; the options button never takes focus so the keyboard stays.
             // LcIconButton's modifier sits outside its clickable node, so this one node carries label, state and click.

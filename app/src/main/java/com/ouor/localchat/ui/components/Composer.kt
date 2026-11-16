@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -101,6 +102,8 @@ fun ComposerPanel(
     dropHint: String = stringResource(R.string.ui_drop_hint),
     attachments: (@Composable RowScope.() -> Unit)? = null,
     voice: (@Composable () -> Unit)? = null,
+    onVoiceCancel: () -> Unit = {},
+    onVoiceDone: () -> Unit = {},
     toggles: @Composable RowScope.() -> Unit,
 ) {
     val c = LcTheme.colors
@@ -128,8 +131,11 @@ fun ComposerPanel(
                     horizontalArrangement = Arrangement.spacedBy(8.dp), content = attachments,
                 )
             }
-            if (mode == ComposerMode.Voice && voice != null) {
-                voice()
+            // P-STABLE M4: recording replaces only the text field; the control row keeps its slots ([cancel] where 🎤 was,
+            // [done] where send was), so the buttons never move.
+            val recording = mode == ComposerMode.Voice && voice != null
+            if (recording) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 44.dp)) { voice!!.invoke() }
             } else {
                 BasicTextField(
                     value = text, onValueChange = onTextChange, enabled = enabled,
@@ -143,15 +149,23 @@ fun ComposerPanel(
                         }
                     },
                 )
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_attach), onAttach, variant = IconButtonVariant.Tonal, size = IconButtonSize.Sm, enabled = enabled)
-                    toggles()
-                    Box(Modifier.weight(1f))
-                    LcIconButton(Icons.Outlined.Mic, stringResource(R.string.ui_voice_input), onMic, size = IconButtonSize.Sm, enabled = enabled)
-                    if (mode == ComposerMode.Running) {
-                        LcIconButton(Icons.Rounded.Stop, stringResource(R.string.ui_stop), onStop, variant = IconButtonVariant.Inverse, size = IconButtonSize.Sm)
-                    } else {
-                        LcIconButton(Icons.Rounded.ArrowUpward, stringResource(R.string.ui_send), onSend, variant = IconButtonVariant.Filled, size = IconButtonSize.Sm, enabled = enabled && canSend)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_attach), onAttach, variant = IconButtonVariant.Tonal, size = IconButtonSize.Sm, enabled = enabled && !recording)
+                toggles()
+                Box(Modifier.weight(1f))
+                when {
+                    recording -> {
+                        LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_cancel), onVoiceCancel, size = IconButtonSize.Sm)
+                        LcIconButton(Icons.Rounded.Check, stringResource(R.string.ui_done), onVoiceDone, variant = IconButtonVariant.Filled, size = IconButtonSize.Sm)
+                    }
+                    else -> {
+                        LcIconButton(Icons.Outlined.Mic, stringResource(R.string.ui_voice_input), onMic, size = IconButtonSize.Sm, enabled = enabled)
+                        if (mode == ComposerMode.Running) {
+                            LcIconButton(Icons.Rounded.Stop, stringResource(R.string.ui_stop), onStop, variant = IconButtonVariant.Inverse, size = IconButtonSize.Sm)
+                        } else {
+                            LcIconButton(Icons.Rounded.ArrowUpward, stringResource(R.string.ui_send), onSend, variant = IconButtonVariant.Filled, size = IconButtonSize.Sm, enabled = enabled && canSend)
+                        }
                     }
                 }
             }
@@ -290,25 +304,20 @@ fun FileCard(name: String, meta: String, ext: String, modifier: Modifier = Modif
 
 // ---------------- VoiceRecorderRow (.voice) ----------------
 
-/** I-08: rec dot · timer · RMS spectrum, then [cancel] ... status · done. [levels] are 0..1. */
+/**
+ * I-08: rec dot · timer · RMS spectrum · status, in the text field's place; [ComposerPanel] puts cancel / done in the
+ * mic / send slots. [levels] are 0..1.
+ */
 @Composable
-fun VoiceRecorderRow(elapsed: String, levels: List<Float>, status: String, onCancel: () -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier, error: String? = null) {
+fun VoiceRecorderRow(elapsed: String, levels: List<Float>, status: String, modifier: Modifier = Modifier, error: String? = null) {
     val c = LcTheme.colors
-    Column(modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
-        Row(Modifier.height(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(8.dp).background(c.danger, CircleShape))
-            Text(elapsed, style = LcTheme.text.code.copy(fontWeight = FontWeight.Medium), color = c.textPrimary)
-            Row(Modifier.weight(1f).height(24.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                levels.forEach { l -> Box(Modifier.weight(1f).height((24 * l.coerceIn(0.12f, 1f)).dp).background(c.accent, RoundedCornerShape2)) }
-            }
+    Row(modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.size(8.dp).background(c.danger, CircleShape))
+        Text(elapsed, style = LcTheme.text.code.copy(fontWeight = FontWeight.Medium), color = c.textPrimary)
+        Row(Modifier.weight(1f).height(24.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+            levels.forEach { l -> Box(Modifier.weight(1f).height((24 * l.coerceIn(0.12f, 1f)).dp).background(c.accent, RoundedCornerShape2)) }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onCancel) { Text(stringResource(R.string.ui_cancel), style = LcTheme.text.body, color = c.textSecondary) }
-            Box(Modifier.weight(1f))
-            Text(error ?: status, style = LcTheme.text.caption, color = if (error != null) c.dangerText else c.textTertiary)
-            Spacer(Modifier.width(8.dp))
-            LcIconButton(Icons.Rounded.Check, stringResource(R.string.ui_done), onDone, variant = IconButtonVariant.Filled, size = IconButtonSize.Sm)
-        }
+        Text(error ?: status, style = LcTheme.text.caption, color = if (error != null) c.dangerText else c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
     }
 }
 

@@ -3,6 +3,7 @@ package com.ouor.localchat.ui.markdown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.runtime.Composable
@@ -156,7 +157,9 @@ private fun MarkdownBlock(
             val n = m.groupValues[2].toInt()
             val src = sources[n] ?: return@forEach
             put("c$n", InlineTextContent(Placeholder((0.55 * "$n".length + 0.75).em, 1.2.em, PlaceholderVerticalAlign.TextCenter)) {
-                CitationBadge(n, { onCitationClick(src) }, active = n == activeCitation)
+                // QA FB1 Minor: inline content gets loose constraints, so an 18dp badge sat at the left of its wider em
+                // placeholder and the rest read as a space before the next character ("[1] ."); fill the placeholder.
+                CitationBadge(n, { onCitationClick(src) }, Modifier.fillMaxSize(), active = n == activeCitation)
             })
         }
     }

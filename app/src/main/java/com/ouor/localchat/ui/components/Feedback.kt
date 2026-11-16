@@ -112,14 +112,14 @@ private fun gaugeColor(level: GaugeLevel) = when (level) {
  * [estimate] prefixes "~" (token count estimated before the server reports usage).
  */
 @Composable
-fun ContextGauge(percent: Int?, onClick: () -> Unit, modifier: Modifier = Modifier, estimate: Boolean = false, tokensText: String? = null) {
+fun ContextGauge(percent: Int?, onClick: () -> Unit, modifier: Modifier = Modifier, estimate: Boolean = false, tokensText: String? = null, enabled: Boolean = true) {
     val c = LcTheme.colors
     val level = gaugeLevel(percent)
     val text = gaugeText(percent, estimate, tokensText)
     val desc = stringResource(R.string.ui_gauge_desc, text)
     ChipSurface(
         onClick = onClick, container = c.surfaceSunken, content = if (level == GaugeLevel.High) c.dangerText else c.textSecondary,
-        border = null, height = 28.dp, modifier = modifier.semantics { contentDescription = desc },
+        border = null, height = 28.dp, modifier = modifier.semantics { contentDescription = desc }, enabled = enabled,
         horizontalPadding = androidx.compose.foundation.layout.PaddingValues(start = 6.dp, end = 9.dp),
     ) {
         GaugeRing((percent ?: 0) / 100f, gaugeColor(level))

@@ -107,6 +107,8 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
                             onDelete = { id -> sessionsVm.delete(id); if (id == currentSession) backStack.showChat(null) },
                             onSettings = { backStack.add(SettingsKey); closeDrawer() },
                             onProviders = { backStack.add(ProvidersKey); closeDrawer() },
+                            // P-STABLE L10: the order refreshes when the drawer opens (or, on a wide screen, the chat changes).
+                            orderKey = if (wide) currentSession else drawer.targetValue,
                         )
                     }
                 }
