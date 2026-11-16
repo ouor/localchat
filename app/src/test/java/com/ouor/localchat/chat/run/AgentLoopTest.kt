@@ -26,6 +26,7 @@ import com.ouor.localchat.llm.ToolCallRequest
 import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.HandoffRequest
 import com.ouor.localchat.tools.ToolOutcome
+import com.ouor.localchat.tools.ToolExposure
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -360,6 +361,56 @@ class AgentLoopTest {
         h.recovery.run()
         val sid = sent.await()
         advanceUntilIdle()
+        assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
+    }
+
+    @Test
+    fun `catalog tools run through the executor without a browser for argument errors and approval`() = runTest {
+        val real = ToolExposure.exposedTools(caps(), searchOn = false, browserOn = true)
+        val h = Harness(this, tools = real)
+        h.llm.events(
+            LlmEvent.ToolCallsReady(listOf(
+                ToolCallRequest("c1", "open_tab", """{"url":"javascript:alert(1)"}"""),
+                ToolCallRequest("c2", "execute", """{"code":"document.title"}"""),
+            )),
+            finished("tool_calls"),
+        )
+        h.llm.text("ok")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val approval = (phase(h, sid) as RunPhase.Paused).pause as Pause.Approval
+        assertEquals("document.title", approval.request.code)
+        h.engine.resolve(sid, Resolution.ApprovalAnswer(approval.id, allow = false))
+        advanceUntilIdle()
+
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertEquals(listOf(ToolCallState.FAILED, ToolCallState.DENIED), reply.blocks.filterIsInstance<ToolCallBlock>().map { it.state })
+        assertTrue(reply.blocks.filterIsInstance<ToolResultBlock>().first().content.contains("Only http and https"))
+        assertTrue(h.llm.requests.first().tools!!.any { it.function.name == "snapshot" })
+    }
+
+    @Test
+    fun `links in a question to a model without tools are read and attached once`() = runTest {
+        val page = FakeTool("page_text") { args, _ -> ToolOutcome("PAGE ${args["tabId"]}") }
+        val h = Harness(this, tools = listOf(page), models = FakeModelPort(caps(tools = false)))
+        h.llm.text("summary")
+        val sid = h.sendNew("read https://example.com/a. and https://mybank.com/x")
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://example.com/a"), h.browser.opened)
+        assertEquals(listOf(41), h.browser.closed)
+        val user = h.store.messages.values.first { it.body is MessageBody.User }.body as MessageBody.User
+        assertEquals(listOf("doc1"), user.attachmentIds)
+        val sent = h.llm.requests.single().messages.last { it.role == "user" }.content!!.jsonPrimitive.content
+        assertTrue(sent.contains("파일: https://example.com/a"))
+        assertTrue(sent.contains("<untrusted_page_content>\nPAGE 41"))
+        assertNull(h.llm.requests.single().tools)
+
+        h.llm.text("again")
+        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL)
+        advanceUntilIdle()
+        assertEquals(1, h.browser.opened.size)
         assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
     }
 

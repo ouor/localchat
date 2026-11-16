@@ -44,6 +44,9 @@ interface ModelPort {
 /** tools.ToolExposure over ToolCatalog (track C, architecture 6.3). */
 interface ToolPort {
     fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool>
+
+    /** Any catalog tool, exposed or not (LinkPrefetcher runs page_text itself). */
+    fun byName(name: String): Tool?
 }
 
 /** What a request sends for one attachment: extracted [text] (documents) or a downscaled [imageDataUrl]. */
@@ -55,6 +58,9 @@ interface AttachmentPort {
 
     /** B-08: stores a tool artifact as an ARTIFACT attachment; returns its id. */
     suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String
+
+    /** S-03: stores prefetched page text as a ready DOCUMENT attachment; returns its id. */
+    suspend fun saveText(name: String, text: String): String
 }
 
 /** BrowserEngine (track C) checks behind ToolContext.aiTab (architecture 6.4). */
@@ -70,4 +76,9 @@ interface BrowserPort {
 
     /** End of a tool call: clears the B-09 ② "AI is operating" state. */
     fun clearAiActivity(sessionId: String)
+
+    /** S-03 hidden tab for LinkPrefetcher. */
+    suspend fun openAiTab(sessionId: String, url: String): Int
+    suspend fun close(tabId: Int)
+    fun isSensitive(url: String): Boolean
 }

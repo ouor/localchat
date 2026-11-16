@@ -4,6 +4,7 @@ import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
 import com.ouor.localchat.browser.safety.CookieMasker
+import com.ouor.localchat.tools.ToolCatalog
 import com.ouor.localchat.tools.ToolExposure
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
@@ -57,6 +58,8 @@ class ProviderModelPort @Inject constructor(
 class CatalogToolPort @Inject constructor() : ToolPort {
     override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool> =
         ToolExposure.exposedTools(caps, search, browser)
+
+    override fun byName(name: String): Tool? = ToolCatalog.byName(name)
 }
 
 class StoredAttachmentPort @Inject constructor(
@@ -90,6 +93,18 @@ class StoredAttachmentPort @Inject constructor(
         )
         id
     }
+
+    override suspend fun saveText(name: String, text: String): String = withContext(Dispatchers.IO) {
+        val id = Ids.new()
+        val bytes = text.encodeToByteArray()
+        files.original(id).writeBytes(bytes)
+        files.text(id).writeText(text)
+        dao.upsert(
+            Attachment(id, name, "text/plain", bytes.size.toLong(), AttachmentKind.DOCUMENT, PrepState.Ready, hasOriginal = true, createdAt = clock.now())
+                .toEntity(),
+        )
+        id
+    }
 }
 
 class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) : BrowserPort {
@@ -107,4 +122,11 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
     override fun maskCookies(text: String, url: String): String = CookieMasker.mask(text, engine.cookieHeader(url))
 
     override fun clearAiActivity(sessionId: String) = engine.clearAiActivity(sessionId)
+
+    override suspend fun openAiTab(sessionId: String, url: String): Int =
+        withContext(Dispatchers.Main.immediate) { engine.openAiTab(sessionId, url) }
+
+    override suspend fun close(tabId: Int) = withContext(Dispatchers.Main.immediate) { engine.close(tabId) }
+
+    override fun isSensitive(url: String): Boolean = engine.sensitiveUrls.isSensitive(url)
 }

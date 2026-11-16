@@ -8,6 +8,7 @@ import com.ouor.localchat.chat.BrowserPort
 import com.ouor.localchat.chat.ChatStore
 import com.ouor.localchat.chat.CompactionFailed
 import com.ouor.localchat.chat.Compactor
+import com.ouor.localchat.chat.LinkPrefetcher
 import com.ouor.localchat.chat.LlmPort
 import com.ouor.localchat.chat.ModelPort
 import com.ouor.localchat.chat.ResolvedModel
@@ -57,6 +58,7 @@ class TurnRunner @Inject constructor(
     private val settings: SettingsStore,
     private val compactor: Compactor,
     private val titles: TitleGenerator,
+    private val prefetcher: LinkPrefetcher,
     private val clock: Clock,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -107,7 +109,7 @@ class TurnRunner @Inject constructor(
                 return
             }
             val session = store.session(sessionId) ?: return
-            val path = MessageTree.path(session.rootSelectedId, store.nodes(sessionId)).takeWhile { it.id != node.id }
+            var path = MessageTree.path(session.rootSelectedId, store.nodes(sessionId)).takeWhile { it.id != node.id }
             val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
                 ?: SystemPrompt.build(clock.now(), ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
@@ -115,6 +117,7 @@ class TurnRunner @Inject constructor(
             val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.callId == id) it.copy(state = state) else it }))
             }
+            if (mode == Mode.NEW && body.steps == 0 && !model.caps.toolCalling.value) path = prefetchLinks(path, executor)
             val maxSteps = prefs.maxSteps
             var step = if (mode == Mode.CONTINUE) body.blocks.maxOfOrNull { it.step } ?: 0 else body.steps
             var compacted = false
@@ -252,6 +255,22 @@ class TurnRunner @Inject constructor(
             return payloads
         }
 
+        /** S-03: attaches linked pages to the question; already-read URLs (regenerate) are kept, not re-read. */
+        suspend fun prefetchLinks(path: List<MessageNode>, executor: ToolExecutor): List<MessageNode> {
+            val question = path.lastOrNull() ?: return path
+            val q = question.body as? MessageBody.User ?: return path
+            val read = q.attachmentIds.mapNotNull { attachments.payload(it)?.attachment?.name }.toSet()
+            val added = prefetcher.prefetch(q.text, read, executor) { url ->
+                // callId carries the URL so ui can show "reading: {site}".
+                phase(RunPhase.RunningTool(url, READ_LINK, null))
+            }
+            phase(RunPhase.Requesting)
+            if (added.isEmpty()) return path
+            val updated = question.copy(body = q.copy(attachmentIds = q.attachmentIds + added))
+            store.saveNode(updated)
+            return path.dropLast(1) + updated
+        }
+
         fun launchTitle(path: List<MessageNode>, model: ResolvedModel) {
             val question = (path.last().body as? MessageBody.User)?.text ?: return
             val answer = body.blocks.filterIsInstance<TextBlock>().joinToString("") { it.text }
@@ -270,5 +289,8 @@ class TurnRunner @Inject constructor(
     private companion object {
         /** Architecture 8.1: streaming writes at most once a second, plus at step boundaries and the end. */
         const val SAVE_INTERVAL_MS = 1000L
+
+        /** RunPhase.RunningTool name shown as "reading: {site}" (architecture 5.7). */
+        const val READ_LINK = "read_link"
     }
 }

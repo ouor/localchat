@@ -135,7 +135,8 @@ class FakeModelPort(var caps: ModelCapabilities = caps()) : ModelPort {
 }
 
 class FakeToolPort(val tools: List<Tool>) : ToolPort {
-    override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) = tools
+    override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) = if (caps.toolCalling.value) tools else emptyList()
+    override fun byName(name: String) = tools.firstOrNull { it.name == name }
 }
 
 class FakeBrowserPort : BrowserPort {
@@ -146,6 +147,11 @@ class FakeBrowserPort : BrowserPort {
     override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
     override fun maskCookies(text: String, url: String) = text
     override fun clearAiActivity(sessionId: String) = Unit
+    val opened = mutableListOf<String>()
+    val closed = mutableListOf<Int>()
+    override suspend fun openAiTab(sessionId: String, url: String): Int { opened += url; return 40 + opened.size }
+    override suspend fun close(tabId: Int) { closed += tabId }
+    override fun isSensitive(url: String) = "bank" in url
     override fun control(tabId: Int) = controls.map { it[tabId] ?: Control.AI }
     override fun setControl(tabId: Int, control: Control) {
         setCalls += tabId to control
@@ -192,18 +198,30 @@ class Harness(
     val registry = RunRegistry(scope)
     private val compactor = Compactor(store, llm, clock)
     private val titles = TitleGenerator(store, llm)
-    private val attachments = object : AttachmentPort {
-        override suspend fun payload(id: String): AttachmentPayload? = null
-        override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "artifact-$name"
-    }
+    val attachments = FakeAttachments()
     private val runner = TurnRunner(
         store, llm, models, FakeToolPort(tools), attachments, browser, { throw AssertionError("browser used") },
-        settings, compactor, titles, clock, scope,
+        settings, compactor, titles, LinkPrefetcher(FakeToolPort(tools), browser, attachments), clock, scope,
     )
     val recovery = StartupRecovery(store, clock)
     val engine = ChatEngine(store, registry, runner, recovery, models, FakeToolPort(tools), compactor, settings, clock)
 
     init {
         if (recovered) scope.launch { recovery.run() }
+    }
+}
+
+class FakeAttachments : AttachmentPort {
+    val saved = LinkedHashMap<String, AttachmentPayload>()
+    override suspend fun payload(id: String): AttachmentPayload? = saved[id]
+    override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "artifact-$name"
+    override suspend fun saveText(name: String, text: String): String {
+        val id = "doc${saved.size + 1}"
+        saved[id] = AttachmentPayload(
+            com.ouor.localchat.core.model.Attachment(id, name, "text/plain", text.length.toLong(),
+                com.ouor.localchat.core.model.AttachmentKind.DOCUMENT, com.ouor.localchat.core.model.PrepState.Ready, true, createdAt = 0),
+            text = text,
+        )
+        return id
     }
 }
