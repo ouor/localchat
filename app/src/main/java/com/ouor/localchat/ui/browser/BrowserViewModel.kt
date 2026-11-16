@@ -8,7 +8,6 @@ import com.ouor.localchat.browser.BrowserPrompt
 import com.ouor.localchat.browser.Control
 import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.Owner
-import com.ouor.localchat.browser.SearchEngines
 import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.run.Pause
@@ -108,7 +107,7 @@ class BrowserViewModel @AssistedInject constructor(
     override fun newTab(url: String?) {
         if (state.value.tabs.size >= MAX_TABS) { local.update { it.copy(showTabs = true) }; return }
         viewModelScope.launch {
-            val home = SearchEngines.url(settings.settings.first().searchEngine, "").substringBefore("?")
+            val home = searchUrl(settings.settings.first().searchEngine, null)
             val id = engine.openUserTab(url ?: home)
             local.update { it.copy(currentId = id, showTabs = false, panel = maxOf(it.panel, PanelState.Half)) }
         }
@@ -126,7 +125,7 @@ class BrowserViewModel @AssistedInject constructor(
             val url = when {
                 Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(text) -> text
                 ' ' !in text && '.' in text -> "https://$text"
-                else -> SearchEngines.url(settings.settings.first().searchEngine, text)
+                else -> searchUrl(settings.settings.first().searchEngine, text)
             }
             engine.navigate(t.id, url)
         }
@@ -157,5 +156,18 @@ class BrowserViewModel @AssistedInject constructor(
     override fun webView(id: Int) = runCatching { engine.unpark(id) }.getOrNull()
     override fun park(id: Int) = engine.park(id)
 
-    private companion object { const val MAX_TABS = 10 }
+    private companion object {
+        const val MAX_TABS = 10
+
+        // shortcut: mirrors browser.SearchEngines (not in the ui surface); use it once it is part of 10.2.
+        fun searchUrl(engine: com.ouor.localchat.core.model.SearchEngine, query: String?): String {
+            val q = query?.let { java.net.URLEncoder.encode(it, "UTF-8") }
+            return when (engine) {
+                com.ouor.localchat.core.model.SearchEngine.DUCKDUCKGO -> if (q == null) "https://duckduckgo.com" else "https://duckduckgo.com/?q=$q"
+                com.ouor.localchat.core.model.SearchEngine.GOOGLE -> if (q == null) "https://www.google.com" else "https://www.google.com/search?q=$q"
+                com.ouor.localchat.core.model.SearchEngine.BING -> if (q == null) "https://www.bing.com" else "https://www.bing.com/search?q=$q"
+                com.ouor.localchat.core.model.SearchEngine.NAVER -> if (q == null) "https://www.naver.com" else "https://search.naver.com/search.naver?query=$q"
+            }
+        }
+    }
 }
