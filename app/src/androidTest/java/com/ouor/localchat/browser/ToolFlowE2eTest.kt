@@ -1,49 +1,36 @@
 package com.ouor.localchat.browser
 
-import androidx.datastore.core.DataStore
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ouor.localchat.MainActivity
-import com.ouor.localchat.chat.AttachmentPayload
-import com.ouor.localchat.chat.AttachmentPort
 import com.ouor.localchat.chat.CatalogToolPort
 import com.ouor.localchat.chat.ChatEngine
-import com.ouor.localchat.chat.ChatStore
 import com.ouor.localchat.chat.ClientLlmPort
-import com.ouor.localchat.chat.Compactor
 import com.ouor.localchat.chat.EngineBrowserPort
-import com.ouor.localchat.chat.LinkPrefetcher
+import com.ouor.localchat.chat.FakeAttachments
+import com.ouor.localchat.chat.FakeChatStore
+import com.ouor.localchat.chat.MemoryDataStore
+import com.ouor.localchat.chat.wireEngine
 import com.ouor.localchat.chat.ModelPort
 import com.ouor.localchat.chat.ResolvedModel
-import com.ouor.localchat.chat.TitleGenerator
 import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
-import com.ouor.localchat.chat.run.RunRegistry
 import com.ouor.localchat.chat.run.RunState
-import com.ouor.localchat.chat.run.StartupRecovery
 import com.ouor.localchat.chat.run.TurnRunner
 import com.ouor.localchat.core.Clock
-import com.ouor.localchat.core.MessageTree
-import com.ouor.localchat.core.Selection
 import com.ouor.localchat.core.model.AppSettings
-import com.ouor.localchat.core.model.Attachment
-import com.ouor.localchat.core.model.AttachmentKind
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.Draft
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.MessageBody
-import com.ouor.localchat.core.model.MessageNode
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
-import com.ouor.localchat.core.model.PrepState
 import com.ouor.localchat.core.model.ReasoningSpec
 import com.ouor.localchat.core.model.ReasoningWire
 import com.ouor.localchat.core.model.ReplyStatus
-import com.ouor.localchat.core.model.Session
 import com.ouor.localchat.core.model.Sourced
-import com.ouor.localchat.core.model.Summary
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
@@ -59,11 +46,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
@@ -93,8 +77,8 @@ class ToolFlowE2eTest {
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var browser: BrowserEngine
     private lateinit var scope: CoroutineScope
-    private lateinit var store: MemoryChatStore
-    private lateinit var attachments: MemoryAttachments
+    private lateinit var store: FakeChatStore
+    private lateinit var attachments: FakeAttachments
     private lateinit var engine: ChatEngine
     private var caps = caps(tools = true)
 
@@ -115,8 +99,8 @@ class ToolFlowE2eTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         scenario.onActivity { browser = it.browserEngine }
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        store = MemoryChatStore()
-        attachments = MemoryAttachments()
+        store = FakeChatStore()
+        attachments = FakeAttachments()
         val client = ClientLlmPort(ChatCompletionsClient(OkHttpClient(), AppJson))
         val models = object : ModelPort {
             override suspend fun resolve(ref: ModelRef) = ResolvedModel(ref, LlmTarget(llm.baseUrl, null, 0, allowHttp = true), caps)
@@ -125,14 +109,9 @@ class ToolFlowE2eTest {
         val tools = CatalogToolPort()
         val port = EngineBrowserPort(browser)
         val settings = SettingsStore(MemoryDataStore(AppSettings()))
-        val compactor = Compactor(store, client, Clock.System)
-        val runner = TurnRunner(
-            store, client, models, tools, attachments, port, { browser }, settings, compactor,
-            TitleGenerator(store, client), LinkPrefetcher(tools, port, attachments), Clock.System, scope,
-        )
-        val recovery = StartupRecovery(store, Clock.System)
-        runBlocking { recovery.run() }
-        engine = ChatEngine(store, RunRegistry(scope), runner, recovery, models, tools, compactor, settings, Clock.System)
+        val wired = wireEngine(scope, store, client, models, tools, attachments, port, settings, Clock.System) { browser }
+        runBlocking { wired.recovery.run() }
+        engine = wired.engine
     }
 
     @After
@@ -410,66 +389,5 @@ class ToolFlowE2eTest {
             contextWindow = Sourced(64_000, CapSource.DEFAULT),
             maxOutputTokens = Sourced(null, CapSource.DEFAULT),
         )
-    }
-}
-
-private class MemoryDataStore<T>(initial: T) : DataStore<T> {
-    val state = MutableStateFlow(initial)
-    override val data: Flow<T> = state
-    override suspend fun updateData(transform: suspend (t: T) -> T): T = transform(state.value).also { state.value = it }
-}
-
-/** Same rules as chat's JVM FakeChatStore (test source set is not visible here). */
-private class MemoryChatStore : ChatStore {
-    val sessions = Collections.synchronizedMap(LinkedHashMap<String, Session>())
-    val messages: MutableMap<String, MessageNode> = Collections.synchronizedMap(LinkedHashMap())
-    private val summaryList = mutableListOf<Summary>()
-
-    override suspend fun session(id: String) = sessions[id]
-    override suspend fun nodes(sessionId: String) = synchronized(messages) { messages.values.filter { it.sessionId == sessionId } }
-    override suspend fun node(id: String) = messages[id]
-    override suspend fun summaries(sessionId: String) = summaryList.filter { it.sessionId == sessionId }
-    override suspend fun createSession(session: Session) { sessions[session.id] = session }
-
-    override suspend fun insertNodes(sessionId: String, nodes: List<MessageNode>, selection: Selection) {
-        nodes.forEach { messages[it.id] = it }
-        val s = sessions.getValue(sessionId)
-        val (root, updated) = MessageTree.apply(s.rootSelectedId, nodes(sessionId), selection)
-        updated.forEach { messages[it.id] = it }
-        sessions[sessionId] = s.copy(rootSelectedId = root)
-    }
-
-    override suspend fun saveNode(node: MessageNode) {
-        messages[node.id] = node.copy(selectedChildId = messages[node.id]?.selectedChildId ?: node.selectedChildId)
-    }
-
-    override suspend fun updateSession(id: String, transform: (Session) -> Session) {
-        sessions[id]?.let { sessions[id] = transform(it) }
-    }
-
-    override suspend fun addSummary(summary: Summary) { summaryList += summary }
-
-    override suspend fun unfinishedAssistants() = synchronized(messages) {
-        messages.values.filter {
-            val b = it.body
-            b is MessageBody.Assistant && (b.status == ReplyStatus.PENDING || b.status == ReplyStatus.STREAMING)
-        }
-    }
-
-    override suspend fun deleteDraft(key: String) = Unit
-    override suspend fun collectAttachmentGarbage(cutoff: Long) = Unit
-}
-
-private class MemoryAttachments : AttachmentPort {
-    val saved: MutableMap<String, AttachmentPayload> = Collections.synchronizedMap(LinkedHashMap())
-    override suspend fun payload(id: String): AttachmentPayload? = saved[id]
-    override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "artifact-$name"
-    override suspend fun saveText(name: String, text: String): String {
-        val id = "doc${saved.size + 1}"
-        saved[id] = AttachmentPayload(
-            Attachment(id, name, "text/plain", text.length.toLong(), AttachmentKind.DOCUMENT, PrepState.Ready, true, createdAt = 0),
-            text = text,
-        )
-        return id
     }
 }

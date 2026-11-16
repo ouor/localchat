@@ -162,15 +162,11 @@ class DeepSeekEndToEndRealApiTest {
             override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = error("unused")
             override suspend fun saveText(name: String, text: String) = error("unused")
         }
-        val compactor = Compactor(store, llm, Clock.System)
         val browserPort = FakeBrowserPort()
-        val registry = RunRegistry(scope)
-        val runner = TurnRunner(
-            store, llm, models, tools, attachments, browserPort, { error("browser used") },
-            settings, compactor, TitleGenerator(store, llm), LinkPrefetcher(tools, browserPort, attachments), Clock.System, scope,
-        )
-        val recovery = StartupRecovery(store, Clock.System)
-        val engine = ChatEngine(store, registry, runner, recovery, models, tools, compactor, settings, Clock.System)
+        private val wired = wireEngine(scope, store, llm, models, tools, attachments, browserPort, settings, Clock.System)
+        val registry = wired.registry
+        val recovery = wired.recovery
+        val engine = wired.engine
 
         suspend fun endpoint(name: String, apiKey: String? = key, baseUrl: String = "https://api.deepseek.com", maxRetries: Int = 2): String {
             val id = providers.add(EndpointDraft(name, baseUrl, apiKey?.let(::ApiKey), PresetId.DEEPSEEK, allowHttp = false, maxRetries = maxRetries))

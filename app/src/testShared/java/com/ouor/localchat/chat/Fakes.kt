@@ -41,6 +41,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.Collections
+import javax.inject.Provider
 
 // In-memory stand-ins for other tracks (architecture 12: FakeLlm, fake tools).
 
@@ -51,17 +53,18 @@ class MemoryDataStore<T>(initial: T) : DataStore<T> {
 }
 
 class FakeChatStore : ChatStore {
-    val sessions = LinkedHashMap<String, Session>()
-    val messages = LinkedHashMap<String, MessageNode>()
-    val summaryList = mutableListOf<Summary>()
-    val saves = mutableListOf<MessageNode>()
+    // Synchronized: the device e2e runs the engine on Dispatchers.Default.
+    val sessions: MutableMap<String, Session> = Collections.synchronizedMap(LinkedHashMap())
+    val messages: MutableMap<String, MessageNode> = Collections.synchronizedMap(LinkedHashMap())
+    val summaryList: MutableList<Summary> = Collections.synchronizedList(mutableListOf())
+    val saves: MutableList<MessageNode> = Collections.synchronizedList(mutableListOf())
     val deletedDrafts = mutableListOf<String>()
     var gcCutoff: Long? = null
 
     override suspend fun session(id: String) = sessions[id]
-    override suspend fun nodes(sessionId: String) = messages.values.filter { it.sessionId == sessionId }
+    override suspend fun nodes(sessionId: String) = synchronized(messages) { messages.values.filter { it.sessionId == sessionId } }
     override suspend fun node(id: String) = messages[id]
-    override suspend fun summaries(sessionId: String) = summaryList.filter { it.sessionId == sessionId }
+    override suspend fun summaries(sessionId: String) = synchronized(summaryList) { summaryList.filter { it.sessionId == sessionId } }
     override suspend fun createSession(session: Session) { sessions[session.id] = session }
 
     override suspend fun insertNodes(sessionId: String, nodes: List<MessageNode>, selection: Selection) {
@@ -88,9 +91,11 @@ class FakeChatStore : ChatStore {
 
     override suspend fun addSummary(summary: Summary) { summaryList += summary }
 
-    override suspend fun unfinishedAssistants() = messages.values.filter {
-        val b = it.body
-        b is MessageBody.Assistant && (b.status == ReplyStatus.PENDING || b.status == ReplyStatus.STREAMING)
+    override suspend fun unfinishedAssistants() = synchronized(messages) {
+        messages.values.filter {
+            val b = it.body
+            b is MessageBody.Assistant && (b.status == ReplyStatus.PENDING || b.status == ReplyStatus.STREAMING)
+        }
     }
 
     override suspend fun deleteDraft(key: String) { deletedDrafts += key }
@@ -218,6 +223,34 @@ class TickClock : Clock {
 }
 
 /** Full engine over fakes, run in [scope] (the test scope). */
+class Wired(val engine: ChatEngine, val registry: RunRegistry, val recovery: StartupRecovery)
+
+/**
+ * The di/ graph by hand, in one place (AR F-09): Harness, the real-API test and the device e2e all call
+ * this, so a constructor change breaks one file.
+ */
+fun wireEngine(
+    scope: CoroutineScope,
+    store: ChatStore,
+    llm: LlmPort,
+    models: ModelPort,
+    tools: ToolPort,
+    attachments: AttachmentPort,
+    browser: BrowserPort,
+    settings: SettingsStore,
+    clock: Clock,
+    browserEngine: Provider<BrowserEngine> = Provider { throw AssertionError("browser used") },
+): Wired {
+    val registry = RunRegistry(scope)
+    val compactor = Compactor(store, llm, clock)
+    val runner = TurnRunner(
+        store, llm, models, tools, attachments, browser, browserEngine, settings, compactor,
+        TitleGenerator(store, llm), LinkPrefetcher(tools, browser, attachments), clock, scope,
+    )
+    val recovery = StartupRecovery(store, clock)
+    return Wired(ChatEngine(store, registry, runner, recovery, models, tools, compactor, settings, clock), registry, recovery)
+}
+
 class Harness(
     scope: CoroutineScope,
     tools: List<Tool> = emptyList(),
@@ -230,16 +263,12 @@ class Harness(
     val browser = FakeBrowserPort()
     val clock = TickClock()
     val settings = SettingsStore(MemoryDataStore(AppSettings(maxSteps = maxSteps)))
-    val registry = RunRegistry(scope)
-    private val compactor = Compactor(store, llm, clock)
-    private val titles = TitleGenerator(store, llm)
     val attachments = FakeAttachments()
-    private val runner = TurnRunner(
-        store, llm, models, FakeToolPort(tools), attachments, browser, { throw AssertionError("browser used") },
-        settings, compactor, titles, LinkPrefetcher(FakeToolPort(tools), browser, attachments), clock, scope,
-    )
-    val recovery = StartupRecovery(store, clock)
-    val engine = ChatEngine(store, registry, runner, recovery, models, FakeToolPort(tools), compactor, settings, clock)
+    private val tools = FakeToolPort(tools)
+    private val wired = wireEngine(scope, store, llm, models, this.tools, attachments, browser, settings, clock)
+    val registry = wired.registry
+    val recovery = wired.recovery
+    val engine = wired.engine
 
     init {
         if (recovered) scope.launch { recovery.run() }
@@ -247,7 +276,7 @@ class Harness(
 }
 
 class FakeAttachments : AttachmentPort {
-    val saved = LinkedHashMap<String, AttachmentPayload>()
+    val saved: MutableMap<String, AttachmentPayload> = Collections.synchronizedMap(LinkedHashMap())
     override suspend fun payload(id: String): AttachmentPayload? = saved[id]
     override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "artifact-$name"
     override suspend fun saveText(name: String, text: String): String {
