@@ -22,7 +22,8 @@ data class ModelRecord(
     val overrides: ModelOverrides = ModelOverrides(),
     val lastUsedAt: Long? = null,
 ) {
-    fun toModelInfo(): ModelInfo = ModelInfo(
+    /** [host] of the endpoint, for host-bound defaults ([KnownModels.hostOf]). */
+    fun toModelInfo(host: String?): ModelInfo = ModelInfo(
         endpointId = endpointId,
         modelId = modelId,
         displayName = CapabilityResolver.displayName(modelId, overrides, serverJson),
@@ -30,7 +31,7 @@ data class ModelRecord(
         inServerList = inServerList,
         manual = manual,
         lastUsedAt = lastUsedAt,
-        caps = CapabilityResolver.resolve(overrides, serverJson, KnownModels.find(modelId)),
+        caps = CapabilityResolver.resolve(overrides, serverJson, KnownModels.find(modelId, host)),
     )
 }
 

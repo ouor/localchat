@@ -32,7 +32,7 @@ class ModelsAndConnectionTest {
 
         val a = merged[0]
         assertEquals(existing[0].copy(serverJson = entry("a", "New")), a)
-        assertEquals("Mine", a.toModelInfo().displayName)
+        assertEquals("Mine", a.toModelInfo(null).displayName)
         assertEquals(existing[1].copy(inServerList = false), merged[1])
         assertEquals(existing[2].copy(serverJson = entry("manual"), inServerList = true), merged[2])
         assertEquals(listOf(ModelRecord("e", "b", entry("b"), inServerList = true)), merged.drop(3))

@@ -41,13 +41,16 @@ class ProviderRepository @Inject constructor(
         combine(dao.observeEndpoints(), secrets.endpointIds) { rows, withKey -> rows.map { it.toModel(it.id in withKey) } }
 
     fun models(endpointId: String): Flow<List<ModelInfo>> =
-        dao.observeModels(endpointId).map { rows -> rows.map { it.toRecord().toModelInfo() } }
+        combine(dao.observeEndpoints(), dao.observeModels(endpointId)) { eps, rows ->
+            val host = KnownModels.hostOf(eps.firstOrNull { it.id == endpointId }?.baseUrl)
+            rows.map { it.toRecord().toModelInfo(host) }
+        }
 
     /** Non-hidden models of enabled endpoints, for the model picker (P-06). */
     val allVisibleModels: Flow<List<ModelInfo>> =
         combine(dao.observeEndpoints(), dao.observeAllModels()) { eps, rows ->
-            val enabled = eps.filter { it.enabled }.mapTo(HashSet()) { it.id }
-            rows.filter { it.endpointId in enabled && !it.hidden }.map { it.toRecord().toModelInfo() }
+            val hosts = eps.filter { it.enabled }.associate { it.id to KnownModels.hostOf(it.baseUrl) }
+            rows.filter { it.endpointId in hosts && !it.hidden }.map { it.toRecord().toModelInfo(hosts[it.endpointId]) }
         }
 
     /** Returns the new endpoint id. */

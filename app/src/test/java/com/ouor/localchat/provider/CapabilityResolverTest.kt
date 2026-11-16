@@ -9,6 +9,7 @@ import com.ouor.localchat.core.model.Sourced
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -26,7 +27,7 @@ class CapabilityResolverTest {
 
     @Test
     fun `real DeepSeek entry resolves from server fields and known wire`() {
-        val caps = CapabilityResolver.resolve(ModelOverrides(), deepseekPro, KnownModels.find("deepseek-v4-pro"))
+        val caps = CapabilityResolver.resolve(ModelOverrides(), deepseekPro, KnownModels.find("deepseek-v4-pro", KnownModels.DEEPSEEK_HOST))
         assertEquals(Sourced(true, CapSource.DEFAULT), caps.toolCalling)
         assertEquals(Sourced(false, CapSource.SERVER), caps.imageInput)
         assertEquals(
@@ -65,7 +66,7 @@ class CapabilityResolverTest {
 
     @Test
     fun `user can switch reasoning off or on and narrow the efforts`() {
-        val known = KnownModels.find("deepseek-flash")
+        val known = KnownModels.find("deepseek-flash", KnownModels.DEEPSEEK_HOST)
         val off = CapabilityResolver.resolve(ModelOverrides(reasoning = false), deepseekPro, known)
         assertEquals(Sourced<ReasoningSpec?>(null, CapSource.USER), off.reasoning)
 
@@ -86,7 +87,7 @@ class CapabilityResolverTest {
             Sourced(ReasoningSpec(listOf("low", "high"), null, ReasoningWire.EFFORT), CapSource.SERVER),
             CapabilityResolver.resolve(ModelOverrides(), server, null).reasoning,
         )
-        val qwen = CapabilityResolver.resolve(ModelOverrides(), null, KnownModels.find("qwen3:8b"))
+        val qwen = CapabilityResolver.resolve(ModelOverrides(), null, KnownModels.find("qwen3:8b", null))
         assertEquals(CapSource.DEFAULT, qwen.reasoning.source)
         assertEquals(ReasoningWire.ALWAYS_ON, qwen.reasoning.value?.wire)
         assertEquals(Sourced<ReasoningSpec?>(null, CapSource.UNKNOWN), CapabilityResolver.resolve(ModelOverrides(), null, null).reasoning)
@@ -103,25 +104,36 @@ class CapabilityResolverTest {
     @Test
     fun `reasoning wire survives the user turning reasoning off`() {
         val record = ModelRecord("e", "deepseek-v4-pro", deepseekPro, inServerList = true, overrides = ModelOverrides(reasoning = false))
-        val info = record.toModelInfo()
+        val info = record.toModelInfo(KnownModels.DEEPSEEK_HOST)
         assertNull(info.caps.reasoning.value)
         assertEquals(ReasoningWire.DEEPSEEK_THINKING, info.reasoningWire)
-        assertNull(ModelRecord("e", "my-local-model").toModelInfo().reasoningWire)
+        assertNull(ModelRecord("e", "my-local-model").toModelInfo(null).reasoningWire)
+    }
+
+    @Test
+    fun `U-1 deepseek defaults apply on the DeepSeek API only`() {
+        assertEquals(true, KnownModels.find("deepseek-chat", KnownModels.hostOf("https://api.deepseek.com"))?.toolCalling)
+        assertNull(KnownModels.find("deepseek-r1:8b", KnownModels.hostOf("http://localhost:11434/v1")))
+        assertNull(KnownModels.find("deepseek/deepseek-chat", KnownModels.hostOf("https://openrouter.ai/api/v1")))
+        val local = ModelRecord("e", "deepseek-r1:8b").toModelInfo("192.168.0.5")
+        assertFalse(local.caps.toolCalling.value)
+        assertNull(local.caps.reasoning.value)
+        assertNull(local.reasoningWire)
     }
 
     @Test
     fun `known model patterns`() {
         assertEquals("qwen3-8b", KnownModels.normalize("Org/Qwen3-8B:Q4_K_M"))
-        assertEquals(128_000, KnownModels.find("gpt-4o-mini")?.contextWindow)
-        assertEquals(1_047_576, KnownModels.find("openai/gpt-4.1")?.contextWindow)
-        assertEquals(ReasoningWire.EFFORT, KnownModels.find("o4-mini")?.reasoning?.wire)
-        assertEquals(400_000, KnownModels.find("gpt-5")?.contextWindow)
-        assertEquals(true, KnownModels.find("llama-3.2-11b-vision")?.imageInput)
-        assertEquals(false, KnownModels.find("llama3.1:8b")?.imageInput)
-        assertEquals(true, KnownModels.find("qwen2.5-vl-7b")?.imageInput)
-        assertNull(KnownModels.find("qwen2.5-7b")?.reasoning)
-        assertNull(KnownModels.find("gemma3:4b")?.toolCalling)
-        assertEquals(true, KnownModels.find("gemma-3-27b")?.imageInput)
-        assertNull(KnownModels.find("mistral-small"))
+        assertEquals(128_000, KnownModels.find("gpt-4o-mini", null)?.contextWindow)
+        assertEquals(1_047_576, KnownModels.find("openai/gpt-4.1", null)?.contextWindow)
+        assertEquals(ReasoningWire.EFFORT, KnownModels.find("o4-mini", null)?.reasoning?.wire)
+        assertEquals(400_000, KnownModels.find("gpt-5", null)?.contextWindow)
+        assertEquals(true, KnownModels.find("llama-3.2-11b-vision", null)?.imageInput)
+        assertEquals(false, KnownModels.find("llama3.1:8b", null)?.imageInput)
+        assertEquals(true, KnownModels.find("qwen2.5-vl-7b", null)?.imageInput)
+        assertNull(KnownModels.find("qwen2.5-7b", null)?.reasoning)
+        assertNull(KnownModels.find("gemma3:4b", null)?.toolCalling)
+        assertEquals(true, KnownModels.find("gemma-3-27b", null)?.imageInput)
+        assertNull(KnownModels.find("mistral-small", null))
     }
 }

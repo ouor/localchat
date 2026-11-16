@@ -40,7 +40,7 @@ class DeepSeekRealApiTest {
     fun `models list carries the extension fields`() = runBlocking {
         val models = client.listModels(target).associateBy { it["id"]!!.jsonPrimitive.content }
         val pro = models.getValue("deepseek-v4-pro")
-        val caps = CapabilityResolver.resolve(ModelOverrides(), pro, KnownModels.find("deepseek-v4-pro"))
+        val caps = CapabilityResolver.resolve(ModelOverrides(), pro, KnownModels.find("deepseek-v4-pro", KnownModels.DEEPSEEK_HOST))
         assertFalse(caps.imageInput.value)
         assertNotNull(caps.contextWindow.value)
         assertEquals(ReasoningWire.DEEPSEEK_THINKING, caps.reasoning.value?.wire)

@@ -237,4 +237,25 @@ class ChatCompletionsClientTest {
         assertEquals(request, request.withReasoning(null, true, "low"))
         assertTrue(AppJson.encodeToString(ChatRequest.serializer(), deepOff).contains(""""thinking":{"type":"disabled"}"""))
     }
-}
+
+    @Test
+    fun `U-6 a slow first byte is waited for, a stall after it is not`() = runBlocking {
+        val mock = MockWebServer().apply { start() }
+        val sse = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+        // Server takes 600 ms before any byte; the client's read timeout is 300 ms.
+        mock.enqueue(MockResponse.Builder().setHeader("Content-Type", "text/event-stream").body(sse).headersDelay(600, TimeUnit.MILLISECONDS).build())
+        // Headers at once, then 600 ms of silence before the body.
+        mock.enqueue(MockResponse.Builder().setHeader("Content-Type", "text/event-stream").body(sse).bodyDelay(600, TimeUnit.MILLISECONDS).build())
+        val http = OkHttpClient.Builder().readTimeout(300, TimeUnit.MILLISECONDS).build()
+        val slow = ChatCompletionsClient(http, AppJson, firstByteTimeoutMs = 5_000)
+        val target = LlmTarget(mock.url("/v1").toString(), null, maxRetries = 0, allowHttp = true)
+        try {
+            val first = slow.stream(target, request).toList()
+            assertEquals("ok", first.text())
+            assertTrue(first.last() is LlmEvent.Finished)
+            val second = slow.stream(target, request).toList().last()
+            assertTrue("$second", second is LlmEvent.Failed)
+        } finally {
+            mock.close()
+        }
+    }}

@@ -63,7 +63,9 @@ object CapabilityResolver {
 /**
  * How to switch reasoning in a request for this model (pass to `ChatRequest.withReasoning`).
  * Falls back to [KnownModels] so a DeepSeek model the user turned reasoning off for still gets
- * `thinking: disabled` (its default is ON).
+ * `thinking: disabled` (its default is ON). Only a user "off" falls back (U-1).
  */
 val ModelInfo.reasoningWire: ReasoningWire?
-    get() = caps.reasoning.value?.wire ?: KnownModels.find(modelId)?.reasoning?.wire
+    get() = caps.reasoning.value?.wire
+        // shortcut: ModelInfo has no host, so a user "off" on a deepseek-* id elsewhere also sends `thinking: disabled`; pass the host from ProviderModelPort when chat can take it.
+        ?: KnownModels.find(modelId, KnownModels.DEEPSEEK_HOST)?.reasoning?.wire?.takeIf { caps.reasoning.source == CapSource.USER }
