@@ -7,8 +7,6 @@ import com.ouor.localchat.chat.ToolStep
 import com.ouor.localchat.chat.FakeModelPort
 import com.ouor.localchat.chat.FakeTool
 import com.ouor.localchat.chat.Harness
-import com.ouor.localchat.chat.ToolPort
-import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.chat.TEST_MODEL
 import com.ouor.localchat.chat.caps
 import com.ouor.localchat.chat.context.ContextAssembler
@@ -54,13 +52,16 @@ class AgentLoopTest {
 
     private fun draft(text: String) = Draft(Draft.NEW_CHAT, text, emptyList(), 0)
 
+    private val ON = GenOptions(search = true, browser = true)
+
     private fun call(id: String, name: String, args: String = """{"q":"x"}""") =
         LlmEvent.ToolCallsReady(listOf(ToolCallRequest(id, name, args)))
 
     private fun finished(reason: String = "stop") = LlmEvent.Finished(reason, Usage(10, 5))
 
-    private suspend fun Harness.sendNew(text: String = "hello") =
-        engine.send(null, draft(text), GenOptions(), TEST_MODEL)
+    /** Search and browser on, so the fake tools are exposed; a test about the switches passes its own options. */
+    private suspend fun Harness.sendNew(text: String = "hello", options: GenOptions = ON) =
+        engine.send(null, draft(text), options, TEST_MODEL)
 
     private fun Harness.lastReply(sessionId: String): MessageBody.Assistant =
         store.messages.values.last { it.sessionId == sessionId && it.body is MessageBody.Assistant }.body as MessageBody.Assistant
@@ -709,14 +710,9 @@ class AgentLoopTest {
     @Test
     fun `a tool-calling model with search and browser off gets no tools, and the app prefetches the pasted link`() = runTest {
         val page = FakeTool("page_text") { _, _ -> ToolOutcome("page body") }
-        val port = object : ToolPort {
-            override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) =
-                if (search || browser) listOf(page) else emptyList()
-            override fun byName(name: String) = page.takeIf { it.name == name }
-        }
-        val h = Harness(this, toolPort = port, models = FakeModelPort(caps(tools = true)))
+        val h = Harness(this, tools = listOf(page), models = FakeModelPort(caps(tools = true)))
         h.llm.text("ok")
-        h.sendNew("read https://example.com/a")
+        h.sendNew("read https://example.com/a", GenOptions())
         advanceUntilIdle()
         assertTrue(h.llm.requests.single().tools.isNullOrEmpty())
         assertTrue(h.attachments.saved.values.single().text!!.contains("page body"))

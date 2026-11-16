@@ -152,8 +152,13 @@ class FakeModelPort(var caps: ModelCapabilities = caps()) : ModelPort {
     override suspend fun markUsed(ref: ModelRef) { used += ref }
 }
 
+/** Same switch rule as ToolExposure (groups, tool calling, vision), over the given tools instead of the catalog. */
 class FakeToolPort(val tools: List<Tool>) : ToolPort {
-    override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean) = if (caps.toolCalling.value) tools else emptyList()
+    override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool> {
+        if (!caps.toolCalling.value) return emptyList()
+        val on = buildSet { if (search) add(ToolGroup.SEARCH); if (browser) add(ToolGroup.BROWSER) }
+        return tools.filter { t -> t.groups.any(on::contains) && (!t.requiresVision || caps.imageInput.value) }
+    }
     override fun byName(name: String) = tools.firstOrNull { it.name == name }
 }
 
@@ -206,10 +211,10 @@ class FakeBrowserPort : BrowserPort {
 class FakeTool(
     override val name: String,
     override val approval: ApprovalMode = ApprovalMode.NONE,
+    override val groups: Set<ToolGroup> = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER),
     val body: suspend (JsonObject, ToolContext) -> ToolOutcome = { args, _ -> ToolOutcome("ok ${args["q"]?.jsonPrimitive?.content}") },
 ) : Tool {
     var calls = 0
-    override val groups = setOf(ToolGroup.SEARCH)
     override val description = "fake $name"
     override val parameters = JsonObject(emptyMap())
     override val labelRes = 0
@@ -260,7 +265,6 @@ class Harness(
     maxSteps: Int = 25,
     val models: FakeModelPort = FakeModelPort(),
     recovered: Boolean = true,
-    toolPort: ToolPort = FakeToolPort(tools),
 ) {
     val store = FakeChatStore()
     val llm = FakeLlm()
@@ -268,7 +272,7 @@ class Harness(
     val clock = TickClock()
     val settings = SettingsStore(MemoryDataStore(AppSettings(maxSteps = maxSteps)))
     val attachments = FakeAttachments()
-    private val tools = toolPort
+    private val tools = FakeToolPort(tools)
     private val wired = wireEngine(scope, store, llm, models, this.tools, attachments, browser, settings, clock)
     val registry = wired.registry
     val recovery = wired.recovery
