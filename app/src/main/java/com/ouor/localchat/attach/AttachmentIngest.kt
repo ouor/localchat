@@ -73,6 +73,15 @@ class AttachmentIngest @Inject constructor(
     fun validate(attachments: List<Attachment>, caps: ModelCapabilities): ValidationResult = Validation.check(attachments, caps)
 
     /**
+     * Coil model for an image tile: the downscaled request image when it exists (cheaper), else the
+     * original. null for non-images and when neither file exists (name-only rows, failed copies).
+     */
+    fun imageModel(a: Attachment): File? {
+        if (a.kind != AttachmentKind.IMAGE) return null
+        return files.requestImage(a.id).takeIf { it.isFile } ?: files.original(a.id).takeIf { it.isFile }
+    }
+
+    /**
      * Rebuilds {id}.txt / {id}.req.jpg from a stored original: backups carry originals only, so chat
      * calls this (on IO) when a restored attachment's derived file is missing. Name-only rows come back as is.
      */
