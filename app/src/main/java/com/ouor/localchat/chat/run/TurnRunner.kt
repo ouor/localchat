@@ -153,7 +153,8 @@ class TurnRunner @Inject constructor(
 
                 var request = assemble(path, model, tools, system)
                 val window = model.caps.contextWindow.value
-                if (!compacted && window != null && estimate(request, path) > window * 0.8) {
+                var input = estimate(request, path)
+                if (!compacted && window != null && input > window * 0.8) {
                     // Spent even when nothing could be summarized: the path is fixed for the turn, so a second
                     // attempt on ContextOverflow would find the same nothing (SE 13 c reviewed, left as is).
                     compacted = true
@@ -164,7 +165,9 @@ class TurnRunner @Inject constructor(
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
                     request = assemble(path, model, tools, system)
+                    input = estimate(request, path)
                 }
+                request = ContextAssembler.fitOutput(request, window, input)
 
                 val before = body.blocks
                 var terminal: LlmEvent? = null

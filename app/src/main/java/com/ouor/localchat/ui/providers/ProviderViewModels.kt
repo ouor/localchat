@@ -218,14 +218,21 @@ sealed interface LimitInput {
     data class Ok(val value: Int) : LimitInput
 }
 
-/** Custom limit text: commas allowed and dropped, whole numbers only, inside [range]. */
+/**
+ * Custom limit text: ASCII digits only (not full-width ones), whole numbers inside [range]. Thousands may be
+ * grouped the way any locale prints them ("1,024", de "1.024", fr "1 048 576", ch "1'024"); "1.5" is not a number.
+ */
 fun parseLimit(text: String, range: IntRange): LimitInput {
-    val t = text.replace(",", "").trim()
-    if (t.isEmpty()) return LimitInput.Empty
-    if (!t.all { it.isDigit() }) return LimitInput.NotNumber
-    val n = t.toLongOrNull() ?: return LimitInput.OutOfRange
+    val t = text.trim()
+    if (t.all { it in GROUP_SEPARATORS }) return LimitInput.Empty
+    if (!t.all { it in '0'..'9' } && !GROUPED.matches(t)) return LimitInput.NotNumber
+    val n = t.filter { it in '0'..'9' }.toLongOrNull() ?: return LimitInput.OutOfRange
     return if (n in range.first..range.last) LimitInput.Ok(n.toInt()) else LimitInput.OutOfRange
 }
+
+// Space, NBSP and narrow NBSP (fr), apostrophe and its typographic form (ch).
+private const val GROUP_SEPARATORS = ",. '  ’"
+private val GROUPED = Regex("""[0-9]{1,3}([$GROUP_SEPARATORS])[0-9]{3}(?:\1[0-9]{3})*""")
 
 /** Preset values read as "128K" / "1M"; anything else as the exact number "128,000". */
 fun limitLabel(n: Int, presets: List<Int>): String = when {

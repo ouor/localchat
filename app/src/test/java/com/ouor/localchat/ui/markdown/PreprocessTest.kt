@@ -96,6 +96,15 @@ class PreprocessTest {
         assertEquals("다 `x[1]`\n```\n다[1]\n```", tokenizeInline("다 `x[1]`\n```\n다[1]\n```", src).text)
     }
 
+    @Test fun `m-1 link targets and URLs keep their brackets`() {
+        val src = setOf(1, 2)
+        assertEquals("[a](https://x.com/p[1])", tokenizeInline("[a](https://x.com/p[1])", src).text)
+        assertEquals("see https://x.com/a[2]b now", tokenizeInline("see https://x.com/a[2]b now", src).text)
+        assertEquals("<https://x.com/a[2]>", tokenizeInline("<https://x.com/a[2]>", src).text)
+        // A citation right after a link or URL still becomes a badge.
+        assertEquals("[a](https://x.com/p[1])⦃c2⦄ and https://x.com ⦃c1⦄", tokenizeInline("[a](https://x.com/p[1])[2] and https://x.com [1]", src).text)
+    }
+
     @Test fun `code spans and fences are untouched`() {
         val text = "use `\$a\$ [1]` here\n```\n\$b\$ [1]\n```\nand \$c\$ [1]"
         val p = tokenizeInline(text, setOf(1))
