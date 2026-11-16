@@ -238,7 +238,8 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                     // P-STABLE M6: the sensitive notice floats over the page top (closable) instead of pushing the page down.
                     Box(Modifier.fillMaxSize()) {
                         BrowserSurface(t.id, s.highlight, actions)
-                        var closed by remember(t.id, t.url) { mutableStateOf(false) }
+                        // FB3 ui m2: closed per (tab, site); moving between pages of the same bank keeps it closed.
+                        var closed by remember(t.id, t.host()) { mutableStateOf(false) }
                         if (t.id in s.sensitive && !closed) com.ouor.localchat.ui.components.Banner(
                             stringResource(R.string.ui_sensitive_site), com.ouor.localchat.ui.components.BannerVariant.Info, Modifier.padding(8.dp),
                             actions = listOf(com.ouor.localchat.ui.components.BannerAction(stringResource(R.string.ui_close)) { closed = true }),
@@ -317,14 +318,27 @@ private fun TabsSheet(s: BrowserUiState, actions: BrowserActions) {
             LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_new_tab), { actions.newTab(null) })
         }
         // P-STABLE L8: a closed tab keeps an empty slot while the sheet is open, so the next card's X never slides under the finger.
-        val seen = remember { LinkedHashMap<Int, TabInfo>() }
-        s.tabs.forEach { seen[it.id] = it }
-        val live = s.tabs.mapTo(HashSet()) { it.id }
-        TabGrid(seen.values.toList(), Modifier.fillMaxWidth().height(600.dp)) { t ->
-            if (t.id in live) TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
-            else Box(Modifier.alpha(0f).clearAndSetSemantics {}) { TabCard(t.title, t.shortUrl(), t.tabOwner(s), {}) }
+        // Snapshot state written after composition, never during it (FB3 arch m7); slots hold no thumbnail Bitmap.
+        var kept by remember { mutableStateOf(tabSlots(emptyList(), s.tabs)) }
+        val slots = tabSlots(kept, s.tabs)
+        LaunchedEffect(slots) { kept = slots }
+        val live = s.tabs.associateBy { it.id }
+        TabGrid(slots, Modifier.fillMaxWidth().height(600.dp)) { slot ->
+            val t = live[slot.id]
+            if (t != null) TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
+            else Box(Modifier.alpha(0f).clearAndSetSemantics {}) { TabCard(slot.title, slot.shortUrl(), slot.tabOwner(s), {}) }
         }
     }
+}
+
+/**
+ * Tab list slots: [kept] in their order (a closed tab stays as a placeholder), refreshed from [now], new tabs appended.
+ * No slot keeps a thumbnail: a closed tab's Bitmap must not outlive it.
+ */
+internal fun tabSlots(kept: List<TabInfo>, now: List<TabInfo>): List<TabInfo> {
+    val byId = now.associateBy { it.id }
+    val old = kept.mapTo(HashSet()) { it.id }
+    return (kept.map { byId[it.id] ?: it } + now.filter { it.id !in old }).map { it.copy(thumbnail = null) }
 }
 
 /** B-06: user-facing page requests. */

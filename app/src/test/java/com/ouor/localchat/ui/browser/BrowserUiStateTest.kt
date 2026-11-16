@@ -30,14 +30,22 @@ class BrowserUiStateTest {
         assertEquals(user, BrowserUiState(tabs = listOf(user), sessionId = "A", currentId = 3).current)
     }
 
-    @Test fun `hidden link-prefetch tab and its prompts never reach the panel or tab list`() {
-        val hidden = mine.copy(id = 9, hidden = true)
+    @Test fun `tab list slots keep a closed tab's place, refresh live ones and append new ones`() {
+        // P-STABLE L8 / FB3 arch m7: computed without mutating anything during composition.
+        val slots = tabSlots(listOf(user, mine, other), listOf(user.copy(title = "new"), other, tab(4, Owner.User)))
+        assertEquals(listOf(1, 2, 3, 4), slots.map { it.id })
+        assertEquals("new", slots[0].title)
+        assertEquals(mine, slots[1]) // closed: placeholder with its old size-giving text
+        assertEquals(true, slots.all { it.thumbnail == null })
+    }
+
+    @Test fun `a prompt of a tab outside the visible list never reaches the panel`() {
+        // The engine hands the panel visibleTabs only (hidden link-prefetch tabs filtered there, FB3 arch M1).
         val download = com.ouor.localchat.browser.BrowserPrompt.Download(1, 9, "https://e.com/f", "f", "a/b", 1)
-        val s = BrowserUiState(sessionId = "A").merge(listOf(user, mine, hidden), emptyMap(), null, listOf(download))
-        assertEquals(listOf(user, mine), s.tabs)
+        val s = BrowserUiState(sessionId = "A").merge(listOf(user, mine), emptyMap(), null, listOf(download))
         assertEquals(mine, s.current)
         assertNull(s.prompt)
         val userDownload = download.copy(tabId = 1)
-        assertEquals(userDownload, BrowserUiState().merge(listOf(user, hidden), emptyMap(), null, listOf(download, userDownload)).prompt)
+        assertEquals(userDownload, BrowserUiState().merge(listOf(user), emptyMap(), null, listOf(download, userDownload)).prompt)
     }
 }

@@ -83,16 +83,30 @@ class BrowserStableTest {
         rule.waitForIdle()
     }
 
-    @Test fun handoffBannerFloatsOverThePage() { // M5
+    @Test fun handoffBannerSitsUnderThePageWithoutCoveringIt() { // M5, FB3 ui B1
         show(BrowserUiState(PanelState.Full, listOf(tab(1, "Login")), sessionId = "A", running = true))
         val page = page().bounds()
         val tabs = tabsButton().bounds()
         change { it.copy(handoff = Pause.Handoff(1, "로그인이 필요합니다"), tabs = it.tabs.map { t -> t.copy(control = Control.USER) }) }
         rule.onNodeWithText("로그인이 필요합니다").assertIsDisplayed()
-        assertEquals(page, page().bounds())
+        val after = page().bounds()
+        // Page top and the controls stay put; only the viewport's bottom edge rises above the banner.
+        assertEquals(page.top, after.top, 0.5f)
+        assertEquals(page.left, after.left, 0.5f)
+        assertTrue("page shrank from the bottom", after.bottom < page.bottom)
+        assertTrue("banner below the page, not over it", rule.onNodeWithText("로그인이 필요합니다").bounds().top >= after.bottom - 0.5f)
         assertEquals(tabs, tabsButton().bounds())
         // The ownership bar stays right under the toolbar (above the page), not at the panel bottom.
         assertTrue(rule.onNodeWithText(ctx.getString(R.string.ui_me)).bounds().bottom <= page.top + 0.5f)
+    }
+
+    @Test fun closedSensitiveBannerStaysClosedOnTheSameSite() { // FB3 ui m2
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Bank")), sessionId = "A", sensitive = setOf(1)))
+        rule.onNodeWithText(ctx.getString(R.string.ui_close)).performClick()
+        change { it.copy(tabs = it.tabs.map { t -> t.copy(url = "https://e1.example/accounts") }) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_sensitive_site)).assertDoesNotExist()
+        change { it.copy(tabs = it.tabs.map { t -> t.copy(url = "https://other-bank.example/") }) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_sensitive_site)).assertIsDisplayed()
     }
 
     @Test fun sensitiveBannerFloatsOverThePageAndCloses() { // M6

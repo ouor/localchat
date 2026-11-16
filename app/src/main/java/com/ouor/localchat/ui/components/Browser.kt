@@ -249,8 +249,9 @@ fun BrowserToolbar(
 private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = combinedClickable(onClick = onClick)
 
 /**
- * Browser panel container (phone sheet body / tablet pane): toolbar, ownership bar, page. P-STABLE M5: the optional
- * [banner] floats over the page bottom, so the ownership bar and the page never move when it appears.
+ * Browser panel container (phone sheet body / tablet pane): toolbar, ownership bar, page. P-STABLE M5 (FB3 ui B1): the
+ * optional [banner] sits in the flow under the page, so the toolbar, ownership bar and page top never move and only the
+ * page's bottom edge rises; nothing of the page is covered.
  */
 @Composable
 fun BrowserPanelFrame(
@@ -263,10 +264,8 @@ fun BrowserPanelFrame(
     Column(modifier.fillMaxSize().background(LcTheme.colors.surfaceRaised)) {
         toolbar()
         ownership()
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            page()
-            if (banner != null) Box(Modifier.align(Alignment.BottomCenter)) { banner() }
-        }
+        Box(Modifier.weight(1f).fillMaxWidth()) { page() }
+        banner?.invoke()
     }
 }
 
