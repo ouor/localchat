@@ -122,7 +122,7 @@ fun ContextGauge(percent: Int?, onClick: () -> Unit, modifier: Modifier = Modifi
         horizontalPadding = androidx.compose.foundation.layout.PaddingValues(start = 6.dp, end = 9.dp),
     ) {
         GaugeRing((percent ?: 0) / 100f, gaugeColor(level))
-        Text(text, style = LcTheme.text.caption.copy(fontWeight = FontWeight.Medium))
+        Text(text, style = LcTheme.text.caption.copy(fontWeight = FontWeight.Medium), maxLines = 1, softWrap = false)
     }
 }
 

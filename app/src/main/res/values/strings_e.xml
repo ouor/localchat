@@ -12,7 +12,6 @@
     <string name="ui_cap_image">Image input</string>
     <string name="ui_cap_reasoning">Reasoning</string>
     <string name="ui_cap_tools">Tool calling</string>
-    <string name="ui_caveat">AI-generated, for reference</string>
     <string name="ui_citation_desc">Source %1$d</string>
     <string name="ui_close">Close</string>
     <string name="ui_close_tab">Close tab</string>

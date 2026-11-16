@@ -5,6 +5,9 @@ import android.webkit.WebView
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -223,5 +226,50 @@ class ChatScreenTest {
         rule.onNodeWithText("Example_Domain.pdf").assertIsDisplayed()
         rule.onNodeWithText(ctx.getString(R.string.ui_share)).assertIsDisplayed()
         rule.onNodeWithText(ctx.getString(R.string.ui_save)).assertIsDisplayed()
+    }
+
+    // ---- FB-1 ----
+
+    private val aiTab = com.ouor.localchat.browser.TabInfo(1, "Wiki", "https://wiki.example/hr", com.ouor.localchat.browser.Owner.Ai("s"),
+        com.ouor.localchat.browser.Control.AI, loading = false)
+
+    @Test fun emptyChatOpensOptionsWithoutHeroChipOrCaveat() { // FB-1a, FB-1b, lead decision 1
+        show(ChatUiState(loading = false))
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertIsDisplayed()
+        rule.onAllNodesWithText(ctx.getString(R.string.ui_choose_model), substring = true, useUnmergedTree = true).assertCountEquals(1)
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).assertIsDisplayed()
+        listOf("참고용", "for reference").forEach { rule.onAllNodesWithText(it, substring = true, useUnmergedTree = true).assertCountEquals(0) }
+    }
+
+    @Test fun chatInProgressCollapsesOptionsUntilExpanded() { // FB-1b
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))))
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    private fun longChat(bs: BrowserUiState) {
+        val long = (1..40).joinToString("\n\n") { "Paragraph $it." } + "\n\nTAIL-MARKER"
+        val state = ChatUiState(loading = false, turns = listOf(turn("hi", reply(long, ReplyStatus.STREAMING), live = true)), runPhase = RunPhase.Streaming)
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), bs, chat, composer, browser, nav) } }
+        rule.waitForIdle()
+    }
+
+    private fun tailBottom() = rule.onNodeWithText("TAIL-MARKER", substring = true).fetchSemanticsNode().boundsInRoot.bottom
+
+    @Test fun statusStripNeverCoversTheLastLine() { // FB-1c
+        longChat(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true))
+        val strip = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki"))
+        strip.assertIsDisplayed()
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+        assertTrue(tailBottom() <= strip.fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel
+        longChat(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "s", running = true))
+        val handle = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd))
+        rule.waitUntil(5_000) { runCatching { tailBottom() <= handle.fetchSemanticsNode().boundsInRoot.top }.getOrDefault(false) }
     }
 }

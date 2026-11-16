@@ -171,20 +171,13 @@ fun WorkingBar(modifier: Modifier = Modifier, color: Color = LcTheme.colors.acce
     )
 }
 
-/** Row under the composer: model chip · status · gauge. */
+/** Row under the composer: model chip (start, shrinks first) · gauge (end, never shrinks). */
 @Composable
 fun ComposerRail(modifier: Modifier = Modifier, start: @Composable RowScope.() -> Unit, end: @Composable RowScope.() -> Unit) {
-    Row(modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        start()
-        Box(Modifier.weight(1f))
+    Row(modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), content = start)
         end()
     }
-}
-
-/** "AI 생성 답변, 참고용" footer. */
-@Composable
-fun ComposerCaveat(modifier: Modifier = Modifier) {
-    Text(stringResource(R.string.ui_caveat), modifier.fillMaxWidth().padding(top = 6.dp), style = LcTheme.text.caption, color = LcTheme.colors.textTertiary, textAlign = TextAlign.Center)
 }
 
 // ---------------- AttachmentTile (.att) ----------------
