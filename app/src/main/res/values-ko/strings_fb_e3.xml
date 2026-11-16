@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FB1 track E3 (FB-3 model groups, FB-6 limit menu) -->
+<resources>
+    <string name="fb_e3_group_cd">%1$s, 모델 %2$d개</string>
+    <string name="fb_e3_group_cd_selected">%1$s, 모델 %2$d개, 선택한 모델 포함</string>
+    <string name="fb_e3_group_collapsed">접힘</string>
+    <string name="fb_e3_group_expanded">펼쳐짐</string>
+    <string name="fb_e3_group_empty">모델 없음 · 프로바이더 화면에서 새로고침하세요</string>
+    <string name="fb_e3_limit_auto_server">자동 (서버 값: %s)</string>
+    <string name="fb_e3_limit_auto_builtin">자동 (내장 값: %s)</string>
+    <string name="fb_e3_limit_auto_unknown">자동 (미상)</string>
+    <string name="fb_e3_limit_custom">직접 입력…</string>
+    <string name="fb_e3_limit_custom_n">직접 입력: %s</string>
+    <string name="fb_e3_limit_range">%1$s ~ %2$s 사이</string>
+    <string name="fb_e3_limit_err_nan">숫자만 입력하세요</string>
+    <string name="fb_e3_limit_err_range">%1$s 이상 %2$s 이하로 입력하세요</string>
+    <string name="fb_e3_limit_warn_gt_ctx">컨텍스트 창(%s)보다 커요</string>
+    <string name="fb_e3_limit_warn_gt_server">서버 값 %s보다 커요</string>
+    <string name="fb_e3_limit_item_cd">%1$s, %2$s 토큰</string>
+    <string name="fb_e3_unit_tokens">토큰</string>
+</resources>
