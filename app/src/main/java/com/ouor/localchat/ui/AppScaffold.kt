@@ -56,10 +56,13 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class AppViewModel @Inject constructor(settings: SettingsStore, val renderEngine: JsRenderEngine, providers: com.ouor.localchat.provider.ProviderRepository) : ViewModel() {
+class AppViewModel @Inject constructor(private val settings: SettingsStore, val renderEngine: JsRenderEngine, providers: com.ouor.localchat.provider.ProviderRepository) : ViewModel() {
     /** null until loaded; false = no provider yet (SC-01). */
     val hasProviders = providers.endpoints.map { it.isNotEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val theme = settings.settings.map { it.theme }.stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
+    /** null until loaded. */
+    val onboarded = settings.settings.map { it.onboarded }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    fun markOnboarded() { viewModelScope.launch { settings.update { copy(onboarded = true) } } }
 }
 
 /** Root: theme, render engine, navigation, drawer / permanent session panel (C-06, architecture 10.3). */
@@ -71,12 +74,11 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
         CompositionLocalProvider(LocalJsRenderEngine provides app.renderEngine) {
             val backStack = rememberNavBackStack(ChatKey())
             ShareRouting { backStack.showChat(null) }
-            // shortcut: SC-01 shows once per app session while no provider exists (no "onboarded" flag in AppSettings).
+            // SC-01 until finished or skipped; someone who already has a provider (upgrade, restore) never sees it.
             val hasProviders by app.hasProviders.collectAsStateWithLifecycle()
-            var onboardingShown by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-            androidx.compose.runtime.LaunchedEffect(hasProviders) {
-                if (hasProviders == false && !onboardingShown && backStack.lastOrNull() == ChatKey()) { backStack.clear(); backStack.add(com.ouor.localchat.ui.nav.OnboardingKey) }
-                if (hasProviders != null) onboardingShown = true
+            val onboarded by app.onboarded.collectAsStateWithLifecycle()
+            androidx.compose.runtime.LaunchedEffect(hasProviders, onboarded) {
+                if (onboarded == false && hasProviders == false && backStack.lastOrNull() == ChatKey()) { backStack.clear(); backStack.add(com.ouor.localchat.ui.nav.OnboardingKey) }
             }
             BoxWithConstraints(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
                 val wide = isExpandedWidth(maxWidth)
@@ -100,7 +102,7 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
                     }
                 }
                 val content: @Composable () -> Unit = {
-                    AppNav(backStack, openDrawer = if (wide) null else ({ scope.launch { drawer.open() } }))
+                    AppNav(backStack, openDrawer = if (wide) null else ({ scope.launch { drawer.open() } }), onOnboarded = app::markOnboarded)
                 }
                 if (wide) {
                     AdaptiveScaffold(list = drawerContent, main = content)
@@ -139,7 +141,7 @@ private fun NavBackStack<NavKey>.showChat(sessionId: String?) {
 }
 
 @Composable
-private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
+private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?, onOnboarded: () -> Unit) {
     val context = LocalContext.current
     NavDisplay(
         backStack = backStack,
@@ -170,7 +172,7 @@ private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
                     onSaved = { id ->
                         when {
                             key.endpointId != null -> Unit
-                            com.ouor.localchat.ui.nav.OnboardingKey in backStack -> backStack.showChat(null)
+                            com.ouor.localchat.ui.nav.OnboardingKey in backStack -> { onOnboarded(); backStack.showChat(null) }
                             else -> { backStack.removeLastOrNull(); backStack.add(EndpointKey(id)) }
                         }
                     },
@@ -184,7 +186,7 @@ private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
             entry<com.ouor.localchat.ui.nav.OnboardingKey> {
                 com.ouor.localchat.ui.providers.OnboardingScreen(
                     onPreset = { backStack.add(EndpointKey(preset = it)) }, onCustom = { backStack.add(EndpointKey(custom = true)) },
-                    onLater = { backStack.showChat(null) },
+                    onLater = { onOnboarded(); backStack.showChat(null) },
                 )
             }
             entry<ProvidersKey> {

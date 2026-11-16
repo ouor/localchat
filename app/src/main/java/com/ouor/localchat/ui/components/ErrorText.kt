@@ -15,6 +15,8 @@ enum class ErrorAction(@StringRes val label: Int) {
     Retry(R.string.ui_err_action_retry),
     OpenModelSettings(R.string.ui_err_action_model_settings),
     SummarizeNow(R.string.ui_summarize_now),
+    ChooseModel(R.string.ui_choose_model),
+    OpenProvider(R.string.ui_err_action_provider_settings),
 }
 
 data class ErrorPresentation(@StringRes val title: Int, @StringRes val body: Int, val action: ErrorAction)
@@ -34,8 +36,8 @@ fun errorPresentation(kind: ChatErrorKind, usedOptionalFeatures: Boolean = false
         else ErrorPresentation(R.string.ui_err_bad_request_title, R.string.ui_err_bad_request_body, ErrorAction.Retry)
     ChatErrorKind.PROTOCOL -> ErrorPresentation(R.string.ui_err_protocol_title, R.string.ui_err_protocol_body, ErrorAction.Retry)
     // F-11 (strings in strings_b until UI takes them over).
-    ChatErrorKind.MODEL_UNAVAILABLE -> ErrorPresentation(R.string.chat_err_model_unavailable_title, R.string.chat_err_model_unavailable_body, ErrorAction.OpenModelSettings)
-    ChatErrorKind.CONFIG -> ErrorPresentation(R.string.chat_err_config_title, R.string.chat_err_config_body, ErrorAction.OpenModelSettings)
+    ChatErrorKind.MODEL_UNAVAILABLE -> ErrorPresentation(R.string.chat_err_model_unavailable_title, R.string.chat_err_model_unavailable_body, ErrorAction.ChooseModel)
+    ChatErrorKind.CONFIG -> ErrorPresentation(R.string.chat_err_config_title, R.string.chat_err_config_body, ErrorAction.OpenProvider)
 }
 
 /** ErrorCard for a stored [ChatError]; the HTTP status is appended to the body ("(429)"). */
