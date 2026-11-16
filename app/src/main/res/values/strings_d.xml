@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- K-05: appended to the title of a session restored as a copy. Keep the leading space. -->
+    <string name="backup_copy_suffix">" (copy)"</string>
+    <string name="tts_preview_sample">This is how replies will sound.</string>
+</resources>

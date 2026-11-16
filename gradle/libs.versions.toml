@@ -73,6 +73,7 @@ latex-renderer = { group = "io.github.huarangmeng", name = "latex-renderer", ver
 latex-fonts-katex = { group = "io.github.huarangmeng", name = "latex-fonts-katex", version.ref = "latexRenderer" }
 aboutlibraries-compose = { group = "com.mikepenz", name = "aboutlibraries-compose-m3", version.ref = "aboutlibraries" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version = "1.27.1" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

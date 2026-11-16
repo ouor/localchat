@@ -88,6 +88,7 @@ dependencies {
     implementation(libs.markdown.code)
     implementation(libs.androidsvg)
     implementation(libs.pdfbox.android)
+    implementation(libs.commons.compress)
     implementation(libs.latex.renderer)
     implementation(libs.latex.fonts.katex)
     implementation(libs.aboutlibraries.compose)
