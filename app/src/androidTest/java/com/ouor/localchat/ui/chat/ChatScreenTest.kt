@@ -60,6 +60,8 @@ class ChatScreenTest {
         override fun delete() {}
         override fun compactNow() {}
         override fun readAloud(messageId: String, text: String) { read += messageId to text }
+        override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock) =
+            com.ouor.localchat.chat.ToolStep(R.string.ui_read_aloud, "bank.example", failureRes = R.string.chat_step_fail_sensitive)
     }
 
     private val composer = object : ComposerActions {
@@ -164,5 +166,13 @@ class ChatScreenTest {
         val long = (1..60).joinToString("\n\n") { "Paragraph $it." } + "\n\nTAIL-MARKER"
         state = state.copy(turns = listOf(turn("hi", reply(long, ReplyStatus.STREAMING), live = true)))
         rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+    }
+
+    @Test fun failedStepShowsItsReason() { // BUG-10
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "page_text", "{}", 0, com.ouor.localchat.core.model.ToolCallState.FAILED, 1)
+        val body = MessageBody.Assistant(listOf(call, TextBlock("Done", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
+        show(ChatUiState(loading = false, turns = listOf(turn("read it", body))))
+        rule.onNodeWithText(ctx.getString(R.string.ui_steps_failed, 1, 1)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.chat_step_fail_sensitive), substring = true).assertIsDisplayed()
     }
 }

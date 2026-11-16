@@ -198,7 +198,12 @@ private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor
         ToolCallState.DENIED -> StepState.Denied
         ToolCallState.CANCELLED -> StepState.Stopped
     }
-    return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, result?.summary, v.agent)
+    val detail = when {
+        state == StepState.Failed && step?.failureRes != null -> stringResource(step.failureRes) // BUG-10
+        step?.countRes != null -> androidx.compose.ui.res.pluralStringResource(step.countRes, step.count, step.count) // BUG-08
+        else -> result?.summary
+    }
+    return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, detail, v.agent)
 }
 
 @Composable
