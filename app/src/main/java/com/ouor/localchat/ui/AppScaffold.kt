@@ -26,7 +26,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.navigation3.ui.NavDisplay
+import com.ouor.localchat.ui.nav.LcNavDisplay
 import com.ouor.localchat.core.model.ThemeMode
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.ui.chat.ChatNav
@@ -152,7 +152,7 @@ private fun NavBackStack<NavKey>.showChat(sessionId: String?) {
 @Composable
 private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?, onOnboarded: () -> Unit) {
     val context = LocalContext.current
-    NavDisplay(
+    LcNavDisplay(
         backStack = backStack,
         onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
         entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
