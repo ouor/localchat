@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -96,17 +97,22 @@ private fun highlightMatch(text: String, query: String, color: Color): Annotated
 
 /** Tool calling · image input · reasoning; off ones are dimmed (never hidden) and announced. */
 @Composable
-fun CapabilityIcons(tools: Boolean, image: Boolean, reasoning: Boolean, modifier: Modifier = Modifier) {
+fun CapabilityIcons(tools: Boolean, image: Boolean, reasoning: Boolean, modifier: Modifier = Modifier, labeled: Boolean = false) {
     val c = LcTheme.colors
-    val desc = listOfNotNull(
-        stringResource(R.string.ui_cap_tools).takeIf { tools },
-        stringResource(R.string.ui_cap_image).takeIf { image },
-        stringResource(R.string.ui_cap_reasoning).takeIf { reasoning },
-    ).joinToString()
-    Row(modifier.semantics { contentDescription = desc }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf(Icons.Outlined.Build to tools, Icons.Outlined.Image to image, Icons.Outlined.Lightbulb to reasoning).forEach { (icon, on) ->
-            Box(Modifier.size(24.dp).background(if (on) c.surfaceSunken else Color.Transparent, LcRadius.xs), contentAlignment = Alignment.Center) {
+    val names = listOf(stringResource(R.string.ui_cap_tools), stringResource(R.string.ui_cap_image), stringResource(R.string.ui_cap_reasoning))
+    val flags = listOf(tools, image, reasoning)
+    val desc = names.filterIndexed { i, _ -> flags[i] }.joinToString()
+    Row(modifier.semantics(mergeDescendants = true) { contentDescription = desc }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(Icons.Outlined.Build, Icons.Outlined.Image, Icons.Outlined.Lightbulb).forEachIndexed { i, icon ->
+            val on = flags[i]
+            // Welcome (SC-04) shows only the capabilities the model has, each with its name.
+            if (labeled && !on) return@forEachIndexed
+            Row(
+                Modifier.height(24.dp).background(if (on) c.surfaceSunken else Color.Transparent, LcRadius.xs).padding(horizontal = if (labeled) 6.dp else 5.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Icon(icon, null, Modifier.size(14.dp), tint = if (on) c.textSecondary else c.textDisabled)
+                if (labeled) Text(names[i], style = LcTheme.text.caption, color = c.textSecondary)
             }
         }
     }

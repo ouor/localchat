@@ -15,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Visibility
@@ -114,8 +113,10 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
     var adding by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().imePadding()) {
         LcTopBar(if (s.isNew) stringResource(R.string.ui_add_provider) else s.name, navigationIcon = { Back(onBack) })
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (s.isNew) {
+        // SettingsGroup insets itself 16dp; everything else gets the 16dp gutter from this column (detail) or `pad`.
+        val pad = Modifier.padding(horizontal = 16.dp)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (s.isNew) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Presets.ALL.forEach { p -> LcChip(p.name, { vm.pickPreset(p) }, variant = ChipVariant.Preset, selected = s.preset == p.id) }
                 }
@@ -128,15 +129,15 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
                 Check(s, vm, onSaveAnyway = vm::save)
             } else {
                 KeySection(s, vm)
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(pad.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.ui_models), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = Modifier.weight(1f).padding(start = 4.dp))
                     LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_refresh_models), vm::refresh, size = IconButtonSize.Sm, enabled = !s.refreshing)
                     LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_add_model), { adding = true }, size = IconButtonSize.Sm)
                 }
-                SettingsGroup(Modifier.padding(horizontal = 0.dp)) {
+                SettingsGroup {
                     models.forEachIndexed { i, m -> ModelLine(m, i > 0, { onModel(m.endpointId, m.modelId) }, { vm.setHidden(m, !m.hidden) }) }
                 }
-                Text(stringResource(R.string.ui_connection), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = Modifier.padding(start = 4.dp))
+                Text(stringResource(R.string.ui_connection), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = pad.padding(start = 4.dp, top = 4.dp))
                 SettingsGroup {
                     SettingsRow(stringResource(R.string.ui_max_retries), subtitle = stringResource(R.string.ui_max_retries_sub)) {
                         Stepper(s.maxRetries.toString(), if (s.maxRetries > 0) ({ vm.retries(-1) }) else null, if (s.maxRetries < 10) ({ vm.retries(1) }) else null)
@@ -192,18 +193,17 @@ private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: (
 
 @Composable
 private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel) {
-    if (s.editingKey || s.keyHint == null) {
+    val pad = Modifier.padding(horizontal = 16.dp)
+    if (s.editingKey || s.keyHint == null) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LcTextField(s.key, vm::onKey, label = stringResource(R.string.ui_api_key), kind = TextFieldKind.Secret, helper = stringResource(R.string.ui_key_helper))
         LcButton(stringResource(R.string.ui_save), vm::saveKey, size = ButtonSize.Sm, enabled = s.key.isNotBlank())
     } else {
-        val failed = s.check is CheckUi.Failed
-        SettingsGroup(Modifier.padding(horizontal = 0.dp)) {
-            SettingsRow("•••• ${s.keyHint}", leadingIcon = Icons.Rounded.Build.takeIf { false }) {
+        SettingsGroup {
+            SettingsRow("•••• ${s.keyHint}") {
                 LcButton(stringResource(R.string.ui_replace_key), vm::editKey, variant = ButtonVariant.Text, size = ButtonSize.Sm)
             }
         }
-        if (failed || s.check != null) Check(s, vm, onSaveAnyway = {})
-        else LcButton(stringResource(R.string.ui_check_connection), vm::check, variant = ButtonVariant.Outline, size = ButtonSize.Sm)
+        Column(pad) { Check(s, vm, onSaveAnyway = {}) }
     }
 }
 
@@ -242,9 +242,10 @@ fun ModelDetailRoute(vm: ModelDetailViewModel, onBack: () -> Unit) {
                 }
                 CapRow(Icons.Outlined.Image, stringResource(R.string.ui_cap_image), null, m.caps.imageInput.source, m.caps.imageInput.value, true) { vm.edit { copy(imageInput = it) } }
                 val r = m.caps.reasoning.value
+                val def = stringResource(R.string.ui_default)
                 CapRow(
                     Icons.Outlined.Lightbulb, stringResource(R.string.ui_cap_reasoning),
-                    r?.efforts?.takeIf { it.isNotEmpty() }?.joinToString(" · ") { e -> if (e == r.defaultEffort) "$e(${"default"})" else e },
+                    r?.efforts?.takeIf { it.isNotEmpty() }?.joinToString(" · ") { e -> if (e == r.defaultEffort) "$e($def)" else e },
                     m.caps.reasoning.source, r != null, true,
                 ) { vm.edit { copy(reasoning = it) } }
             }
@@ -271,4 +272,3 @@ private fun CapRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title:
     }
 }
 
-@Suppress("unused") private val keepEditIcon = Icons.Outlined.Edit

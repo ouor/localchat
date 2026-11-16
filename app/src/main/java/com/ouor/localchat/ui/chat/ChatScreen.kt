@@ -178,8 +178,8 @@ private fun ChatScreen(
                 navigationIcon = { nav.openDrawer?.let { LcIconButton(Icons.Rounded.Menu, stringResource(R.string.ui_menu), it) } },
                 actions = {
                     LcIconButton(Icons.Outlined.Web, stringResource(R.string.ui_browser), nav.openBrowser)
+                    LcIconButton(Icons.Outlined.EditNote, stringResource(R.string.ui_new_chat), nav.newChat, enabled = chat.sessionId != null)
                     if (chat.sessionId != null) {
-                        LcIconButton(Icons.Outlined.EditNote, stringResource(R.string.ui_new_chat), nav.newChat)
                         Box {
                             LcIconButton(Icons.Rounded.MoreVert, stringResource(R.string.ui_more), { menu = true })
                             DropdownMenu(menu, { menu = false }) {
@@ -297,7 +297,7 @@ private fun Welcome(cs: ComposerUiState, onPicker: () -> Unit, modifier: Modifie
         val m = cs.model
         if (m != null) {
             ModelChip(m.endpointName(cs), m.displayName, endpointDotColor(m.endpointName(cs)), onPicker, variant = ModelChipVariant.Hero)
-            CapabilityIcons(m.caps.toolCalling.value, m.caps.imageInput.value, m.caps.reasoning.value != null)
+            CapabilityIcons(m.caps.toolCalling.value, m.caps.imageInput.value, m.caps.reasoning.value != null, labeled = true)
         } else {
             ModelChip("", stringResource(R.string.ui_choose_model), c.textTertiary, onPicker, variant = ModelChipVariant.Hero, state = if (cs.modelMissing) ModelChipState.Missing else ModelChipState.Normal)
         }
@@ -358,7 +358,8 @@ private fun ComposerArea(
                 Toggles(cs, composer, nav)
             }
             ComposerRail(
-                start = {
+                start = start@{
+                    if (state.turns.isEmpty()) return@start // SC-04: the welcome hero chip is the only model chip
                     val m = cs.model
                     if (m != null) ModelChip(m.endpointName(cs), m.displayName, endpointDotColor(m.endpointName(cs)), onPicker)
                     else ModelChip("", stringResource(R.string.ui_choose_model), c.textTertiary, onPicker, state = if (cs.modelMissing) ModelChipState.Missing else ModelChipState.Normal)
