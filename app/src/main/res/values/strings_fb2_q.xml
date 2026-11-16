@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb2_q_err_no_key_title">No API key</string>
+    <string name="fb2_q_err_no_key_body">This provider has no saved key. Add one</string>
+    <string name="fb2_q_file_unsupported">%1$s: unsupported file type</string>
+    <string name="fb2_q_tile_unsupported">Unsupported</string>
+</resources>

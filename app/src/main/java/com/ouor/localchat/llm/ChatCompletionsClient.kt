@@ -84,7 +84,7 @@ class ChatCompletionsClient internal constructor(
                 }
             }
             if (failure.partial || !RetryPolicy.isRetryable(failure.error) || attempt >= maxRetries) {
-                return@flow emit(LlmEvent.Failed(failure.error, failure.partial))
+                return@flow emit(LlmEvent.Failed(failure.error.withKey(target.apiKey), failure.partial))
             }
             attempt++
             val wait = RetryPolicy.delayMs(attempt, failure.retryAfterMs)
@@ -116,7 +116,7 @@ class ChatCompletionsClient internal constructor(
         } catch (e: IOException) {
             throw LlmException(ErrorClassifier.classify(e))
         }
-        if (code !in 200..299) throw LlmException(ErrorClassifier.classify(code, body))
+        if (code !in 200..299) throw LlmException(ErrorClassifier.classify(code, body).withKey(target.apiKey))
         return runCatching { json.parseToJsonElement(body).jsonObject.getValue("data").jsonArray.map { it.jsonObject } }
             .getOrElse { throw LlmException(LlmError.Protocol("unexpected /models body")) }
     }

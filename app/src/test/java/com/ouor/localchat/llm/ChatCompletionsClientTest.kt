@@ -142,6 +142,22 @@ class ChatCompletionsClientTest {
     }
 
     @Test
+    fun `401 without a key reads as no key, with a key as rejected (FB2 QA O3)`() = runTest {
+        server.enqueue(Scenario.http(401), Scenario.http(401))
+        val noKey = (run(target(key = null)).single() as LlmEvent.Failed).error
+        assertEquals(com.ouor.localchat.core.model.ChatErrorKind.NO_KEY, noKey.toChatError().kind)
+        val rejected = (run(target(key = "test-key")).single() as LlmEvent.Failed).error
+        assertEquals(com.ouor.localchat.core.model.ChatErrorKind.AUTH, rejected.toChatError().kind)
+        MockWebServer().apply { start() }.use { mock ->
+            mock.enqueue(MockResponse.Builder().code(401).body("""{"error":{"message":"no key"}}""").build())
+            val t = LlmTarget(mock.url("/v1").toString(), null, 0, allowHttp = true)
+            try { client.listModels(t); fail() } catch (e: LlmException) {
+                assertEquals(com.ouor.localchat.core.model.ChatErrorKind.NO_KEY, e.error.toChatError().kind)
+            }
+        }
+    }
+
+    @Test
     fun `R7 retries once without a field the server rejected`() = runTest {
         server.enqueue(
             Scenario.http(400, message = "Unrecognized key(s) in object: 'stream_options'"),
