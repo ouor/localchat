@@ -112,11 +112,12 @@ internal fun AssistantTurn(
     onSources: () -> Unit,
     onLink: (String) -> Unit,
     onErrorAction: (ErrorAction) -> Unit,
+    onReadAloud: ((String) -> Unit)? = null,
     toolStep: (ToolCallBlock) -> com.ouor.localchat.chat.ToolStep? = { null },
 ) {
     val body = reply.body
     val running = reply.live && state.running
-    val text = body.blocks.filterIsInstance<TextBlock>().joinToString("") { it.text }
+    val text = replyText(body.blocks)
     val sources = sources(body)
     var stepsOpen by rememberSaveable(reply.node.id) { mutableStateOf(false) }
     AssistantMessage {
@@ -152,6 +153,8 @@ internal fun AssistantTurn(
         if (!running) {
             MessageActionBar(
                 { onCopy(text) },
+                onReadAloud = if (onReadAloud != null && text.isNotBlank()) ({ onReadAloud(text) }) else null,
+                reading = state.readingId == reply.node.id,
                 onRegenerate = if (reply.canRegenerate) onRegenerate else null,
                 onContinue = if (reply.canContinue) onContinue else null,
                 branch = if (reply.versions.size > 1) ({ Versions(reply.version, reply.versions, onVersion) }) else null,
@@ -171,6 +174,17 @@ private fun Thinking(t: ThinkingData, live: Boolean, stopped: Boolean) {
     val state = when { live -> ThinkingState.Thinking; stopped && t.endedAt == null -> ThinkingState.Stopped; else -> ThinkingState.Done }
     val timer = if (live) "%.1fs".format(ms / 1000f) else stringResource(R.string.ui_seconds, (ms / 1000).toInt().coerceAtLeast(1))
     ThinkingBlock(state, timer, open, { open = !open }, t.text)
+}
+
+/** BUG-06: text written in different agent steps is separate paragraphs, not "first.Here are". */
+internal fun replyText(blocks: List<com.ouor.localchat.core.model.Block>): String {
+    val texts = blocks.filterIsInstance<TextBlock>()
+    return buildString {
+        texts.forEachIndexed { i, t ->
+            if (i > 0 && t.step != texts[i - 1].step && isNotBlank() && !endsWith("\n\n")) append("\n\n")
+            append(t.text)
+        }
+    }
 }
 
 @Composable

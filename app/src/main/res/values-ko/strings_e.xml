@@ -106,6 +106,7 @@
     <string name="ui_state_on">켜짐</string>
     <string name="ui_state_unavailable">사용할 수 없음</string>
     <string name="ui_stop">중지</string>
+    <string name="ui_read_aloud_unavailable">이 기기에서는 소리 내어 읽기를 쓸 수 없어요</string>
     <string name="ui_stop_reading">읽기 중지</string>
     <string name="ui_stop_task">작업 중지</string>
     <string name="ui_summarize_now">지금 요약</string>

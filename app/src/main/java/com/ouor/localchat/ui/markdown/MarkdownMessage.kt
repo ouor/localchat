@@ -160,8 +160,10 @@ private fun MarkdownBlock(
             })
         }
     }
+    // BUG-07: keep the last parse on screen while the final text re-parses (no empty frame).
+    val mdState = com.mikepenz.markdown.model.rememberMarkdownState(parts.text, retainState = true)
     Markdown(
-        content = parts.text,
+        markdownState = mdState,
         modifier = Modifier.fillMaxWidth(),
         colors = markdownColor(text = c.textPrimary, codeBackground = c.codeBg, inlineCodeBackground = c.surfaceSunken, dividerColor = c.border, tableBackground = c.surfaceRaised),
         typography = markdownTypography(
@@ -182,7 +184,7 @@ private fun MarkdownBlock(
                 // Mockup: body-size dot / number on the first line's baseline (library default floats it to the top).
                 unorderedList = {
                     MarkdownListItems(it.content, it.node, depth = it.listDepth, markerModifier = { Modifier.alignByBaseline() }, listModifier = { Modifier.alignByBaseline() }) { _, _, _ ->
-                        Text("•", style = it.typography.bullet.copy(fontSize = it.typography.bullet.fontSize * 1.25f), modifier = Modifier.padding(start = 2.dp, end = 8.dp))
+                        Text("•", style = it.typography.bullet.copy(fontSize = it.typography.bullet.fontSize * 1.25f), color = c.textPrimary, modifier = Modifier.padding(start = 2.dp, end = 8.dp))
                     }
                 },
                 orderedList = {
