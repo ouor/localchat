@@ -6,11 +6,36 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.flow.drop
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,7 +70,7 @@ import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.ui.components.BrowserOwner
 import com.ouor.localchat.ui.components.BrowserPanelFrame
-import com.ouor.localchat.ui.components.BrowserPeekCard
+import com.ouor.localchat.ui.components.BrowserStatusStrip
 import com.ouor.localchat.ui.components.BrowserToolbar
 import com.ouor.localchat.ui.components.ElementHighlightLayer
 import com.ouor.localchat.ui.components.HandoffBanner
@@ -59,7 +84,6 @@ import com.ouor.localchat.ui.components.TabCard
 import com.ouor.localchat.ui.components.TabGrid
 import com.ouor.localchat.ui.components.TabOwner
 import com.ouor.localchat.ui.components.TextFieldKind
-import com.ouor.localchat.ui.components.toolVisual
 import com.ouor.localchat.ui.theme.LcTheme
 
 /** Callbacks of the browser panel; [BrowserViewModel] implements all of them (pure-state screen, architecture 11). */
@@ -103,17 +127,20 @@ private fun TabInfo.tabOwner(s: BrowserUiState) = when {
 
 private fun TabInfo.shortUrl() = url.substringAfter("://").removePrefix("www.")
 
-/** Peek card shown above the composer (SC-11 collapsed). */
+private fun TabInfo.host() = url.substringAfter("://").substringBefore('/').removePrefix("www.")
+
+/** FB-1c: the tab the Peek strip shows — only while this chat's run operates it (user-tab Peek shows nothing, lead decision). */
+internal val BrowserUiState.stripTab: TabInfo?
+    get() = current?.takeIf { panel == PanelState.Peek && running && isMine(it) && it.control == Control.AI }
+
+/** The panel's Peek state above the composer (FB-1c): a one-line AI status strip. */
 @Composable
 fun BrowserPeek(s: BrowserUiState, actions: BrowserActions, modifier: Modifier = Modifier) {
-    val t = s.current ?: return
-    if (s.panel != PanelState.Peek) return
-    val tool = s.aiActivity[t.id]
-    BrowserPeekCard(
-        t.ownerUi(s), tool?.let { n -> toolVisual(n).label?.let { stringResource(it) } ?: n } ?: t.title.ifEmpty { t.shortUrl() }, t.shortUrl(),
-        onExpand = { actions.setPanel(PanelState.Half) }, modifier = modifier, detail = tool,
-        onTakeOver = if (t.owner is Owner.Ai && t.control == Control.AI) ({ actions.takeOver(t.id) }) else null,
-    ) { Thumbnail(t) }
+    val t = s.stripTab ?: return
+    BrowserStatusStrip(
+        t.title.ifEmpty { t.host() }, t.host(), onOpen = { actions.setPanel(PanelState.Half) },
+        onTakeOver = { actions.takeOver(t.id); actions.setPanel(PanelState.Half) }, modifier = modifier,
+    )
 }
 
 @Composable
@@ -122,34 +149,64 @@ private fun Thumbnail(t: TabInfo) {
     Image(bmp.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
 }
 
-/** Half / full panel overlay plus the tab list, prompts and the B-09 ③ snackbar. Place in a full-size Box. */
+private val PanelSnap = spring<Float>(dampingRatio = 1f, stiffness = 400f)
+
+/** One step up / down the drag anchors (FB-5 handle accessibility actions, back = down). */
+internal fun PanelState.up() = if (this >= PanelState.Half) PanelState.Full else PanelState.Half
+internal fun PanelState.down() = if (this == PanelState.Full) PanelState.Half else PanelState.Peek
+
+/**
+ * Half / full panel overlay plus the tab list, prompts and the B-09 ③ snackbar. Place in a full-size Box.
+ * FB-5: the handle + toolbar drag the panel between Peek (gone), Half (55%) and Full; [onCoverHeight] gets the px of the
+ * screen bottom the panel covers (0 at Peek), every frame while it moves.
+ */
 @Composable
-fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions) {
+fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (Int) -> Unit = {}) {
     val t = s.current
-    if (t != null && s.panel >= PanelState.Half) {
-        BackHandler { actions.setPanel(if (s.panel == PanelState.Full) PanelState.Half else PanelState.Peek) }
-        val full = s.panel == PanelState.Full
-        var editing by remember { mutableStateOf(false) }
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            // shortcut: no drag gestures between states; the handle toggles half/full, the chevron collapses.
+    val cover by rememberUpdatedState(onCoverHeight)
+    if (t != null) BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
+        val h = constraints.maxHeight.toFloat()
+        val target = maxOf(s.panel, PanelState.Peek)
+        val panelNow by rememberUpdatedState(target)
+        val state = remember { AnchoredDraggableState(PanelState.Peek) }
+        LaunchedEffect(h) { state.updateAnchors(DraggableAnchors { PanelState.Full at 0f; PanelState.Half at h * 0.45f; PanelState.Peek at h }) }
+        LaunchedEffect(target) { state.animateTo(target, PanelSnap) }
+        // A drag that settles on another anchor becomes the panel state (drop the initial Peek before the open animation).
+        LaunchedEffect(state) { snapshotFlow { state.settledValue }.drop(1).collect { if (it != panelNow) actions.setPanel(it) } }
+        LaunchedEffect(state, h) { snapshotFlow { state.offset.takeUnless(Float::isNaN)?.let { (h - it).roundToInt().coerceAtLeast(0) } ?: 0 }.collect { cover(it) } }
+        DisposableEffect(Unit) { onDispose { cover(0) } }
+        BackHandler(s.panel >= PanelState.Half) { actions.setPanel(s.panel.down()) }
+
+        val shown by remember(h) { derivedStateOf { state.offset < h - 0.5f } }
+        // Resizing the WebView every frame janks: while the panel moves it keeps full height and only slides.
+        val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { state.offset == it } ?: 0f } }
+        if (shown) Box(Modifier.fillMaxSize()) {
+            var editing by remember { mutableStateOf(false) }
+            val drag = remember { MutableInteractionSource() }
             Column(
-                (if (full) Modifier.fillMaxSize().statusBarsPadding() else Modifier.fillMaxWidth().fillMaxHeight(0.55f))
+                Modifier.fillMaxWidth().height(with(LocalDensity.current) { (h - top).toDp() })
+                    .offset { IntOffset(0, state.offset.roundToInt()) }
                     .background(LcTheme.colors.surfaceRaised).navigationBarsPadding(),
             ) {
-                if (!full) Box(Modifier.fillMaxWidth().height(20.dp).clickable { actions.setPanel(PanelState.Full) }, contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(36.dp, 4.dp).background(LcTheme.colors.borderStrong, com.ouor.localchat.ui.theme.LcRadius.full))
-                }
                 BrowserPanelFrame(
                     toolbar = {
-                        BrowserToolbar(
-                            t.shortUrl(), s.tabs.size,
-                            onCollapse = { actions.setPanel(if (full) PanelState.Half else PanelState.Peek) },
-                            onBack = actions::back, onForward = actions::forward, onReload = actions::reload,
-                            onUrlClick = { if (t.owner is Owner.User || t.control == Control.USER) editing = true },
-                            onTabs = { actions.showTabs(true) },
-                            secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
-                            progress = if (t.loading) 0.5f else null,
-                        )
+                        // Only the handle and the toolbar drag the panel; the WebView below keeps its own gestures.
+                        Column(
+                            Modifier.anchoredDraggable(
+                                state, Orientation.Vertical, interactionSource = drag,
+                                flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, positionalThreshold = { it * 0.5f }, animationSpec = PanelSnap),
+                            ),
+                        ) {
+                            PanelHandle(target, drag, actions)
+                            BrowserToolbar(
+                                t.shortUrl(), s.tabs.size, onCollapse = null,
+                                onBack = actions::back, onForward = actions::forward, onReload = actions::reload,
+                                onUrlClick = { if (t.owner is Owner.User || t.control == Control.USER) editing = true },
+                                onTabs = { actions.showTabs(true) },
+                                secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
+                                progress = if (t.loading) 0.5f else null,
+                            )
+                        }
                     },
                     ownership = {
                         OwnershipBar(
@@ -171,19 +228,44 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions) {
                 }
             }
             if (s.touchedAiTab == t.id) LcSnackbar(
-                stringResource(R.string.ui_switch_manual), Modifier.padding(12.dp).navigationBarsPadding(),
+                stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).navigationBarsPadding(),
                 icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
             )
-        }
-        if (editing) {
-            var text by remember { mutableStateOf(t.url) }
-            LcDialog(stringResource(R.string.ui_edit_url), { editing = false }, stringResource(R.string.ui_ok), { actions.navigate(text); editing = false }) {
-                LcTextField(text, { text = it }, kind = TextFieldKind.Url)
+            if (editing) {
+                var text by remember { mutableStateOf(t.url) }
+                LcDialog(stringResource(R.string.ui_edit_url), { editing = false }, stringResource(R.string.ui_ok), { actions.navigate(text); editing = false }) {
+                    LcTextField(text, { text = it }, kind = TextFieldKind.Url)
+                }
             }
         }
     }
     if (s.showTabs) TabsSheet(s, actions)
     s.prompt?.let { PromptDialog(it, actions) }
+}
+
+/** FB-5 handle: 24dp row, 36×4 bar (48×4 textTertiary while dragged), resize actions for TalkBack. */
+@Composable
+private fun PanelHandle(panel: PanelState, drag: MutableInteractionSource, actions: BrowserActions) {
+    val dragged by drag.collectIsDraggedAsState()
+    val w by animateDpAsState(if (dragged) 48.dp else 36.dp, tween(120), label = "handleW")
+    val color by animateColorAsState(if (dragged) LcTheme.colors.textTertiary else LcTheme.colors.borderStrong, tween(120), label = "handleC")
+    val desc = stringResource(R.string.fb_e4_handle_cd)
+    val state = stringResource(if (panel == PanelState.Full) R.string.fb_e4_state_full else R.string.fb_e4_state_half)
+    val expand = stringResource(R.string.ui_expand)
+    val collapse = stringResource(R.string.ui_collapse)
+    Box(
+        Modifier.fillMaxWidth().height(24.dp).semantics {
+            contentDescription = desc
+            stateDescription = state
+            // TalkBack double tap = one step up, Full goes back to Half.
+            onClick(if (panel == PanelState.Full) collapse else expand) { actions.setPanel(if (panel == PanelState.Full) PanelState.Half else PanelState.Full); true }
+            customActions = listOfNotNull(
+                CustomAccessibilityAction(expand) { actions.setPanel(panel.up()); true }.takeIf { panel != PanelState.Full },
+                CustomAccessibilityAction(collapse) { actions.setPanel(panel.down()); true },
+            )
+        },
+        contentAlignment = Alignment.Center,
+    ) { Box(Modifier.size(w, 4.dp).background(color, com.ouor.localchat.ui.theme.LcRadius.full)) }
 }
 
 /** Engine-owned WebView + highlight overlay (api-spec ui.browser.BrowserSurface). */

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb_e4_strip_cd">AI가 %1$s에서 작업 중, 브라우저 열기</string>
+    <string name="fb_e4_handle_cd">패널 크기 조절</string>
+    <string name="fb_e4_state_half">절반</string>
+    <string name="fb_e4_state_full">전체</string>
+</resources>

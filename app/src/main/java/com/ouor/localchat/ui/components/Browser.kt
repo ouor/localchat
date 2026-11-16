@@ -19,6 +19,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -184,14 +191,59 @@ fun BrowserPeekCard(
     }
 }
 
+// ---------------- BrowserStatusStrip (FB-1c) ----------------
+
+/**
+ * One-line "AI is operating" strip above the composer = the browser panel's Peek state (FB-1c).
+ * Body tap or an upward drag = [onOpen]; the take-over button always keeps its width.
+ */
+@Composable
+fun BrowserStatusStrip(title: String, host: String, onOpen: () -> Unit, onTakeOver: () -> Unit, modifier: Modifier = Modifier) {
+    val c = LcTheme.colors
+    val desc = stringResource(R.string.fb_e4_strip_cd, title)
+    val density = LocalDensity.current
+    val dragged = remember { floatArrayOf(0f) }
+    val drag = rememberDraggableState { dragged[0] += it }
+    Surface(
+        onClick = onOpen, shape = LcRadius.full, color = c.agentContainer, contentColor = c.onAgentContainer,
+        modifier = modifier.fillMaxWidth()
+            .draggable(drag, Orientation.Vertical, onDragStarted = { dragged[0] = 0f }, onDragStopped = { v ->
+                // shortcut: opens on release (24dp up or a 125dp/s fling) instead of following the finger; the strip and the panel share no drag state.
+                if (dragged[0] < -with(density) { 24.dp.toPx() } || v < -with(density) { 125.dp.toPx() }) onOpen()
+            })
+            .semantics { contentDescription = desc; liveRegion = LiveRegionMode.Polite },
+    ) {
+        Box {
+            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
+                BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    val hostMax = maxWidth * 0.4f
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, style = LcTheme.text.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).clearAndSetSemantics {})
+                        Text(" · $host", style = LcTheme.text.caption, color = c.onAgentContainer.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = hostMax).clearAndSetSemantics {})
+                    }
+                }
+                Surface(onClick = onTakeOver, shape = LcRadius.full, color = c.surfaceRaised, contentColor = c.textPrimary) {
+                    Row(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Outlined.FrontHand, null, Modifier.size(16.dp))
+                        Text(stringResource(R.string.ui_take_over), style = LcTheme.text.label, maxLines = 1, softWrap = false)
+                    }
+                }
+            }
+            WorkingBar(Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp), color = c.agent)
+        }
+    }
+}
+
 // ---------------- BrowserToolbar (.btool) ----------------
 
-/** 52dp: collapse · back · forward · URL pill (lock/warning · url · reload) · tab count; [progress] = loading bar. */
+/** 52dp: [collapse] · back · forward · URL pill (lock/warning · url · reload) · tab count; [progress] = loading bar. */
 @Composable
 fun BrowserToolbar(
     url: String,
     tabCount: Int,
-    onCollapse: () -> Unit,
+    /** Null hides the chevron (FB-5: the panel collapses by dragging its handle). */
+    onCollapse: (() -> Unit)?,
     onBack: () -> Unit,
     onForward: () -> Unit,
     onReload: () -> Unit,
@@ -206,8 +258,8 @@ fun BrowserToolbar(
 ) {
     val c = LcTheme.colors
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            LcIconButton(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.ui_collapse), onCollapse, size = IconButtonSize.Sm)
+        Row(Modifier.fillMaxWidth().height(52.dp).padding(start = if (onCollapse == null) 8.dp else 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (onCollapse != null) LcIconButton(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.ui_collapse), onCollapse, size = IconButtonSize.Sm)
             LcIconButton(Icons.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack, size = IconButtonSize.Sm, enabled = canGoBack)
             LcIconButton(Icons.Rounded.ArrowForward, stringResource(R.string.ui_forward), onForward, size = IconButtonSize.Sm, enabled = canGoForward)
             Surface(onClick = onUrlClick, modifier = Modifier.weight(1f).height(36.dp), shape = LcRadius.full, color = c.surfaceSunken, contentColor = c.textPrimary) {
