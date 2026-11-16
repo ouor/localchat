@@ -114,6 +114,8 @@ fun LcSheetHeader(title: String?, onClose: (() -> Unit)?, modifier: Modifier = M
 
 /**
  * Modal sheet (M3). [locked] = approval sheet: no swipe / outside / back dismiss; the content must offer the decision.
+ * [heightFraction] = fixed height (share of the screen), opened fully: content that grows (expanded groups, extra
+ * fields) only adds below, so the control just tapped stays put (P-STABLE). Null = wrap content.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,10 +125,11 @@ fun LcBottomSheet(
     modifier: Modifier = Modifier,
     locked: Boolean = false,
     fullHeight: Boolean = false,
+    heightFraction: Float? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = LcTheme.colors
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = fullHeight || locked, confirmValueChange = { !locked || it != androidx.compose.material3.SheetValue.Hidden })
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = fullHeight || locked || heightFraction != null, confirmValueChange = { !locked || it != androidx.compose.material3.SheetValue.Hidden })
     ModalBottomSheet(
         onDismissRequest = { if (!locked) onDismiss() },
         sheetState = state,
@@ -140,8 +143,10 @@ fun LcBottomSheet(
         sheetGesturesEnabled = !locked,
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = !locked),
     ) {
-        LcSheetHeader(title, if (locked) null else onDismiss)
-        content()
+        Column(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier) {
+            LcSheetHeader(title, if (locked) null else onDismiss)
+            content()
+        }
     }
 }
 
@@ -222,7 +227,7 @@ fun SettingsGroup(modifier: Modifier = Modifier, content: @Composable ColumnScop
 
 /**
  * One settings/list row: optional leading icon, title + subtitle, [value], trailing slot
- * (use [SettingsChevron], [LcSwitch], [Stepper], or badge + switch). [divider] = not the first row.
+ * (use [SettingsChevron], [LcSwitch], [Stepper], or badge + switch; text values go in [value]). [divider] = not the first row.
  *
  * FB-2: the title is measured first and never wraps. [value] sits on the title line (1 line, ellipsis)
  * when at least 96dp is left next to the title, otherwise it drops to a second line (max 2 lines).
@@ -292,9 +297,6 @@ private fun TitleValue(title: String, titleColor: Color, value: String?, subtitl
 @Composable
 fun SettingsChevron() = Icon(Icons.Rounded.ChevronRight, null, Modifier.size(20.dp), tint = LcTheme.colors.iconSecondary)
 
-/** Short trailing text; prefer [SettingsRow]'s `value` for anything that can be long. */
-@Composable
-fun SettingsValue(text: String) = Text(text, style = LcTheme.text.body, color = LcTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
 /** − value + stepper (e.g. retries, step limit). */
 @Composable

@@ -31,6 +31,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.platform.testTag
 import com.ouor.localchat.ui.components.SourceBadge
 import com.ouor.localchat.R
+import androidx.compose.material.icons.rounded.MoreVert
+import com.ouor.localchat.ui.components.BrowserStatusStrip
+import com.ouor.localchat.ui.components.BrowserToolbar
+import com.ouor.localchat.ui.components.ComposerRail
+import com.ouor.localchat.ui.components.ContextGauge
+import com.ouor.localchat.ui.components.LcIconButton
+import com.ouor.localchat.ui.components.LcTopBar
+import com.ouor.localchat.ui.components.ModelChip
+import org.junit.Assert.assertFalse
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.testing.ScreenOnRule
@@ -80,25 +89,78 @@ class LayoutStressTest {
         assertTrue("$b outside $root", b.left >= root.left && b.right <= root.right && b.right > b.left)
     }
 
-    @Test fun settingsRowKeepsLabelOnOneLine() {
+    @Test fun settingsRowKeepsLabelWholeAndDropsValue() {
         stress {
             SettingsGroup {
                 SettingsRow("새 대화 기본 모델", value = model80, onClick = {}) { Icon(Icons.Rounded.ChevronRight, "chev1", Modifier.size(20.dp)) }
-                SettingsRow("새 대화 기본 모델 $cjk60", value = model80, divider = true, onClick = {}) { Icon(Icons.Rounded.ChevronRight, "chev2", Modifier.size(20.dp)) }
+                SettingsRow("새 대화 기본 모델 $cjk60", value = "B-$model80", divider = true, onClick = {}) { Icon(Icons.Rounded.ChevronRight, "chev2", Modifier.size(20.dp)) }
                 SettingsRow(provider40, subtitle = "api.example.com", divider = true) { Icon(Icons.Rounded.ChevronRight, "chev3", Modifier.size(20.dp)) }
+                SettingsRow("언어", value = "English", divider = true, onClick = {})
             }
         }
-        assertEquals(1, lines(rule.onNodeWithText("새 대화 기본 모델", useUnmergedTree = true)))
-        assertEquals(1, lines(rule.onNodeWithText("새 대화 기본 모델 $cjk60", useUnmergedTree = true)))
-        assertEquals(1, lines(rule.onNodeWithText(provider40, useUnmergedTree = true)))
-        // The value is never squeezed into a vertical column: one line beside, or at most two below.
-        rule.onAllNodesWithTextCount(model80).forEach { assertTrue(lines(it) <= 2) }
+        // A label that fits is never cut: one line, no ellipsis, no clipping (the FB-2 regression squeezed it).
+        listOf("새 대화 기본 모델", "언어").forEach { label ->
+            val t = layout(rule.onNodeWithText(label, useUnmergedTree = true))
+            assertEquals(label, 1, t.lineCount)
+            assertFalse(label, t.isLineEllipsized(0))
+            // Laid out whole: the line ends inside the text box (hasVisualOverflow is not usable here: with
+            // Ellipsis the paragraph is laid out at the max width even when the text is shorter).
+            assertTrue("$label cut: right=${t.getLineRight(0)} width=${t.size.width}", t.getLineRight(0) <= t.size.width + 1f)
+        }
+        // Labels too long for the row still take one line (ellipsis), never wrap into a column.
+        assertEquals(1, layout(rule.onNodeWithText("새 대화 기본 모델 $cjk60", useUnmergedTree = true)).lineCount)
+        assertEquals(1, layout(rule.onNodeWithText(provider40, useUnmergedTree = true)).lineCount)
+        // Long values go below the label; a short value stays on the label's line.
+        assertBelow(rule.onNodeWithText(model80, useUnmergedTree = true), rule.onNodeWithText("새 대화 기본 모델", useUnmergedTree = true))
+        assertBelow(rule.onNodeWithText("B-$model80", useUnmergedTree = true), rule.onNodeWithText("새 대화 기본 모델 $cjk60", useUnmergedTree = true))
+        val en = rule.onNodeWithText("English", useUnmergedTree = true).getBoundsInRoot()
+        val lang = rule.onNodeWithText("언어", useUnmergedTree = true).getBoundsInRoot()
+        assertTrue("English $en not beside $lang", en.top < lang.bottom && en.left > lang.right)
         listOf("chev1", "chev2", "chev3").forEach { assertOnScreen(rule.onNodeWithContentDescription(it, useUnmergedTree = true)) }
+    }
+
+    @Test fun chromeKeepsControlsOnScreen() {
+        stress {
+            LcTopBar(title100, subtitle = provider40, actions = { LcIconButton(Icons.Rounded.MoreVert, "more", {}) })
+            BrowserToolbar("https://www.example.com/" + "very-long-path-segment/".repeat(8), 3, null, {}, {}, {}, {}, {})
+            ComposerRail(
+                start = { ModelChip(provider40, model80, Color.Red, {}, Modifier.weight(1f, fill = false)) },
+                end = { ContextGauge(null, {}, tokensText = ctx.getString(R.string.ui_tokens, "31.6k")) },
+            )
+            BrowserStatusStrip("S-$title100", "www.example.com", {}, {})
+        }
+        // Top bar: title and subtitle end in an ellipsis on one line (not clipped); the action stays visible.
+        listOf(title100, provider40).forEach {
+            val t = layout(rule.onNodeWithText(it, useUnmergedTree = true))
+            assertEquals(1, t.lineCount)
+            assertTrue("$it should end in an ellipsis", t.isLineEllipsized(0))
+        }
+        assertOnScreen(rule.onNodeWithContentDescription("more"))
+        // Address bar: URL ellipsized; reload and tab count stay on screen.
+        assertTrue(layout(rule.onNodeWithText("very-long-path-segment", substring = true, useUnmergedTree = true)).isLineEllipsized(0))
+        assertOnScreen(rule.onNodeWithContentDescription(ctx.getString(R.string.ui_reload)))
+        assertOnScreen(rule.onNodeWithContentDescription(ctx.getString(R.string.ui_tabs_desc, 3)))
+        // Composer rail: the gauge text is whole on one line; only the model chip gives way.
+        val gauge = layout(rule.onNodeWithText(ctx.getString(R.string.ui_tokens, "31.6k"), useUnmergedTree = true))
+        assertEquals(1, gauge.lineCount)
+        assertFalse(gauge.isLineEllipsized(0))
+        assertTrue("gauge cut: right=${gauge.getLineRight(0)} width=${gauge.size.width}", gauge.getLineRight(0) <= gauge.size.width + 1f)
+        assertTrue(layout(rule.onNodeWithText(model80, substring = true, useUnmergedTree = true)).isLineEllipsized(0))
+        // Agent strip: the take-over button is whole and on screen.
+        val take = rule.onNodeWithText(ctx.getString(R.string.ui_take_over), useUnmergedTree = true)
+        layout(take).let { assertTrue("take over cut", it.getLineRight(0) <= it.size.width + 1f) }
+        assertOnScreen(take)
+    }
+
+    private fun assertBelow(lower: SemanticsNodeInteraction, upper: SemanticsNodeInteraction) {
+        val l = lower.getBoundsInRoot()
+        val u = upper.getBoundsInRoot()
+        assertTrue("$l not below $u", l.top >= u.bottom)
     }
 
     @Test fun modelRowAndHeaderKeepIconsOnScreen() {
         stress {
-            EndpointGroupHeader(provider40, Color.Red, 308, expanded = false, onToggle = {}, hasSelected = true, http = true)
+            EndpointGroupHeader(provider40, Color.Red, 308, expanded = false, onToggle = {}, hasSelected = true)
             ModelRow(model80, {}, subtitle = model80, notListed = true, selected = true) {
                 CapabilityIcons(tools = true, image = true, reasoning = true)
             }

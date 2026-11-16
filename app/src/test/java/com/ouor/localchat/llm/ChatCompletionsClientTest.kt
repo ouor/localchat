@@ -170,6 +170,32 @@ class ChatCompletionsClientTest {
         assertTrue("stream_options" in retried)
     }
 
+    private val useCompletionTokens =
+        "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+
+    @Test
+    fun `M-2 R7 resends the limit as max_completion_tokens when the server asks for it`() = runTest {
+        server.enqueue(Scenario.http(400, message = useCompletionTokens), Scenario.text("ok"))
+        assertEquals("ok", client.stream(target(), request.copy(maxTokens = 4096)).toList().text())
+        server.takeRequest()
+        val retried = AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        assertFalse("max_tokens" in retried)
+        assertEquals("4096", retried["max_completion_tokens"]!!.jsonPrimitive.content)
+        assertTrue("stream_options" in retried)
+    }
+
+    @Test
+    fun `M-2 the endpoint is remembered - the next request sends max_completion_tokens with no retry`() = runTest {
+        server.enqueue(Scenario.http(400, message = useCompletionTokens), Scenario.text("ok"), Scenario.text("again"))
+        client.stream(target(), request.copy(maxTokens = 4096)).toList()
+        assertEquals("again", client.stream(target(), request.copy(maxTokens = 2048)).toList().text())
+        server.takeRequest()
+        server.takeRequest()
+        val next = AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        assertFalse("max_tokens" in next)
+        assertEquals("2048", next["max_completion_tokens"]!!.jsonPrimitive.content)
+    }
+
     @Test
     fun `R7 does not strip thinking for the DeepSeek reasoning message`() = runTest {
         server.enqueue(Scenario.http(400, message = "The reasoning_content in the thinking mode must be passed back"))

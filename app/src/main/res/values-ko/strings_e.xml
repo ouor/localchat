@@ -74,7 +74,6 @@
     <string name="ui_me">나</string>
     <string name="ui_model_missing">모델 없음</string>
     <string name="ui_more">더 보기</string>
-    <string name="ui_n_webpages">%1$d개 웹페이지</string>
     <string name="ui_next_version">다음 버전</string>
     <string name="ui_not_listed">목록에 없음</string>
     <string name="ui_other_chat">다른 대화</string>

@@ -9,6 +9,7 @@ import com.ouor.localchat.chat.FakeTool
 import com.ouor.localchat.chat.Harness
 import com.ouor.localchat.chat.TEST_MODEL
 import com.ouor.localchat.chat.caps
+import com.ouor.localchat.chat.context.ContextAssembler
 import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.context.Untrusted
 import com.ouor.localchat.core.Ids
@@ -497,6 +498,20 @@ class AgentLoopTest {
         assertEquals("S", h.store.summaryList.drop(before).single().text)
         assertEquals(1, h.llm.requests.size)
         assertEquals(SystemPrompt.SUMMARY_PREFIX + "S", h.llm.requests.single().messages[1].content!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `M-1 a user max output over the room left is cut before sending, with no compaction`() = runTest {
+        val userMax = caps(window = 8000).copy(maxOutputTokens = com.ouor.localchat.core.model.Sourced(4000, com.ouor.localchat.core.model.CapSource.USER))
+        val h = Harness(this, models = FakeModelPort(userMax))
+        val sid = threeTurns(h, usage = Usage(5000, 0))
+        h.llm.text("a4")
+        h.engine.send(sid, draft("q4"), GenOptions(), TEST_MODEL)
+        advanceUntilIdle()
+        val sent = h.llm.requests.single().maxTokens!!
+        assertTrue("max_tokens $sent", sent in ContextAssembler.MIN_OUTPUT..3000)
+        assertTrue(h.store.summaryList.isEmpty())
+        assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
     }
 
     @Test

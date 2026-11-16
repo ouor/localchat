@@ -114,6 +114,19 @@ object ContextAssembler {
         ).withReasoning(input.model.reasoningWire, input.options.reasoning, effort)
     }
 
+    /**
+     * M-1: a user max output bigger than the room the input leaves would make vLLM-style servers answer
+     * 400 "maximum context length", read as ContextOverflow (a needless compaction). Cut it to the room,
+     * or omit it when less than [MIN_OUTPUT] is left.
+     */
+    fun fitOutput(request: ChatRequest, window: Int?, inputEstimate: Int): ChatRequest {
+        val user = request.maxTokens ?: return request
+        val room = (window ?: return request) - inputEstimate
+        return request.copy(maxTokens = if (room >= MIN_OUTPUT) minOf(user, room) else null)
+    }
+
+    const val MIN_OUTPUT = 256
+
     /** Non-streaming side request (summary, title): no tools, reasoning off where it can be switched off. */
     fun plain(model: ResolvedModel, system: String, user: String) = ChatRequest(
         model = model.ref.modelId,

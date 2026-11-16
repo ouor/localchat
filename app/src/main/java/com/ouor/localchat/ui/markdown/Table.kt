@@ -1,6 +1,5 @@
 package com.ouor.localchat.ui.markdown
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -49,7 +48,11 @@ internal fun WrapTable(content: String, node: ASTNode, style: TextStyle) {
     val cols = rows.maxOfOrNull { it.size } ?: 0
     if (cols == 0) return
     val settings = annotatorSettings()
-    val grown = remember { mutableListOf<Int>() } // measured widths, never shrink (no jumps while streaming)
+    // Measured widths only grow while streaming (no jumps). Keyed by where the table starts and its header text, so
+    // another table taking this slot starts fresh; both stay the same while rows stream in.
+    val headerText = node.children.firstOrNull { it.type == GFMElementTypes.HEADER }?.let { content.substring(it.startOffset, it.endOffset) }
+    val grown = remember(node.startOffset, headerText) { mutableListOf<Int>() }
+    val rowTops = remember { mutableListOf<Int>() } // last layout's row offsets, for the header fill and row lines
     val scroll = rememberScrollState()
     val shape = RoundedCornerShape(12.dp)
     val wrap = TextStyle(lineBreak = LineBreak.Simple, hyphens = Hyphens.None)
@@ -71,16 +74,15 @@ internal fun WrapTable(content: String, node: ASTNode, style: TextStyle) {
                 .clip(shape)
                 .horizontalScroll(scroll),
         ) {
-            Layout(content = {
+            Layout(modifier = Modifier.drawBehind {
+                if (rowTops.isEmpty()) return@drawBehind
+                drawRect(c.surfaceSunken, size = size.copy(height = rowTops.getOrNull(1)?.toFloat() ?: size.height))
+                for (y in rowTops.drop(1)) drawLine(c.border, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), 1.dp.toPx())
+            }, content = {
                 rows.forEachIndexed { r, cells ->
                     for (j in 0 until cols) {
                         val cell = cells.getOrNull(j)
-                        Box(
-                            Modifier
-                                .then(if (r == 0) Modifier.background(c.surfaceSunken) else Modifier)
-                                .drawBehind { if (r > 0) drawLine(c.border, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                        ) {
+                        Box(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                             if (cell != null) MarkdownTableBasicText(content, cell, if (r == 0) head else body, Int.MAX_VALUE, TextOverflow.Clip, settings)
                         }
                     }
@@ -102,8 +104,10 @@ internal fun WrapTable(content: String, node: ASTNode, style: TextStyle) {
                         w[j] += add; left -= add
                     }
                 }
-                val h = grid.map { row -> row.withIndex().maxOf { (j, m) -> m.minIntrinsicHeight(w[j]) } }
-                val ps = grid.mapIndexed { i, row -> row.mapIndexed { j, m -> m.measure(Constraints.fixed(w[j], h[i])) } }
+                // One measure per cell at its column width; the row is as tall as its tallest cell (cells sit at the top).
+                val ps = grid.map { row -> row.mapIndexed { j, m -> m.measure(Constraints(minWidth = w[j], maxWidth = w[j])) } }
+                val h = ps.map { row -> row.maxOf { it.height } }
+                rowTops.clear(); h.runningFold(0) { a, b -> a + b }.dropLast(1).forEach { rowTops += it }
                 layout(w.sum(), h.sum()) {
                     var y = 0
                     ps.forEachIndexed { i, row ->

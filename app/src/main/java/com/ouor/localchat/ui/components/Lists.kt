@@ -159,7 +159,7 @@ fun ModelRow(
 }
 
 /**
- * FB-3 group header: dot + name + badges (http, disabled) + [selected check] + count + chevron.
+ * FB-3 group header: dot + name + [selected check] + count + chevron.
  * With [onToggle] the whole row toggles [expanded]; [dotColor] null = no dot (provider detail "모델").
  */
 @Composable
@@ -168,8 +168,6 @@ fun EndpointGroupHeader(
     dotColor: Color?,
     count: Int,
     modifier: Modifier = Modifier,
-    http: Boolean = false,
-    disabled: Boolean = false,
     expanded: Boolean = true,
     onToggle: (() -> Unit)? = null,
     hasSelected: Boolean = false,
@@ -189,11 +187,7 @@ fun EndpointGroupHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (dotColor != null) { EndpointDot(dotColor); Spacer(Modifier.width(10.dp)) }
-        Row(Modifier.weight(1f).padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(name, style = LcTheme.text.bodyStrong, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (http) LcBadge("http", variant = BadgeVariant.Warn)
-            if (disabled) LcBadge(stringResource(R.string.ui_disabled), variant = BadgeVariant.Neutral)
-        }
+        Text(name, style = LcTheme.text.bodyStrong, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 8.dp))
         if (hasSelected) { Icon(Icons.Rounded.Check, null, Modifier.size(16.dp), tint = c.accentText); Spacer(Modifier.width(8.dp)) }
         Text("$count", style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, softWrap = false)
         if (onToggle != null) {

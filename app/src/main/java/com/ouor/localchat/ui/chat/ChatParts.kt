@@ -322,8 +322,9 @@ internal fun ModelPickerSheet(
     endpointIds: List<String> = emptyList(),
     onPick: (ModelRef) -> Unit,
 ) {
-    LcBottomSheet(onDismiss, stringResource(R.string.ui_choose_model)) {
-        ModelPickerList(models, current, endpointName, showRecent, endpointIds, onPick)
+    // P-STABLE (H4): fixed height so expanding a group only adds rows below the header that was tapped.
+    LcBottomSheet(onDismiss, stringResource(R.string.ui_choose_model), heightFraction = 0.9f) {
+        ModelPickerList(models, current, endpointName, showRecent, endpointIds, onPick, Modifier.fillMaxSize())
     }
 }
 
@@ -336,13 +337,14 @@ internal fun ModelPickerList(
     showRecent: Boolean,
     endpointIds: List<String>,
     onPick: (ModelRef) -> Unit,
+    modifier: Modifier = Modifier.heightIn(max = 600.dp),
 ) {
     val c = com.ouor.localchat.ui.theme.LcTheme.colors
     val recent = if (showRecent) models.filter { it.lastUsedAt != null }.sortedByDescending { it.lastUsedAt }.take(3) else emptyList()
     val byEndpoint = models.groupBy { it.endpointId }
     val groups = (endpointIds + byEndpoint.keys).distinct()
     val open = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    LazyColumn(Modifier.heightIn(max = 600.dp)) {
+    LazyColumn(modifier) {
         @Composable fun Row(m: ModelInfo) = ModelRow(
             m.displayName, { onPick(m.ref) },
             subtitle = if (m.displayName != m.modelId) m.modelId else null,

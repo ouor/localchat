@@ -71,6 +71,7 @@ import com.ouor.localchat.ui.theme.LcTheme
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -87,6 +88,9 @@ class SettingsViewModel @Inject constructor(
     val settings: StateFlow<AppSettings?> = store.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val models: StateFlow<List<ModelInfo>> = providers.allVisibleModels.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val endpointCount = providers.endpoints.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Model picker groups: same rule as the chat sheet ([com.ouor.localchat.ui.chat.pickerEndpoints]). */
+    val pickerEndpointIds: StateFlow<List<String>> = providers.endpoints.map { eps -> com.ouor.localchat.ui.chat.pickerEndpoints(eps).map { it.id } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val voices: StateFlow<List<TtsVoice>> = readAloud.voices
 
     fun update(transform: AppSettings.() -> AppSettings) { viewModelScope.launch { store.update(transform) } }
@@ -122,6 +126,7 @@ fun SettingsHomeRoute(vm: SettingsViewModel, onBack: () -> Unit, onProviders: ()
     val s by vm.settings.collectAsStateWithLifecycle()
     val models by vm.models.collectAsStateWithLifecycle()
     val endpoints by vm.endpointCount.collectAsStateWithLifecycle()
+    val pickerIds by vm.pickerEndpointIds.collectAsStateWithLifecycle()
     val voices by vm.voices.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var picker by remember { mutableStateOf(false) }
@@ -181,7 +186,7 @@ fun SettingsHomeRoute(vm: SettingsViewModel, onBack: () -> Unit, onProviders: ()
     }
     if (picker) ModelPickerSheet(
         models, set.defaultModel, { id -> endpoints.firstOrNull { it.id == id }?.name.orEmpty() }, { picker = false },
-        showRecent = false, endpointIds = endpoints.filter { it.enabled }.map { it.id },
+        showRecent = false, endpointIds = pickerIds,
     ) {
         vm.update { copy(defaultModel = it) }; picker = false
     }

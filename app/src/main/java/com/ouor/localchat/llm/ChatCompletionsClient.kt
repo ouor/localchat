@@ -24,6 +24,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,6 +49,10 @@ class ChatCompletionsClient internal constructor(
             it.body.source().timeout().timeout(http.readTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
         }
     }.build()
+
+    /** M-2: chat URLs that asked for `max_completion_tokens` (OpenAI o-series, gpt-5); memory only. */
+    private val completionTokensUrls = ConcurrentHashMap.newKeySet<String>()
+
     /**
      * Streams one completion, retrying per [LlmTarget.maxRetries] until the first content delta.
      * Emits exactly one terminal event ([LlmEvent.Finished] or [LlmEvent.Failed]). Cancellation is
@@ -59,9 +64,16 @@ class ChatCompletionsClient internal constructor(
         val maxRetries = target.maxRetries.coerceIn(0, 10)
         var body = request.copy(stream = true)
         var strippedField = false
+        var renamed = false
         var attempt = 0
         while (true) {
-            val failure = attemptOnce(url, target.apiKey, body) ?: return@flow
+            val failure = attemptOnce(url, target.apiKey, body, url.toString() in completionTokensUrls) ?: return@flow
+            if (!failure.partial && !renamed && body.maxTokens != null && asksForCompletionTokens(failure.error)) {
+                // M-2: same limit under the field the server named; later requests use it from the start.
+                completionTokensUrls += url.toString()
+                renamed = true
+                continue
+            }
             if (!failure.partial && !strippedField) {
                 // R7: retry once without an optional field the server named in its 400.
                 val stripped = withoutRejectedField(body, failure.error)
@@ -110,12 +122,12 @@ class ChatCompletionsClient internal constructor(
     }
 
     /** One HTTP attempt. Emits deltas and, on success, the terminal events; returns null then. */
-    private suspend fun FlowCollector<LlmEvent>.attemptOnce(url: HttpUrl, apiKey: String?, body: ChatRequest): Failure? {
+    private suspend fun FlowCollector<LlmEvent>.attemptOnce(url: HttpUrl, apiKey: String?, body: ChatRequest, completionTokens: Boolean): Failure? {
         val asm = StreamAssembler()
         var failure: Failure? = null
         var done = false
         val request = Request.Builder().url(url).auth(apiKey)
-            .post(json.encodeToString(ChatRequest.serializer(), body).toRequestBody(JSON))
+            .post(encode(body, completionTokens).toRequestBody(JSON))
             .build()
         chatHttp.sseData(request)
             .transformWhile { data ->
@@ -157,18 +169,36 @@ class ChatCompletionsClient internal constructor(
         }
     }
 
-    /** R7: `stream_options` / `thinking` / `max_tokens` named (quoted) in a 400 and present in the request. */
+    /** [completionTokens]: `max_tokens` goes out as `max_completion_tokens` (M-2). */
+    private fun encode(body: ChatRequest, completionTokens: Boolean): String {
+        if (!completionTokens || body.maxTokens == null) return json.encodeToString(ChatRequest.serializer(), body)
+        val obj = json.encodeToJsonElement(ChatRequest.serializer(), body).jsonObject
+        return JsonObject(obj.mapKeys { if (it.key == "max_tokens") "max_completion_tokens" else it.key }).toString()
+    }
+
+    /** M-2: a 400 that rejects `max_tokens` and points at `max_completion_tokens` instead. */
+    private fun asksForCompletionTokens(error: LlmError): Boolean {
+        val message = (error as? LlmError.BadRequest)?.serverMessage ?: return false
+        return named(message, "max_tokens") && "max_completion_tokens" in message
+    }
+
+    /**
+     * R7: `stream_options` / `thinking` / `max_tokens` (or `max_completion_tokens`, as it may have been sent)
+     * named (quoted) in a 400 and present in the request.
+     */
     private fun withoutRejectedField(body: ChatRequest, error: LlmError): ChatRequest? {
         if (error !is LlmError.BadRequest) return null
         val message = error.serverMessage ?: return null
-        fun named(field: String) = Regex("""["'`]$field\b""").containsMatchIn(message)
         return when {
-            body.streamOptions != null && named("stream_options") -> body.copy(streamOptions = null)
-            body.thinking != null && named("thinking") -> body.copy(thinking = null)
-            body.maxTokens != null && named("max_tokens") -> body.copy(maxTokens = null)
+            body.streamOptions != null && named(message, "stream_options") -> body.copy(streamOptions = null)
+            body.thinking != null && named(message, "thinking") -> body.copy(thinking = null)
+            body.maxTokens != null && (named(message, "max_tokens") || named(message, "max_completion_tokens")) ->
+                body.copy(maxTokens = null)
             else -> null
         }
     }
+
+    private fun named(message: String, field: String) = Regex("""["'`]$field\b""").containsMatchIn(message)
 
     private class Failure(val error: LlmError, val partial: Boolean, val retryAfterMs: Long? = null)
 
