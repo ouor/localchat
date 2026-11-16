@@ -133,8 +133,9 @@ data class InlineParts(val text: String, val math: List<String>)
 // `$x$`: no space right inside the dollars, closing `$` not followed by a digit (avoids "$5 and $10").
 private val INLINE_MATH = Regex("""(?<![\\$])\$(?=[^\s$])([^$\n]*?[^\s$\\])\$(?!\d)|\\\((.+?)\\\)""")
 // `[1][2]` are adjacent citations (reference-style links `[x][1]` are rare in model output and render fine as badges).
-// BUG-15: "[1]:" mid-sentence is a citation; only a line-leading "[1]:" is a reference definition. `a[1]` (index) is not.
-private val CITATION = Regex("""(?<![\\!\p{L}\p{N}_])\[(\d{1,3})](?!\()""")
+// BUG-15: "[1]:" mid-sentence is a citation; only a line-leading "[1]:" is a reference definition.
+// FB-1e: any letter may precede (Korean "다[36]"); `[1, 2]` is a citation list, kept raw unless every number is a source.
+private val CITATION = Regex("""(?<![\\!])\[(\d{1,3}(?:\s*,\s*\d{1,3})*)](?!\()""")
 private val CODE_SPAN = Regex("""(`+)[\s\S]*?\1""")
 
 fun tokenizeInline(markdown: String, citable: Set<Int>): InlineParts {
@@ -159,10 +160,10 @@ private fun tokenizePlain(s: String, citable: Set<Int>, math: MutableList<String
     }
     if (citable.isEmpty()) return withMath
     return CITATION.replace(withMath) { m ->
-        val n = m.groupValues[1].toInt()
+        val ns = m.groupValues[1].split(',').map { it.trim().toInt() }
         val definition = withMath.getOrNull(m.range.last + 1) == ':' &&
             withMath.substring(0, m.range.first).substringAfterLast('\n').isBlank()
-        if (n in citable && !definition) "$TOKEN_OPEN" + "c$n$TOKEN_CLOSE" else m.value
+        if (ns.all { it in citable } && !definition) ns.joinToString("") { "$TOKEN_OPEN" + "c$it$TOKEN_CLOSE" } else m.value
     }
 }
 
