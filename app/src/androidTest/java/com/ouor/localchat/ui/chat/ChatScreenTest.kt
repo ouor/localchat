@@ -7,6 +7,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -308,5 +310,55 @@ class ChatScreenTest {
         longChat(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "s", running = true))
         val handle = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd))
         rule.waitUntil(5_000) { runCatching { tailBottom() <= handle.fetchSemanticsNode().boundsInRoot.top }.getOrDefault(false) }
+    }
+
+    /** Empty chat (options open) at 360dp and 200% font; [touchTargets] false makes chip node bounds equal the drawn chip. */
+    private fun bigFontEmptyChat(touchTargets: Boolean = true) = rule.setContent {
+        val d = androidx.compose.ui.platform.LocalDensity.current
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, 2f),
+            androidx.compose.material3.LocalMinimumInteractiveComponentSize provides if (touchTargets) 48.dp else androidx.compose.ui.unit.Dp.Unspecified,
+        ) {
+            LocalchatTheme(false) {
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(360.dp).background(com.ouor.localchat.ui.theme.LcTheme.colors.surface)) {
+                    ChatScreen(ChatUiState(loading = false), ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                }
+            }
+        }
+    }
+
+    @Test fun bannerKeepsItsTextWideAt200Percent() { // FB-2 follow-up: the action drops below instead of squeezing the text
+        bigFontEmptyChat()
+        val text = rule.onNodeWithText(ctx.getString(R.string.ui_no_provider), useUnmergedTree = true)
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        text.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action!!.invoke(layouts)
+        assertTrue("banner lines ${layouts[0].lineCount}", layouts[0].lineCount <= 3)
+        rule.onNodeWithText(ctx.getString(R.string.ui_add_provider)).assertIsDisplayed()
+        shot(rule.onRoot(), "fb1-e1b-expanded-200")
+        val banner = text.fetchSemanticsNode().boundsInRoot
+        val root = rule.onRoot().captureToImage().asAndroidBitmap()
+        val add = rule.onNodeWithText(ctx.getString(R.string.ui_add_provider)).fetchSemanticsNode().boundsInRoot
+        val top = (banner.top - 40).toInt().coerceAtLeast(0)
+        saveBitmap(android.graphics.Bitmap.createBitmap(root, 0, top, root.width, (add.bottom + 40).toInt().coerceAtMost(root.height) - top), "fb1-e1b-banner-200")
+    }
+
+    @Test fun chipsGrowWithTheirTextAt200Percent() { // FB-2 follow-up: ChipSurface uses a min height
+        bigFontEmptyChat(touchTargets = false)
+        listOf(ctx.getString(R.string.ui_choose_model), ctx.getString(R.string.ui_search)).forEach { label ->
+            // The text node is squeezed to the chip's constraint, so compare the text's full laid-out height.
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            rule.onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode()
+                .config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action!!.invoke(layouts)
+            val textH = layouts[0].multiParagraph.height
+            val chipH = rule.onNodeWithText(label).fetchSemanticsNode().boundsInRoot.height
+            assertTrue("$label text $textH > chip $chipH", textH <= chipH + 0.5f)
+        }
+    }
+
+    private fun shot(node: androidx.compose.ui.test.SemanticsNodeInteraction, name: String) = saveBitmap(node.captureToImage().asAndroidBitmap(), name)
+
+    private fun saveBitmap(bmp: android.graphics.Bitmap, name: String) {
+        val dir = ctx.getExternalFilesDir("shots") ?: return
+        java.io.File(dir, "$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
     }
 }
