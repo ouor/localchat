@@ -23,7 +23,7 @@ object WebSearch : Tool {
     override val labelRes = R.string.tool_web_search
     override val description =
         "Search the web. Returns numbered results [n] with title, URL and snippet; cite them as [n]. " +
-            "Read a result with open_tab or navigate, then page_text."
+            "Read a result with open_tab, then page_text."
     override val parameters = params {
         string("query", "Search query.", required = true)
         int("maxResults", "How many results (default 8, max 15).")
