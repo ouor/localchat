@@ -24,36 +24,66 @@
     }
   }
 
+  // Each result is a card: the title link is `link` (or the first texted link outside `strip`), the snippet
+  // is `snippet` (or the card text minus title and `strip`). Checked live 2026-11 (mobile WebView UA).
   var RULES = {
     // html.duckduckgo.com/html: no JS, stable markup
-    DUCKDUCKGO: { item: '.result:not(.result--ad)', link: 'a.result__a', snippet: '.result__snippet' },
-    GOOGLE: { item: '#search a:has(h3), #rso a:has(h3), #main a:has(h3)', title: 'h3', container: 'div.g, div[data-hveid], div.MjjYud', snippet: '.VwiC3b, [data-sncf], [style*="line-clamp"]' },
-    BING: { item: '#b_results > li.b_algo', link: 'h2 a', snippet: '.b_caption p, .b_lineclamp2, .b_lineclamp3, p' },
-    NAVER: { item: 'a.link_tit, .total_tit a, a.total_tit, a.title_link, .fds-comps-right-image-text-title', container: 'li, .total_wrap, .api_subject_bx, .fds-ugc-block-mod', snippet: '.total_dsc, .dsc_txt, .api_txt_lines.dsc_txt, .fds-comps-text, .dsc_link' }
+    DUCKDUCKGO: { card: '.result:not(.result--ad)', link: 'a.result__a', snippet: '.result__snippet' },
+    // Organic links are opaque /goto redirects; the absolute redirect URL is returned (opening it lands on the site).
+    GOOGLE: { card: '#rso div.MjjYud, #search div.MjjYud, #rso div.g', link: 'a:has(h3), a:has([role=heading])', title: 'h3, [role=heading]', snippet: '.VwiC3b, [data-sncf]' },
+    // Some layouts put the site attribution (.tilk/.tptt/cite) inside the title link or h2.
+    BING: { card: 'li.b_algo', link: 'h2 a:not(.tilk), a:has(h2)', strip: '.b_tpcn, .tilk, .tptt, .b_attribution, cite, h2', snippet: '.b_caption p, .b_rcGenCap p, .b_algoSlug, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4' },
+    // m.search.naver.com: hashed sds-comps classes; profile = site name/url/date row
+    // (fds-default-mode skips ad boxes; help/keep/search links are Naver chrome)
+    NAVER: { card: '.api_subject_bx.fds-default-mode, .total_wrap', strip: '.sds-comps-profile, .thumb-area, .source_box', skipHost: /(^|\.)(help|keep|ader|search)\.naver\.com$/ }
   };
 
+  var r = RULES[engine] || {};
   var out = [], seen = {};
   function add(title, href, snippet) {
     if (!href || !title) return;
     var url = unwrap(href);
     if (!/^https?:/i.test(url) || seen[url]) return;
+    if (skipped(url)) return;
     seen[url] = 1;
     out.push({ title: norm(title).slice(0, 200), url: url, snippet: norm(snippet).slice(0, 300) || null });
   }
-
-  var r = RULES[engine] || {};
-  var items = r.item ? document.querySelectorAll(r.item) : [];
-  for (var i = 0; i < items.length && out.length < max; i++) {
-    var it = items[i];
-    if (r.link) {
-      var a = it.querySelector(r.link);
-      if (a) add(a.innerText, a.getAttribute('href'), txt(it, r.snippet));
-    } else {
-      var box = r.container ? (it.closest(r.container) || it.parentElement) : it.parentElement;
-      add(r.title ? txt(it, r.title) || it.innerText : it.innerText, it.getAttribute('href'), txt(box, r.snippet));
+  function skipped(url) {
+    try { return !!r.skipHost && r.skipHost.test(new URL(url, location.href).hostname); } catch (e) { return true; }
+  }
+  function inStrip(n, card, strip) { return strip && n.closest(strip) && card.contains(n.closest(strip)); }
+  function titleLink(card, r) {
+    if (r.link) return card.querySelector(r.link);
+    var as = card.querySelectorAll('a[href]');
+    for (var k = 0; k < as.length; k++) {
+      var t = norm(as[k].innerText);
+      var h = as[k].getAttribute('href') || '#';
+      if (h.charAt(0) === '#' || skipped(unwrap(h)) || inStrip(as[k], card, r.strip)) continue;
+      if (t.length >= 4 && !/^[\d:.\s]+$/.test(t)) return as[k];
     }
+    return null;
+  }
+  function titleText(a, r) {
+    var c = a.cloneNode(true), t = '';
+    if (r.strip) c.querySelectorAll('.tilk, .tptt, cite, .b_attribution').forEach(function (n) { n.remove(); });
+    t = norm(c.textContent);
+    return t || norm(a.innerText);
+  }
+  function rest(card, a, r) {
+    var c = card.cloneNode(true), strip = (r.strip ? r.strip + ', ' : '') + 'script, style';
+    c.querySelectorAll(strip).forEach(function (n) { n.remove(); });
+    c.querySelectorAll('a[href]').forEach(function (n) { var h = n.getAttribute('href'); if (h.charAt(0) === '#' || skipped(unwrap(h))) n.remove(); });
+    var t = norm(c.textContent), title = norm(a.textContent);
+    return title && t.indexOf(title) >= 0 ? t.replace(title, '') : t;
   }
 
+  var cards = r.card ? document.querySelectorAll(r.card) : [];
+  for (var i = 0; i < cards.length && out.length < max; i++) {
+    var card = cards[i], a = titleLink(card, r);
+    if (!a) continue;
+    var title = (r.title && txt(a, r.title)) || titleText(a, r);
+    add(title, a.getAttribute('href'), txt(card, r.snippet) || rest(card, a, r));
+  }
   // Fallback when the markup changed: external links with real titles.
   if (!out.length) {
     var host = location.hostname.split('.').slice(-2).join('.');

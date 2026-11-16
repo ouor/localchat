@@ -186,6 +186,19 @@ class BrowserTab internal constructor(
     fun capture(): Bitmap? =
         if (webView.isAttachedToWindow && webView.width > 0 && webView.height > 0) runCatching { webView.drawToBitmap() }.getOrNull() else null
 
+    /** Downscaled last view of the page for the tab switcher; refreshed after load and when parked. */
+    var thumbnail: Bitmap? = null
+        private set
+
+    /** Main thread. False when the view is not laid out (thumbnail kept). */
+    fun refreshThumbnail(): Boolean {
+        val full = capture() ?: return false
+        val h = (full.height.toLong() * THUMB_WIDTH / full.width).toInt().coerceAtLeast(1)
+        thumbnail = Bitmap.createScaledBitmap(full, THUMB_WIDTH, h, true) // old one is not recycled: UI may still draw it
+        full.recycle()
+        return true
+    }
+
     // ---------- console
 
     fun consoleLines(): List<String> = console.toList()
@@ -256,6 +269,7 @@ class BrowserTab internal constructor(
             title = view.title.orEmpty()
             _loading.value = false
             events.onChanged(this@BrowserTab)
+            view.postDelayed({ if (!_loading.value && refreshThumbnail()) events.onChanged(this@BrowserTab) }, THUMB_DELAY_MS)
         }
 
         override fun doUpdateVisitedHistory(view: WebView, newUrl: String, isReload: Boolean) {
@@ -321,6 +335,9 @@ class BrowserTab internal constructor(
 
     companion object {
         const val CONSOLE_MAX = 200
+        const val THUMB_WIDTH = 240
+        /** Pages keep painting after onPageFinished (fonts, images). */
+        private const val THUMB_DELAY_MS = 800L
         private const val TAP_MS = 50L
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript")
         private val promptIds = AtomicLong()
