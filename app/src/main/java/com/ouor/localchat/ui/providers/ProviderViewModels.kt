@@ -150,8 +150,8 @@ class EndpointEditViewModel @AssistedInject constructor(
         if (!s.canSave) return
         suspend fun run(keep: Boolean) {
             val id = endpointId?.also { providers.update(it, draft(s), keep) } ?: providers.add(draft(s))
+            providers.refreshModelsAfterSave(id)
             _effects.send(EndpointEffect.Saved(id))
-            providers.refreshModels(id)
         }
         keyGuarded({ run(true) }) { run(false) }
     }
