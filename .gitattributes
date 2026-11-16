@@ -1,2 +1,3 @@
 # Recorded SSE streams must keep their exact bytes.
 *.sse text eol=lf
+app/src/main/assets/render/mermaid/** -text
