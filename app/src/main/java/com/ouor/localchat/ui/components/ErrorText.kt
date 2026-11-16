@@ -24,6 +24,7 @@ data class ErrorPresentation(@StringRes val title: Int, @StringRes val body: Int
 /** [usedOptionalFeatures]: the failed request used tools/images/reasoning → P-05 hint instead of plain retry. */
 fun errorPresentation(kind: ChatErrorKind, usedOptionalFeatures: Boolean = false): ErrorPresentation = when (kind) {
     ChatErrorKind.AUTH -> ErrorPresentation(R.string.ui_err_auth_title, R.string.ui_err_auth_body, ErrorAction.ChangeKey)
+    ChatErrorKind.NO_KEY -> ErrorPresentation(R.string.fb2_q_err_no_key_title, R.string.fb2_q_err_no_key_body, ErrorAction.ChangeKey)
     ChatErrorKind.BALANCE -> ErrorPresentation(R.string.ui_err_balance_title, R.string.ui_err_balance_body, ErrorAction.TopUp)
     ChatErrorKind.RATE_LIMITED -> ErrorPresentation(R.string.ui_err_rate_title, R.string.ui_err_retried_body, ErrorAction.Retry)
     ChatErrorKind.SERVER_BUSY -> ErrorPresentation(R.string.ui_err_busy_title, R.string.ui_err_retried_body, ErrorAction.Retry)

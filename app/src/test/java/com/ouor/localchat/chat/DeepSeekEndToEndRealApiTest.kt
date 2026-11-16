@@ -146,7 +146,7 @@ class DeepSeekEndToEndRealApiTest {
         val aes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
         val client = ChatCompletionsClient(http, AppJson)
         val secrets = SecretStore(MemoryDataStore(SecretEntries())) { aes }
-        val providers = ProviderRepository(client, FakeProviderDao(), secrets, Clock.System)
+        val providers = ProviderRepository(client, FakeProviderDao(), secrets, Clock.System, scope)
         val llm = RecordingLlm(ClientLlmPort(client))
         val models = ProviderModelPort(providers, secrets)
         val store = FakeChatStore()

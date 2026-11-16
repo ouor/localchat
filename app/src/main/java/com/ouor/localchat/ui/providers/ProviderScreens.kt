@@ -158,7 +158,7 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
             var modelsOpen by remember { mutableStateOf(false) }
             val gap = Modifier.padding(top = 12.dp)
             LazyColumn(Modifier.weight(1f)) {
-                item(key = "key") { Column(gap, verticalArrangement = Arrangement.spacedBy(12.dp)) { KeySection(s, vm) } }
+                item(key = "key") { Column(gap, verticalArrangement = Arrangement.spacedBy(12.dp)) { KeySection(s, vm, models.size) } }
                 providerModelGroup(
                     models, modelsOpen, { modelsOpen = !modelsOpen }, s.refreshing, vm::refresh, { adding = true },
                     { m -> onModel(m.endpointId, m.modelId) }, { m -> vm.setHidden(m, !m.hidden) },
@@ -260,11 +260,12 @@ private fun UrlField(s: EndpointUiState, vm: EndpointEditViewModel) {
 }
 
 @Composable
-private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: () -> Unit) {
+private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: () -> Unit, storedModels: Int? = null) {
     when (val ch = s.check) {
         null -> LcButton(stringResource(R.string.ui_check_connection), vm::check, variant = ButtonVariant.Outline, size = ButtonSize.Sm, enabled = s.urlValid)
         CheckUi.Checking -> ConnectionStatus(ConnectionUi.Checking, vm::check, onSaveAnyway)
-        is CheckUi.Ok -> ConnectionStatus(ConnectionUi.Ok(ch.models), vm::check, onSaveAnyway)
+        // Saved endpoint: the stored count, the same number the "모델 N" header shows.
+        is CheckUi.Ok -> ConnectionStatus(ConnectionUi.Ok(storedModels ?: ch.models), vm::check, onSaveAnyway)
         is CheckUi.Failed -> ConnectionStatus(
             ConnectionUi.Error((ch.error.httpStatus?.let { "$it · " } ?: "") + stringResource(errorPresentation(ch.error.kind).title)),
             vm::check, onSaveAnyway,
@@ -273,7 +274,7 @@ private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: (
 }
 
 @Composable
-private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel) {
+private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel, storedModels: Int) {
     val pad = Modifier.padding(horizontal = 16.dp)
     if (s.editingKey || s.keyHint == null) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LcTextField(s.key, vm::onKey, label = stringResource(R.string.ui_api_key), kind = TextFieldKind.Secret, helper = stringResource(R.string.ui_key_helper))
@@ -284,7 +285,7 @@ private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel) {
                 LcButton(stringResource(R.string.ui_replace_key), vm::editKey, variant = ButtonVariant.Text, size = ButtonSize.Sm)
             }
         }
-        Column(pad) { Check(s, vm, onSaveAnyway = {}) }
+        Column(pad) { Check(s, vm, onSaveAnyway = {}, storedModels) }
     }
 }
 

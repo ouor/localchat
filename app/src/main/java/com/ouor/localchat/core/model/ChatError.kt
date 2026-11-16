@@ -16,6 +16,9 @@ enum class ChatErrorKind {
     /** E-01: 401/403, "change key". */
     AUTH,
 
+    /** 401/403 to a request sent without a key: "no key" rather than "key rejected" (FB2 QA O3). */
+    NO_KEY,
+
     /** E-02: 402, "top up". */
     BALANCE,
 

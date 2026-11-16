@@ -1,6 +1,7 @@
 package com.ouor.localchat.provider
 
 import com.ouor.localchat.core.AppJson
+import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.model.ApiKey
@@ -16,10 +17,12 @@ import com.ouor.localchat.storage.SecretStore
 import com.ouor.localchat.storage.db.dao.ProviderDao
 import com.ouor.localchat.storage.db.entities.EndpointEntity
 import com.ouor.localchat.storage.db.entities.ModelEntity
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
@@ -34,6 +37,7 @@ class ProviderRepository @Inject constructor(
     private val dao: ProviderDao,
     private val secrets: SecretStore,
     private val clock: Clock,
+    @ApplicationScope private val scope: CoroutineScope,
 ) {
     /** Read-modify-write of one row (overrides, hidden, refresh merge) must not interleave. */
     private val writes = Mutex()
@@ -110,6 +114,14 @@ class ProviderRepository @Inject constructor(
             dao.upsertModels(mergeServerList(endpointId, existing, list).map { it.toEntity() })
         }
         return result
+    }
+
+    /**
+     * [refreshModels] after a save, owned by the app scope: the screen that saved may close at once (onboarding
+     * removes its entry on Saved), and cancelling with it left a new endpoint with no models (FB2 QA Major-1).
+     */
+    fun refreshModelsAfterSave(endpointId: String) {
+        scope.launch { refreshModels(endpointId) }
     }
 
     /** P-03 fallback when the list lacks a model. An existing model is left as it is. */

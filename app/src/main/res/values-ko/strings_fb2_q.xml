@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb2_q_err_no_key_title">API 키가 없어요</string>
+    <string name="fb2_q_err_no_key_body">이 프로바이더에 저장된 키가 없어요. 키를 입력해 주세요</string>
+    <string name="fb2_q_file_unsupported">%1$s: 지원하지 않는 형식이에요</string>
+    <string name="fb2_q_tile_unsupported">지원 안 함</string>
+</resources>

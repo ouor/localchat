@@ -15,6 +15,8 @@ import com.ouor.localchat.storage.db.dao.ProviderDao
 import com.ouor.localchat.storage.db.entities.EndpointEntity
 import com.ouor.localchat.storage.db.entities.ModelEntity
 import com.ouor.localchat.testing.FakeOpenAiServer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -36,7 +38,7 @@ class ProviderRepositoryTest {
     private val aes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     private val secrets = SecretStore(MemoryDataStore(SecretEntries())) { aes }
     private var now = 1_000L
-    private val repo = ProviderRepository(ChatCompletionsClient(OkHttpClient(), AppJson), dao, secrets) { now }
+    private val repo = ProviderRepository(ChatCompletionsClient(OkHttpClient(), AppJson), dao, secrets, { now }, CoroutineScope(SupervisorJob()))
 
     private fun draft(key: String? = "sk-abcd1234", url: String = server.baseUrl) =
         EndpointDraft("Local", " $url ", key?.let(::ApiKey), PresetId.OLLAMA, allowHttp = true, maxRetries = 20)

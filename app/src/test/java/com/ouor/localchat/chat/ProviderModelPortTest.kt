@@ -20,7 +20,7 @@ import javax.crypto.KeyGenerator
 class ProviderModelPortTest {
     private val aes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     private val secrets = SecretStore(MemoryDataStore(SecretEntries())) { aes }
-    private val repo = ProviderRepository(ChatCompletionsClient(OkHttpClient(), AppJson), FakeProviderDao(), secrets) { 0 }
+    private val repo = ProviderRepository(ChatCompletionsClient(OkHttpClient(), AppJson), FakeProviderDao(), secrets, { 0 }, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()))
     private val port = ProviderModelPort(repo, secrets)
 
     private suspend fun reasoningOff(baseUrl: String, modelId: String): ModelRef {

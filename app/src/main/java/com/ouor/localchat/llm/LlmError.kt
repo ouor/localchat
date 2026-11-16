@@ -8,7 +8,8 @@ sealed interface LlmError {
     val httpStatus: Int?
     val serverMessage: String?
 
-    data class Auth(override val httpStatus: Int?, override val serverMessage: String?) : LlmError
+    /** [noKey]: the request carried no API key. */
+    data class Auth(override val httpStatus: Int?, override val serverMessage: String?, val noKey: Boolean = false) : LlmError
     data class Balance(override val httpStatus: Int?, override val serverMessage: String?) : LlmError
     data class RateLimited(override val httpStatus: Int?, override val serverMessage: String?) : LlmError
     data class ServerBusy(override val httpStatus: Int?, override val serverMessage: String?) : LlmError
@@ -26,7 +27,7 @@ sealed interface LlmError {
 /** The stored form of an error; the only mapping between llm and core error kinds. */
 fun LlmError.toChatError(): ChatError {
     val kind = when (this) {
-        is LlmError.Auth -> ChatErrorKind.AUTH
+        is LlmError.Auth -> if (noKey) ChatErrorKind.NO_KEY else ChatErrorKind.AUTH
         is LlmError.Balance -> ChatErrorKind.BALANCE
         is LlmError.RateLimited -> ChatErrorKind.RATE_LIMITED
         is LlmError.ServerBusy -> ChatErrorKind.SERVER_BUSY
@@ -40,6 +41,10 @@ fun LlmError.toChatError(): ChatError {
     }
     return ChatError(kind, httpStatus, serverMessage)
 }
+
+/** An auth failure of a request sent without a key is "no key", not "key rejected". */
+internal fun LlmError.withKey(apiKey: String?): LlmError =
+    if (this is LlmError.Auth && apiKey.isNullOrBlank()) copy(noKey = true) else this
 
 /** Thrown by the non-streaming calls ([ChatCompletionsClient.listModels]). */
 class LlmException(val error: LlmError) : Exception(error.toString())
