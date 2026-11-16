@@ -147,6 +147,7 @@ settings.json.lastOptions.browser
 settings.json.lastOptions.reasoning
 settings.json.lastOptions.search
 settings.json.maxSteps
+settings.json.onboarded
 settings.json.region
 settings.json.searchEngine
 settings.json.sessionPanelCollapsed

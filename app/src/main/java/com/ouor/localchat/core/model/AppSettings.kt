@@ -28,6 +28,8 @@ data class AppSettings(
     val userSensitiveDomains: List<String> = emptyList(),
     /** C-06 wide-screen session panel. */
     val sessionPanelCollapsed: Boolean = false,
+    /** SC-01: the onboarding sheet was finished or skipped once; the UI sets it. */
+    val onboarded: Boolean = false,
 )
 
 @Serializable

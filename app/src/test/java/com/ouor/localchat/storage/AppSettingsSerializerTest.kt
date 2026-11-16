@@ -19,6 +19,13 @@ class AppSettingsSerializerTest {
         assertEquals(settings, AppSettingsSerializer.readFrom(ByteArrayInputStream(out.toByteArray())))
     }
 
+    @Test
+    fun `a file from before onboarding existed decodes as not onboarded`() = runTest {
+        val old = AppSettingsSerializer.readFrom(ByteArrayInputStream("{\"maxSteps\":30}".toByteArray()))
+        assertEquals(false, old.onboarded)
+        assertEquals(30, old.maxSteps)
+    }
+
     @Test(expected = CorruptionException::class)
     fun `garbage is reported as corruption`() = runTest {
         AppSettingsSerializer.readFrom(ByteArrayInputStream("{not json".toByteArray()))
