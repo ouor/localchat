@@ -18,11 +18,15 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavEntryDecorator
+import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import com.ouor.localchat.ui.components.reducedMotion
 
-/** FB2-3: how a back-stack change moves. Replace = the whole stack swapped (new chat, session from the drawer). */
-internal enum class NavMove { Forward, Back, Replace }
+/**
+ * FB2-3: how a back-stack change moves. Replace = the whole stack swapped (new chat, session from the drawer).
+ * PredictiveBack = pop seeked by the back gesture's progress.
+ */
+internal enum class NavMove { Forward, Back, PredictiveBack, Replace }
 
 /** Offsets are signed toward the layout end edge (+ = end side); all zero = instant. */
 internal data class NavMotionSpec(
@@ -37,6 +41,8 @@ internal fun navMotionSpec(move: NavMove, reduced: Boolean): NavMotionSpec = whe
     reduced -> INSTANT
     move == NavMove.Forward -> NavMotionSpec(30, -30, 300, 90, 90, 210)
     move == NavMove.Back -> NavMotionSpec(-30, 30, 300, 90, 90, 210)
+    // The gesture can rest at any progress: cross-fade linearly over the whole 300ms so one page always shows.
+    move == NavMove.PredictiveBack -> NavMotionSpec(-30, 30, 300, 300, 0, 300)
     else -> NavMotionSpec(0, 0, 0, 60, 60, 90)
 }
 
@@ -54,6 +60,15 @@ internal fun NavMotionSpec.toTransform(dpPx: Float, rtl: Boolean): ContentTransf
     }
     return enter togetherWith exit
 }
+
+/**
+ * A forward change that keeps the stack root (first entry) is a push; a new root is a stack swap. Same rule as
+ * Nav3's own isPop, so it holds for any SceneStrategy (a multi-entry scene can have no previousEntries).
+ */
+internal fun pushMove(from: Scene<*>, to: Scene<*>): NavMove =
+    if (from.rootKey() != to.rootKey()) NavMove.Replace else NavMove.Forward
+
+private fun Scene<*>.rootKey(): Any = (previousEntries.firstOrNull() ?: entries.first()).contentKey
 
 /** The app's [NavDisplay] with FB2-3 transitions instead of Nav3's default scale + fade. */
 @Composable
@@ -73,11 +88,11 @@ fun <T : Any> LcNavDisplay(
         modifier = modifier,
         onBack = onBack,
         entryDecorators = entryDecorators,
-        // A push onto an empty history is a stack swap (showChat / openSession), not a deeper level.
-        transitionSpec = { t(if (targetState.previousEntries.isEmpty()) NavMove.Replace else NavMove.Forward) },
+        // A new root is a stack swap (showChat / openSession), not a deeper level.
+        transitionSpec = { t(pushMove(initialState, targetState)) },
         popTransitionSpec = { t(NavMove.Back) },
-        // Seeked by the gesture: the same axis as pop, no scale.
-        predictivePopTransitionSpec = { t(NavMove.Back) },
+        // Seeked by the gesture: the same axis as pop, no scale, a full-length cross-fade.
+        predictivePopTransitionSpec = { t(NavMove.PredictiveBack) },
         entryProvider = entryProvider,
     )
 }
