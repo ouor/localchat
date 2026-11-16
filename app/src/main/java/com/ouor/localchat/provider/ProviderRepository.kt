@@ -6,13 +6,18 @@ import com.ouor.localchat.core.model.Endpoint
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelOverrides
 import com.ouor.localchat.core.model.PresetId
+import com.ouor.localchat.llm.ChatCompletionsClient
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// TODO(track A, blocked on track B): storage.db EndpointDao/ModelDao and storage.SecretStore do not exist yet;
+// everything except checkConnection waits for them (see docs/dev/core/track-a.md).
 /** Endpoints, their models and keys (public surface, architecture 10.2). */
 @Singleton
-class ProviderRepository @Inject constructor() {
+class ProviderRepository @Inject constructor(
+    private val client: ChatCompletionsClient,
+) {
 
     val endpoints: Flow<List<Endpoint>> get() = TODO("track A")
 
@@ -37,7 +42,7 @@ class ProviderRepository @Inject constructor() {
     suspend fun keyHint(endpointId: String): String? = TODO("track A")
 
     /** P-02: `GET /models` with unsaved values. */
-    suspend fun checkConnection(draft: EndpointDraft): ConnectionResult = TODO("track A")
+    suspend fun checkConnection(draft: EndpointDraft): ConnectionResult = client.checkModels(draft.toTarget()).first
 
     /** P-03: refresh the cached list, keeping user values; vanished models are marked, not deleted. */
     suspend fun refreshModels(endpointId: String): ConnectionResult = TODO("track A")
