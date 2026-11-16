@@ -60,6 +60,19 @@ data class BrowserUiState(
     fun isMine(t: TabInfo) = t.owner is Owner.Ai && (t.owner as Owner.Ai).sessionId == sessionId
 }
 
+/** Engine state into the panel state. Hidden link-prefetch tabs (and their prompts) never reach the UI. */
+internal fun BrowserUiState.merge(all: List<TabInfo>, ai: Map<Int, String>, h: Highlight?, prompts: List<BrowserPrompt>): BrowserUiState {
+    val tabs = all.filterNot { it.hidden }
+    return copy(
+        tabs = tabs, aiActivity = ai, highlight = h,
+        prompt = prompts.firstOrNull { p ->
+            val owner = tabs.firstOrNull { it.id == p.tabId }?.owner ?: return@firstOrNull false
+            // AI-tab JS dialogs belong to the dialog_handle tool (api-spec BrowserEngine.prompts).
+            !(p is BrowserPrompt.Dialog && owner is Owner.Ai)
+        },
+    )
+}
+
 /** Re-marks sensitive tabs when the tabs or the rule change (a settings change alone must update the banner). */
 internal fun Flow<BrowserUiState>.withSensitive(isSensitive: Flow<(url: String) -> Boolean>): Flow<BrowserUiState> =
     combine(isSensitive) { s, sensitive -> s.copy(sensitive = s.tabs.filter { sensitive(it.url) }.mapTo(HashSet()) { it.id }) }
@@ -81,13 +94,7 @@ class BrowserViewModel @AssistedInject constructor(
     private val activity = sessionId?.let(engine::sessionActivity) ?: flowOf(emptyMap())
 
     val state: StateFlow<BrowserUiState> = combine(local, engine.tabs, activity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
-        l.copy(
-            tabs = tabs, aiActivity = ai, highlight = h,
-            prompt = prompts.firstOrNull { p ->
-                // AI-tab JS dialogs belong to the dialog_handle tool (api-spec BrowserEngine.prompts).
-                !(p is BrowserPrompt.Dialog && tabs.firstOrNull { it.id == p.tabId }?.owner is Owner.Ai)
-            },
-        )
+        l.merge(tabs, ai, h, prompts)
     }.withSensitive(engine.sensitive.map { it::isSensitive }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
 
     init {

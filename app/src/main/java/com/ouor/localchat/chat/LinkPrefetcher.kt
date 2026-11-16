@@ -12,6 +12,7 @@ import javax.inject.Singleton
 /**
  * S-03 (architecture 5.7): for models without tool calling, pages linked in the question are read
  * in a hidden AI tab with page_text and attached to the question as text documents.
+ * The hidden tab shares the in-app browser's cookies: WebView has one process-wide CookieManager, so it cannot be split.
  */
 @Singleton
 class LinkPrefetcher @Inject constructor(

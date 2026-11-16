@@ -123,12 +123,15 @@ class BrowserEngine @Inject constructor(
     @MainThread
     fun openUserTab(url: String): Int = open(Owner.User, url)
 
-    /** Throws [PageError] at [MAX_TABS]. */
+    /**
+     * Throws [PageError] at [MAX_TABS]. A [hidden] tab (S-03 link prefetch) never shows in the panel or tab list
+     * and never becomes the chat's default AI tab; its opener must close it.
+     */
     @MainThread
-    fun openAiTab(sessionId: String, url: String?): Int {
+    fun openAiTab(sessionId: String, url: String?, hidden: Boolean = false): Int {
         trimIdleAiTabs(except = sessionId)
-        return open(Owner.Ai(sessionId), url).also {
-            defaultAiTab[sessionId] = it
+        return open(Owner.Ai(sessionId), url, hidden).also {
+            if (!hidden) defaultAiTab[sessionId] = it
             aiUsedAt[it] = clock.now()
         }
     }
@@ -165,9 +168,10 @@ class BrowserEngine @Inject constructor(
         defaultAiTab.remove(sessionId)
     }
 
-    private fun open(owner: Owner, url: String?): Int {
+    private fun open(owner: Owner, url: String?, hidden: Boolean = false): Int {
         if (byId.size >= MAX_TABS) throw PageError("Too many tabs are open ($MAX_TABS). Close unused tabs with close_tab.")
         val tab = BrowserTab(nextId++, context, owner, this)
+        tab.hidden = hidden
         byId[tab.id] = tab
         hostActivity?.let { tab.contextWrapper.baseContext = it }
         parkInHost(tab.webView)
@@ -294,7 +298,15 @@ class BrowserEngine @Inject constructor(
      */
     private fun parkInHost(w: WebView) {
         w.visibility = View.INVISIBLE
-        host?.addView(w, full())
+        val h = host ?: return
+        h.addView(w, full())
+        // Screen off / dozing: no layout pass runs, so a new WebView would stay 0x0 (page innerWidth 0, no screenshots).
+        // Give it the host's size now (the display's when the host was never laid out); the next real pass agrees.
+        val dm = context.resources.displayMetrics
+        val width = h.width.takeIf { it > 0 } ?: dm.widthPixels
+        val height = h.height.takeIf { it > 0 } ?: dm.heightPixels
+        w.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+        w.layout(0, 0, width, height)
     }
 
     // ---------- AI access (architecture 6.4: ToolContext.aiTab)
@@ -425,7 +437,7 @@ class BrowserEngine @Inject constructor(
 
     private fun publish() {
         _tabs.value = byId.values.map { t ->
-            TabInfo(t.id, t.title, t.url, t.owner, t.control, t.loading.value, t.webView.canGoBack(), t.webView.canGoForward(), t.thumbnail)
+            TabInfo(t.id, t.title, t.url, t.owner, t.control, t.loading.value, t.webView.canGoBack(), t.webView.canGoForward(), t.thumbnail, t.hidden)
         }
     }
 
@@ -453,6 +465,8 @@ data class TabInfo(
     val canGoForward: Boolean = false,
     /** [BrowserTab.THUMB_WIDTH] px wide, null until the page was first drawn. Never recycle it. */
     val thumbnail: Bitmap? = null,
+    /** S-03 link-prefetch tab: kept out of the panel and tab list ([BrowserEngine.openAiTab]). */
+    val hidden: Boolean = false,
 ) {
     /** Plain http page: the address bar shows a warning; AI typing here needs approval (team decision 1). */
     val insecure: Boolean get() = url.startsWith("http://", ignoreCase = true)

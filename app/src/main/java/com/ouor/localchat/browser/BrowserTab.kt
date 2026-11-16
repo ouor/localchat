@@ -67,6 +67,9 @@ class BrowserTab internal constructor(
         internal set
     var control: Control = Control.AI
         internal set
+    /** S-03 link-prefetch tab, kept out of the UI ([TabInfo.hidden]). */
+    var hidden: Boolean = false
+        internal set
     var url: String = ""
         private set
     var title: String = ""
