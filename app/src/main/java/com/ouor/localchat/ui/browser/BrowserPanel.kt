@@ -177,7 +177,8 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
         DisposableEffect(Unit) { onDispose { cover(0) } }
         BackHandler(s.panel >= PanelState.Half) { actions.setPanel(s.panel.down()) }
 
-        val shown by remember(h) { derivedStateOf { state.offset < h - 0.5f } }
+        // Stay composed until a drag to the bottom settles; removing the drag node mid-gesture would cancel the settle.
+        val shown by remember(h) { derivedStateOf { state.offset < h - 0.5f || state.settledValue != PanelState.Peek } }
         // Resizing the WebView every frame janks: while the panel moves it keeps full height and only slides.
         val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { state.offset == it } ?: 0f } }
         if (shown) Box(Modifier.fillMaxSize()) {

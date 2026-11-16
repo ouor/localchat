@@ -24,7 +24,6 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -219,8 +218,8 @@ fun BrowserStatusStrip(title: String, host: String, onOpen: () -> Unit, onTakeOv
                 BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     val hostMax = maxWidth * 0.4f
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, style = LcTheme.text.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).clearAndSetSemantics {})
-                        Text(" · $host", style = LcTheme.text.caption, color = c.onAgentContainer.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = hostMax).clearAndSetSemantics {})
+                        Text(title, style = LcTheme.text.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Text(" · $host", style = LcTheme.text.caption, color = c.onAgentContainer.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = hostMax))
                     }
                 }
                 Surface(onClick = onTakeOver, shape = LcRadius.full, color = c.surfaceRaised, contentColor = c.textPrimary) {

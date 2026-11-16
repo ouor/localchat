@@ -15,6 +15,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
@@ -46,6 +48,8 @@ class BrowserPanelTest {
     private val panels = mutableListOf<PanelState>()
     private val takeOvers = mutableListOf<Int>()
     private var cover = -1
+    /** Null draws the blank placeholder; [realWebViewStillScrollsAfterHandleDrags] sets a real one. */
+    private var page: WebView? = null
 
     private val actions = object : BrowserActions {
         override fun setPanel(p: PanelState) { panels += p; s = s.copy(panel = p) }
@@ -68,7 +72,7 @@ class BrowserPanelTest {
         override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
         override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
         override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
-        override fun webView(id: Int): WebView? = null
+        override fun webView(id: Int): WebView? = page
         override fun park(id: Int) {}
     }
 
@@ -91,7 +95,7 @@ class BrowserPanelTest {
 
     @Test fun stripShowsWhileTheRunOperatesAndOpensHalf() {
         show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
-        rule.onNodeWithText("인사 규정").assertIsDisplayed()
+        rule.onNodeWithText("인사 규정", substring = true).assertIsDisplayed()
         rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "인사 규정")).performClick()
         rule.waitForIdle()
         assertEquals(PanelState.Half, panels.last())
@@ -135,15 +139,56 @@ class BrowserPanelTest {
 
     @Test fun handleAccessibilityActionsStep() {
         show(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "A"))
-        fun custom(label: String) = handle().fetchSemanticsNode().config[SemanticsActions.CustomActions].first { it.label == label }.action()
-        rule.runOnIdle { custom(ctx.getString(R.string.ui_expand)) }
+        fun custom(label: String) { val a = handle().fetchSemanticsNode().config[SemanticsActions.CustomActions].first { it.label == label }; rule.runOnIdle { a.action() } }
+        custom(ctx.getString(R.string.ui_expand))
         rule.waitForIdle()
         assertEquals(PanelState.Full, panels.last())
-        rule.runOnIdle { custom(ctx.getString(R.string.ui_collapse)) }
+        custom(ctx.getString(R.string.ui_collapse))
         rule.waitForIdle()
         assertEquals(PanelState.Half, panels.last())
         handle().performSemanticsAction(SemanticsActions.OnClick)
         rule.waitForIdle()
         assertEquals(PanelState.Full, panels.last())
+    }
+
+    /** Device check: handle drags move the panel, page drags scroll the real WebView and never move the panel. */
+    @Test fun realWebViewStillScrollsAfterHandleDrags() {
+        rule.runOnIdle {
+            page = WebView(ctx).apply {
+                loadDataWithBaseURL(null, "<html><body style='margin:0'>" + (1..300).joinToString("") { "<p>line $it</p>" } + "</body></html>", "text/html", "utf-8", null)
+            }
+        }
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
+        shot("peek-strip")
+        rule.onNodeWithText("인사 규정", substring = true).performClick()
+        rule.waitUntil(5_000) { rule.runOnIdle { page!!.contentHeight } > 0 }
+        rule.waitForIdle()
+        shot("half")
+        fun scrollPage() {
+            val before = rule.runOnIdle { page!!.scrollY }
+            val n = panels.size
+            val h = rule.onRoot().fetchSemanticsNode().size.height.toFloat()
+            rule.onRoot().performTouchInput { swipeUp(startY = h - 200f, endY = h - 600f, durationMillis = 300) }
+            rule.waitForIdle()
+            assertTrue("page scrolls", rule.runOnIdle { page!!.scrollY } > before)
+            assertEquals("page drag leaves the panel alone", n, panels.size)
+        }
+        scrollPage()
+        handle().performTouchInput { swipeUp(startY = centerY, endY = centerY - 900f, durationMillis = 250) }
+        rule.waitForIdle()
+        assertEquals(PanelState.Full, panels.last())
+        shot("full")
+        scrollPage()
+        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + 500f, durationMillis = 400) }
+        rule.waitForIdle()
+        assertEquals(PanelState.Half, panels.last())
+        scrollPage()
+    }
+
+    /** Saves the window to the app's external files (pulled into docs/dev/ui/shots by hand). */
+    private fun shot(name: String) {
+        val dir = ctx.getExternalFilesDir("shots") ?: return
+        val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
+        java.io.File(dir, "fb1-e4-$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
     }
 }
