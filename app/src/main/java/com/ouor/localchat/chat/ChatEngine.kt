@@ -1,10 +1,13 @@
 package com.ouor.localchat.chat
 
+import com.ouor.localchat.R
+import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
 import com.ouor.localchat.chat.run.RunRegistry
 import com.ouor.localchat.chat.run.RunState
 import com.ouor.localchat.chat.run.StartupRecovery
+import com.ouor.localchat.chat.run.ToolExecutor
 import com.ouor.localchat.chat.run.TurnRunner
 import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.Clock
@@ -21,6 +24,8 @@ import com.ouor.localchat.core.model.Role
 import com.ouor.localchat.core.model.Session
 import com.ouor.localchat.core.model.TitleSource
 import com.ouor.localchat.core.model.ToolCallBlock
+import com.ouor.localchat.core.model.ToolCallState
+import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.storage.SettingsStore
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -31,8 +36,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** A start call was refused; [reason] tells ui why (spec 12.1 error codes). */
-/** A-04: [labelRes] is the tool's string resource, [argSummary] e.g. the URL or query. */
-data class ToolStep(val labelRes: Int, val argSummary: String)
+/**
+ * A-04: [labelRes] is the tool's string resource, [argSummary] e.g. the URL or query. A count-only result
+ * summary ("379 nodes") comes as plurals [countRes] with [count] instead (BUG-08); show
+ * ToolResultBlock.summary when [countRes] is null. [failureRes] says why a failed step failed (BUG-10).
+ */
+data class ToolStep(
+    val labelRes: Int,
+    val argSummary: String,
+    val countRes: Int? = null,
+    val count: Int = 0,
+    val failureRes: Int? = null,
+)
 
 class ChatRejected(val reason: Reason) : Exception(reason.name) {
     enum class Reason {
@@ -55,6 +70,15 @@ class ChatRejected(val reason: Reason) : Exception(reason.name) {
  * Starting calls suspend until the nodes are saved and the run is registered; the run itself
  * continues in the application scope, independent of the caller. One run per session.
  */
+/** Tool results whose summary is just a count; older rows carry the English unit too. */
+private val COUNT = Regex("""(\d+)(?: (?:nodes|lines|tabs))?""")
+private val COUNT_RES = mapOf(
+    "snapshot" to R.plurals.chat_step_nodes,
+    "console_logs" to R.plurals.chat_step_lines,
+    "get_tabs" to R.plurals.chat_step_tabs,
+    "web_search" to R.plurals.chat_step_results,
+)
+
 @Singleton
 class ChatEngine @Inject constructor(
     private val store: ChatStore,
@@ -162,10 +186,27 @@ class ChatEngine @Inject constructor(
         tools.exposed(caps, search, browser).map { it.name }
 
     /** A-04 step row for a stored tool call: the tool's label and short argument summary; null for an unknown tool. */
-    fun toolStep(block: ToolCallBlock): ToolStep? {
+    fun toolStep(block: ToolCallBlock, result: ToolResultBlock? = null): ToolStep? {
         val tool = tools.byName(block.name) ?: return null
         val args = runCatching { AppJson.parseToJsonElement(block.argumentsJson).jsonObject }.getOrNull()
-        return ToolStep(tool.labelRes, args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty())
+        val count = result?.summary?.let(COUNT::matchEntire)?.groupValues?.get(1)?.toIntOrNull()
+        val countRes = COUNT_RES[block.name]?.takeIf { count != null }
+        return ToolStep(
+            tool.labelRes, args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
+            countRes, count ?: 0, failure(block, result),
+        )
+    }
+
+    private fun failure(block: ToolCallBlock, result: ToolResultBlock?): Int? {
+        if (block.state == ToolCallState.DENIED || block.state == ToolCallState.CANCELLED) return null
+        if (result?.isError != true && block.state != ToolCallState.FAILED) return null
+        val content = result?.content.orEmpty()
+        return when {
+            // Ours after the call, or the engine's refusal before it (browser.BrowserEngine.aiTabFor).
+            content.contains(ToolExecutor.SENSITIVE) || content.contains("shows a sensitive site") -> R.string.chat_step_fail_sensitive
+            content == SystemPrompt.INTERRUPTED || content == SystemPrompt.ABORTED -> R.string.chat_step_fail_interrupted
+            else -> R.string.chat_step_fail_error
+        }
     }
 
     private suspend fun insertAndStart(sessionId: String, parentId: String?, chain: List<MessageNode>, model: ModelRef) {

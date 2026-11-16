@@ -175,9 +175,9 @@ class ToolExecutor(
 
     private fun JsonObject.tabId(): Int? = this["tabId"]?.let { runCatching { it.jsonPrimitive.intOrNull }.getOrNull() }
 
-    private companion object {
+    companion object {
         /** 50 KB result cap (architecture 6.4). */
-        const val MAX_RESULT = 50_000
+        private const val MAX_RESULT = 50_000
         const val SENSITIVE = "The tab is now on a sensitive page (banking, mail, accounts); its content was withheld."
     }
 }

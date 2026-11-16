@@ -751,6 +751,25 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `toolStep localizes count summaries and names the failure reason`() = runTest {
+        val h = Harness(this, tools = ToolExposure.exposedTools(caps(), searchOn = true, browserOn = true))
+        fun block(name: String, state: ToolCallState = ToolCallState.DONE) = ToolCallBlock("c", name, "{}", 0, state, 0)
+        fun result(content: String, summary: String? = null, error: Boolean = false) = ToolResultBlock("c", 0, content, error, summary)
+        // BUG-08: "379 nodes" was English in every language.
+        val snap = h.engine.toolStep(block("snapshot"), result("x", "379 nodes"))!!
+        assertEquals(R.plurals.chat_step_nodes to 379, snap.countRes to snap.count)
+        assertEquals(R.plurals.chat_step_results to 8, h.engine.toolStep(block("web_search"), result("x", "8")).let { it!!.countRes to it.count })
+        assertNull(h.engine.toolStep(block("navigate"), result("x", "42"))!!.countRes) // a page title, not a count
+        assertNull(snap.failureRes)
+        // BUG-10: a failed step says why.
+        val blocked = result(Untrusted.wrap("Tab 3 shows a sensitive site (paypal.com). The AI may not read it."), error = true)
+        assertEquals(R.string.chat_step_fail_sensitive, h.engine.toolStep(block("navigate", ToolCallState.FAILED), blocked)!!.failureRes)
+        assertEquals(R.string.chat_step_fail_interrupted, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(SystemPrompt.INTERRUPTED, error = true))!!.failureRes)
+        assertEquals(R.string.chat_step_fail_error, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result("boom", error = true))!!.failureRes)
+        assertNull(h.engine.toolStep(block("navigate", ToolCallState.DENIED), result(SystemPrompt.DENIED, error = true))!!.failureRes)
+    }
+
+    @Test
     fun `catalog tools run through the executor without a browser for argument errors and approval`() = runTest {
         val real = ToolExposure.exposedTools(caps(), searchOn = false, browserOn = true)
         val h = Harness(this, tools = real)
