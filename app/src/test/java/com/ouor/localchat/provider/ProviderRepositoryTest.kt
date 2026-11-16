@@ -128,6 +128,16 @@ class ProviderRepositoryTest {
     }
 
     @Test
+    fun `U-1 a deepseek model on a local endpoint gets no DeepSeek defaults`() = runTest {
+        val id = repo.add(draft())
+        repo.addManualModel(id, "deepseek-r1:8b")
+        val m = repo.models(id).first().single()
+        assertFalse(m.caps.toolCalling.value)
+        assertNull(m.reasoningWire)
+        assertFalse(repo.allVisibleModels.first().single().caps.toolCalling.value)
+    }
+
+    @Test
     fun `delete removes endpoint, models and key`() = runTest {
         val id = repo.add(draft())
         repo.addManualModel(id, "m")

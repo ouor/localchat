@@ -24,6 +24,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -31,10 +32,22 @@ import kotlin.coroutines.resumeWithException
 
 /** OpenAI Chat Completions compatible client (architecture 4). */
 @Singleton
-class ChatCompletionsClient @Inject constructor(
+class ChatCompletionsClient internal constructor(
     private val http: OkHttpClient,
     private val json: Json,
+    firstByteTimeoutMs: Long,
 ) {
+    @Inject constructor(http: OkHttpClient, json: Json) : this(http, json, FIRST_BYTE_TIMEOUT_MS)
+
+    /**
+     * U-6: a slow local model can take minutes on the prompt before its first byte. Only that wait is
+     * long; once headers arrive the client's read timeout bounds silence between chunks again.
+     */
+    private val chatHttp = http.newBuilder().addInterceptor { chain ->
+        chain.withReadTimeout(firstByteTimeoutMs.toInt(), TimeUnit.MILLISECONDS).proceed(chain.request()).also {
+            it.body.source().timeout().timeout(http.readTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+        }
+    }.build()
     /**
      * Streams one completion, retrying per [LlmTarget.maxRetries] until the first content delta.
      * Emits exactly one terminal event ([LlmEvent.Finished] or [LlmEvent.Failed]). Cancellation is
@@ -104,7 +117,7 @@ class ChatCompletionsClient @Inject constructor(
         val request = Request.Builder().url(url).auth(apiKey)
             .post(json.encodeToString(ChatRequest.serializer(), body).toRequestBody(JSON))
             .build()
-        http.sseData(request)
+        chatHttp.sseData(request)
             .transformWhile { data ->
                 if (data.trim() == "[DONE]") {
                     done = true
@@ -160,6 +173,7 @@ class ChatCompletionsClient @Inject constructor(
 
     private companion object {
         val JSON = "application/json".toMediaType()
+        const val FIRST_BYTE_TIMEOUT_MS = 10 * 60_000L
     }
 }
 
