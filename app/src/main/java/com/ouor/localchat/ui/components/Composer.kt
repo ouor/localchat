@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
@@ -204,7 +205,7 @@ enum class TileState { Preparing, Failed, Ready, Missing }
 
 /**
  * 56dp tile. [thumbnail] is any Coil model (Uri/File) for images. Preparing shows a progress ring + %.
- * Failed: tap = [onRetry]. Missing = imported data without the original (dimmed).
+ * Failed: tap = [onRetry]; without [onRetry] (retrying cannot help) it reads "unsupported" instead. Missing = imported data without the original (dimmed).
  */
 @Composable
 fun AttachmentTile(
@@ -233,8 +234,8 @@ fun AttachmentTile(
         ) {
             when {
                 failed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp), tint = c.onDangerContainer)
-                    Text(stringResource(R.string.ui_retry), fontSize = 9.sp, color = c.onDangerContainer)
+                    Icon(if (onRetry != null) Icons.Rounded.Refresh else Icons.Rounded.ErrorOutline, null, Modifier.size(18.dp), tint = c.onDangerContainer)
+                    Text(stringResource(if (onRetry != null) R.string.ui_retry else R.string.fb2_q_tile_unsupported), fontSize = 9.sp, color = c.onDangerContainer)
                 }
                 kind == TileKind.Image && thumbnail != null ->
                     AsyncImage(thumbnail, null, Modifier.size(size), contentScale = ContentScale.Crop)

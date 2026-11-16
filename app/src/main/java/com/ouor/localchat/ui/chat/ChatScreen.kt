@@ -56,6 +56,8 @@ import com.ouor.localchat.chat.ChatRejected
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
+import com.ouor.localchat.attach.PrepFailure
+import com.ouor.localchat.core.model.Attachment
 import com.ouor.localchat.core.model.AttachmentKind
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
@@ -467,11 +469,13 @@ private fun ComposerArea(
         // Order, top to bottom: status captions, options (model row, toggle row), input. Everything that comes and goes sits
         // above the input, so a caption or opening the options never moves the input or its buttons (P-STABLE H2; the list shrinks).
         val failed = cs.attachments.count { it.state is PrepState.Failed }
+        val unsupported = cs.attachments.firstOrNull(::isUnsupported)
         val retry = state.runPhase as? RunPhase.Retrying
         val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
         if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 when {
+                    unsupported != null -> Text(stringResource(R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
                     cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
                 }
@@ -516,7 +520,7 @@ private fun ComposerArea(
                         when (a.state) { PrepState.Preparing -> TileState.Preparing; is PrepState.Failed -> TileState.Failed; PrepState.Ready -> if (a.hasOriginal) TileState.Ready else TileState.Missing },
                         thumbnail = composer.thumbnail(a),
                         onRemove = { composer.remove(a.id) },
-                        onRetry = { composer.retry(a.id) },
+                        onRetry = if (isUnsupported(a)) null else ({ composer.retry(a.id) }),
                     )
                 }
             }),
@@ -581,6 +585,9 @@ internal fun compact(n: Int): String = when {
     n >= 1_000 -> "%.1fk".format(java.util.Locale.ROOT, n / 1_000f).replace(".0k", "k")
     else -> n.toString()
 }
+
+/** Retrying cannot fix an unsupported file type, so its tile offers no retry (FB2 QA Minor-2). */
+internal fun isUnsupported(a: Attachment) = (a.state as? PrepState.Failed)?.reason == PrepFailure.UNSUPPORTED_TYPE
 
 private fun siteOf(url: String) = runCatching { java.net.URI(url).host?.removePrefix("www.") }.getOrNull() ?: url
 

@@ -167,6 +167,27 @@ class ChatScreenTest {
         rule.onNodeWithText(ctx.getString(R.string.ui_err_auth_title)).assertIsDisplayed()
     }
 
+    @Test fun noKeyErrorSaysTheKeyIsMissing() { // FB2 QA O3
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("", ReplyStatus.ERROR, ChatError(ChatErrorKind.NO_KEY, 401))))))
+        rule.onNodeWithText(ctx.getString(R.string.fb2_q_err_no_key_title)).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_err_auth_body), substring = true).assertDoesNotExist()
+    }
+
+    @Test fun unsupportedAttachmentNamesTheFileAndOffersNoRetry() { // FB2 QA Minor-2
+        fun file(id: String, name: String, reason: String) = com.ouor.localchat.core.model.Attachment(
+            id, name, "application/octet-stream", 10, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
+            com.ouor.localchat.core.model.PrepState.Failed(reason), hasOriginal = true, createdAt = 0,
+        )
+        show(ChatUiState(loading = false), ComposerUiState(attachments = listOf(
+            file("z", "archive.zip", com.ouor.localchat.attach.PrepFailure.UNSUPPORTED_TYPE),
+            file("r", "notes.pdf", com.ouor.localchat.attach.PrepFailure.READ_FAILED),
+        )))
+        rule.onNodeWithText(ctx.getString(R.string.fb2_q_file_unsupported, "archive.zip")).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.fb2_q_tile_unsupported), useUnmergedTree = true).assertExists()
+        // Only the readable-later file keeps its retry.
+        rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(1)
+    }
+
     @Test fun readAloudButtonReadsTheReply() { // BUG-01
         show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello there")))))
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_read_aloud)).performClick()
