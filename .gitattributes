@@ -1,0 +1,2 @@
+# Recorded SSE streams must keep their exact bytes.
+*.sse text eol=lf
