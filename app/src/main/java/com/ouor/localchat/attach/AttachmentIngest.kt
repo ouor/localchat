@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
 import com.ouor.localchat.attach.extract.ExtractException
 import com.ouor.localchat.attach.extract.OfficeText
 import com.ouor.localchat.attach.extract.PdfText
@@ -26,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -81,6 +83,24 @@ class AttachmentIngest @Inject constructor(
         val image = a.kind == AttachmentKind.IMAGE || (a.kind == AttachmentKind.ARTIFACT && a.mime.startsWith("image/"))
         if (!image) return null
         return files.requestImage(a.id).takeIf { it.isFile } ?: files.original(a.id).takeIf { it.isFile }
+    }
+
+    /**
+     * content:// Uri of the original for viewing or sharing (BUG-17), shown under the attachment's name.
+     * The caller grants read access (FLAG_GRANT_READ_URI_PERMISSION). null when the original is gone.
+     */
+    fun contentUri(a: Attachment): Uri? {
+        val original = files.original(a.id).takeIf { it.isFile } ?: return null
+        // Matches android:authorities="${applicationId}.files"; the provider exposes filesDir/attachments only.
+        return FileProvider.getUriForFile(context, context.packageName + ".files", original, a.name)
+    }
+
+    /** Copies the original to a SAF document [dest] (save as). IO errors propagate to the caller. */
+    suspend fun copyOriginal(a: Attachment, dest: Uri): Unit = withContext(Dispatchers.IO) {
+        files.original(a.id).inputStream().use { input ->
+            val out = context.contentResolver.openOutputStream(dest, "wt") ?: throw IOException("cannot open $dest")
+            out.use { input.copyTo(it) }
+        }
     }
 
     /**

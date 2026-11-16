@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only attachment originals and their derived files (filesDir/attachments). Never the DB, DataStore or secrets. -->
+<paths>
+    <files-path name="attachments" path="attachments/" />
+</paths>
