@@ -202,7 +202,7 @@ fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = M
     }
     val codeMode = showCode || engine == null || !renderNow || empty || state is DiagramState.Failed
     CodeFrame(
-        stringResource(R.string.ui_diagram), source, modifier,
+        "mermaid", source, modifier, // language label like code blocks; the toggle says 다이어그램/코드
         headerExtra = {
             if (engine != null && renderNow && !empty && state !is DiagramState.Failed) {
                 LcButton(

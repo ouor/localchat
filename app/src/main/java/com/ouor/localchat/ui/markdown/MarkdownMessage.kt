@@ -34,6 +34,11 @@ import com.hrm.latex.renderer.model.LatexTheme
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
+import com.mikepenz.markdown.compose.elements.MarkdownListItems
+import com.mikepenz.markdown.compose.elements.MarkdownOrderedList
+import com.mikepenz.markdown.compose.elements.listDepth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -174,6 +179,15 @@ private fun MarkdownBlock(
             markdownComponents(
                 codeFence = { MarkdownCodeFence(it.content, it.node, it.typography.code) { code, lang, _ -> CodeOrDiagram(code, lang) } },
                 codeBlock = { MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, lang, _ -> CodeBlock(code, lang) } },
+                // Mockup: body-size dot / number on the first line's baseline (library default floats it to the top).
+                unorderedList = {
+                    MarkdownListItems(it.content, it.node, depth = it.listDepth, markerModifier = { Modifier.alignByBaseline() }, listModifier = { Modifier.alignByBaseline() }) { _, _, _ ->
+                        Text("•", style = it.typography.bullet.copy(fontSize = it.typography.bullet.fontSize * 1.25f), modifier = Modifier.padding(start = 2.dp, end = 8.dp))
+                    }
+                },
+                orderedList = {
+                    MarkdownOrderedList(it.content, it.node, it.typography.ordered, it.listDepth, markerModifier = { Modifier.alignByBaseline() }, listModifier = { Modifier.alignByBaseline() })
+                },
             )
         },
     )
