@@ -398,6 +398,9 @@ graph TD
 - 글머리 항목
 - 다크 모드에서도 점이 보여야 해요
 
+• 줄바꿈 한 번으로 쓴 목록
+• 각 줄이 따로 보여야 해요
+
 [링크 예시](https://example.com)를 누르면 앱 내 브라우저로 열려요."""
 
 private fun LazyListScope.markdown() {
