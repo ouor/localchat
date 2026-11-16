@@ -29,4 +29,15 @@ class BrowserUiStateTest {
         assertEquals(other, BrowserUiState(tabs = listOf(user, other), sessionId = "A", currentId = 3).current)
         assertEquals(user, BrowserUiState(tabs = listOf(user), sessionId = "A", currentId = 3).current)
     }
+
+    @Test fun `hidden link-prefetch tab and its prompts never reach the panel or tab list`() {
+        val hidden = mine.copy(id = 9, hidden = true)
+        val download = com.ouor.localchat.browser.BrowserPrompt.Download(1, 9, "https://e.com/f", "f", "a/b", 1)
+        val s = BrowserUiState(sessionId = "A").merge(listOf(user, mine, hidden), emptyMap(), null, listOf(download))
+        assertEquals(listOf(user, mine), s.tabs)
+        assertEquals(mine, s.current)
+        assertNull(s.prompt)
+        val userDownload = download.copy(tabId = 1)
+        assertEquals(userDownload, BrowserUiState().merge(listOf(user, hidden), emptyMap(), null, listOf(download, userDownload)).prompt)
+    }
 }

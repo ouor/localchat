@@ -219,7 +219,8 @@ fun BrowserToolbar(
     trailing: @Composable () -> Unit = {},
 ) {
     val c = LcTheme.colors
-    Column(modifier.fillMaxWidth()) {
+    // P-STABLE L2: the loading bar overlays the toolbar's bottom edge, so nothing below moves when it comes and goes.
+    Box(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(start = if (onCollapse == null) 8.dp else 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             if (onCollapse != null) LcIconButton(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.ui_collapse), onCollapse, size = IconButtonSize.Sm)
             LcIconButton(Icons.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack, size = IconButtonSize.Sm, enabled = canGoBack)
@@ -240,14 +241,17 @@ fun BrowserToolbar(
             }
             trailing()
         }
-        if (progress != null) LinearProgressIndicator({ progress }, Modifier.fillMaxWidth().height(2.dp), color = c.accent, trackColor = Color.Transparent, gapSize = 0.dp, drawStopIndicator = {})
+        if (progress != null) LinearProgressIndicator({ progress }, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp), color = c.accent, trackColor = Color.Transparent, gapSize = 0.dp, drawStopIndicator = {})
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = combinedClickable(onClick = onClick)
 
-/** Browser panel container (phone sheet body / tablet pane): toolbar, ownership bar, optional banner, page. */
+/**
+ * Browser panel container (phone sheet body / tablet pane): toolbar, ownership bar, page. P-STABLE M5: the optional
+ * [banner] floats over the page bottom, so the ownership bar and the page never move when it appears.
+ */
 @Composable
 fun BrowserPanelFrame(
     toolbar: @Composable () -> Unit,
@@ -258,9 +262,11 @@ fun BrowserPanelFrame(
 ) {
     Column(modifier.fillMaxSize().background(LcTheme.colors.surfaceRaised)) {
         toolbar()
-        if (banner != null) banner() else ownership()
-        Box(Modifier.weight(1f).fillMaxWidth()) { page() }
-        if (banner != null) ownership()
+        ownership()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            page()
+            if (banner != null) Box(Modifier.align(Alignment.BottomCenter)) { banner() }
+        }
     }
 }
 
