@@ -154,6 +154,10 @@ class ToolFlowE2eTest {
         return store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }.body as MessageBody.Assistant
     }
 
+    private fun awaitControl(tabId: Int, control: Control) = runBlocking {
+        withTimeout(5_000) { browser.tabs.first { l -> l.any { it.id == tabId && it.control == control } } }
+    }
+
     private fun MessageBody.Assistant.calls() = blocks.filterIsInstance<ToolCallBlock>()
     private fun MessageBody.Assistant.results() = blocks.filterIsInstance<ToolResultBlock>()
 
@@ -252,10 +256,11 @@ class ToolFlowE2eTest {
         val sid = send("handoff")
         val h = awaitPause(sid) as Pause.Handoff
         assertEquals("Please sign in", h.reason)
-        assertEquals(Control.USER, browser.tabs.value.single { it.id == h.tabId }.control)
+        // The loop calls setControl from a worker thread; the engine applies it on main, so `tabs` catches up later.
+        awaitControl(h.tabId, Control.USER)
         engine.resolve(sid, Resolution.HandoffReturned)
         val reply = awaitEnd(sid)
-        assertEquals(Control.AI, browser.tabs.value.single { it.id == h.tabId }.control)
+        awaitControl(h.tabId, Control.AI)
         assertEquals(SystemPrompt.HANDOFF_DONE, reply.results()[1].content)
         assertEquals(ReplyStatus.DONE, reply.status)
     }
