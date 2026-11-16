@@ -153,7 +153,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions) {
                     },
                     ownership = {
                         OwnershipBar(
-                            t.ownerUi(s), toolName = s.aiActivity[t.id],
+                            t.ownerUi(s), toolName = s.aiActivity[t.id], idle = !(s.running && s.isMine(t)),
                             onTakeOver = { actions.takeOver(t.id) },
                             onGiveBack = { if (t.owner is Owner.User) actions.handToAi(t.id) else actions.giveBack(t.id) },
                         )

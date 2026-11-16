@@ -286,6 +286,8 @@ private fun ExportStep(step: BackupStep.Export, vm: DataViewModel) {
         ))
     } ?: LcLinearProgress(null)
     val valid = !withKeys || (pw.length >= 8 && pw == pw2)
+    // Persona-3 review: the password covers only secrets.enc; chats and attachments are a plain ZIP.
+    Text(stringResource(R.string.ui_backup_plain_note), style = LcTheme.text.caption, color = LcTheme.colors.textSecondary)
     if (full) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LcCheckbox(withKeys, { withKeys = it })

@@ -112,11 +112,12 @@ internal fun AssistantTurn(
     onSources: () -> Unit,
     onLink: (String) -> Unit,
     onErrorAction: (ErrorAction) -> Unit,
+    onReadAloud: ((String) -> Unit)? = null,
     toolStep: (ToolCallBlock) -> com.ouor.localchat.chat.ToolStep? = { null },
 ) {
     val body = reply.body
     val running = reply.live && state.running
-    val text = body.blocks.filterIsInstance<TextBlock>().joinToString("") { it.text }
+    val text = replyText(body.blocks)
     val sources = sources(body)
     var stepsOpen by rememberSaveable(reply.node.id) { mutableStateOf(false) }
     AssistantMessage {
@@ -152,6 +153,8 @@ internal fun AssistantTurn(
         if (!running) {
             MessageActionBar(
                 { onCopy(text) },
+                onReadAloud = if (onReadAloud != null && text.isNotBlank()) ({ onReadAloud(text) }) else null,
+                reading = state.readingId == reply.node.id,
                 onRegenerate = if (reply.canRegenerate) onRegenerate else null,
                 onContinue = if (reply.canContinue) onContinue else null,
                 branch = if (reply.versions.size > 1) ({ Versions(reply.version, reply.versions, onVersion) }) else null,
@@ -173,6 +176,17 @@ private fun Thinking(t: ThinkingData, live: Boolean, stopped: Boolean) {
     ThinkingBlock(state, timer, open, { open = !open }, t.text)
 }
 
+/** BUG-06: text written in different agent steps is separate paragraphs, not "first.Here are". */
+internal fun replyText(blocks: List<com.ouor.localchat.core.model.Block>): String {
+    val texts = blocks.filterIsInstance<TextBlock>()
+    return buildString {
+        texts.forEachIndexed { i, t ->
+            if (i > 0 && t.step != texts[i - 1].step && isNotBlank() && !endsWith("\n\n")) append("\n\n")
+            append(t.text)
+        }
+    }
+}
+
 @Composable
 private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor.localchat.chat.ToolStep?): StepItemData {
     val v = toolVisual(call.name)
@@ -184,7 +198,12 @@ private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor
         ToolCallState.DENIED -> StepState.Denied
         ToolCallState.CANCELLED -> StepState.Stopped
     }
-    return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, result?.summary, v.agent)
+    val detail = when {
+        state == StepState.Failed && step?.failureRes != null -> stringResource(step.failureRes) // BUG-10
+        step?.countRes != null -> androidx.compose.ui.res.pluralStringResource(step.countRes, step.count, step.count) // BUG-08
+        else -> result?.summary
+    }
+    return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, detail, v.agent)
 }
 
 @Composable

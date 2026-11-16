@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,6 +19,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -175,12 +181,13 @@ private sealed interface DiagramState {
 /**
  * R-04: header [다이어그램 | 코드]; renders through [engine] (hidden WebView, Mermaid → SVG → AndroidSVG).
  * Not rendered while the message streams ([renderNow] false) or when there is no engine: code is shown.
- * Tap the diagram → [onExpand] (zoom viewer, owned by the screen).
+ * Tap the diagram → [onExpand], or the built-in full-screen pinch-zoom viewer when null (BUG-05).
  */
 @Composable
 fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = Modifier, renderNow: Boolean = true, onExpand: (() -> Unit)? = null) {
     val c = LcTheme.colors
     var showCode by remember { mutableStateOf(false) }
+    var zoom by remember { mutableStateOf(false) }
     val empty = source.isBlank()
     val state by produceState<DiagramState>(DiagramState.Rendering, source, c.isDark, engine, renderNow) {
         if (engine == null || !renderNow || empty) return@produceState
@@ -228,22 +235,55 @@ fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = M
             s is DiagramState.Ready -> {
                 val density = LocalDensity.current
                 val desc = stringResource(R.string.ui_diagram)
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.padding(12.dp).widthIn(max = with(density) { (s.width * density.density).toDp() })
+                            .fillMaxWidth().aspectRatio(s.width / s.height)
+                            .clickable(onClick = onExpand ?: { zoom = true })
+                            .semantics { contentDescription = desc }
+                            .drawPicture(s),
+                    )
+                }
+                if (zoom) DiagramZoom(s) { zoom = false }
+            }
+        }
+    }
+}
+
+private fun Modifier.drawPicture(s: DiagramState.Ready) = drawBehind {
+    drawIntoCanvas { canvas ->
+        val scale = size.width / s.width
+        canvas.nativeCanvas.save()
+        canvas.nativeCanvas.scale(scale, scale)
+        canvas.nativeCanvas.drawPicture(s.picture)
+        canvas.nativeCanvas.restore()
+    }
+}
+
+/** R-04 full-screen diagram: pinch to zoom (1x..6x), drag to pan, double-tap resets. */
+@Composable
+private fun DiagramZoom(s: DiagramState.Ready, onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        var scale by remember { mutableStateOf(1f) }
+        var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+        val transform = androidx.compose.foundation.gestures.rememberTransformableState { z, pan, _ ->
+            scale = (scale * z).coerceIn(1f, 6f)
+            offset = if (scale == 1f) androidx.compose.ui.geometry.Offset.Zero else offset + pan
+        }
+        Box(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
+            Box(
+                Modifier.fillMaxSize().padding(16.dp)
+                    .transformable(transform)
+                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { scale = 1f; offset = androidx.compose.ui.geometry.Offset.Zero }) },
+                contentAlignment = Alignment.Center,
+            ) {
                 Box(
-                    Modifier.padding(12.dp).widthIn(max = with(density) { (s.width * density.density).toDp() })
-                        .fillMaxWidth().aspectRatio(s.width / s.height)
-                        .then(if (onExpand != null) Modifier.clickable(onClick = onExpand) else Modifier)
-                        .semantics { contentDescription = desc }
-                        .drawBehind {
-                            drawIntoCanvas { canvas ->
-                                val scale = size.width / s.width
-                                canvas.nativeCanvas.save()
-                                canvas.nativeCanvas.scale(scale, scale)
-                                canvas.nativeCanvas.drawPicture(s.picture)
-                                canvas.nativeCanvas.restore()
-                            }
-                        },
+                    Modifier.fillMaxWidth().aspectRatio(s.width / s.height)
+                        .graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }
+                        .drawPicture(s),
                 )
             }
+            LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_close), onClose, Modifier.align(Alignment.TopEnd).padding(8.dp))
         }
     }
 }

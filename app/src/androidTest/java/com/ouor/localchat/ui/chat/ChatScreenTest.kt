@@ -26,7 +26,12 @@ import com.ouor.localchat.core.model.TextBlock
 import com.ouor.localchat.ui.browser.BrowserActions
 import com.ouor.localchat.ui.browser.BrowserUiState
 import com.ouor.localchat.ui.browser.PanelState
+import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.theme.LocalchatTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.onNodeWithContentDescription
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -35,10 +40,12 @@ import org.junit.runner.RunWith
 /** Fixed-state ChatScreen tests (architecture 11): empty, streaming, approval wait, error. */
 @RunWith(AndroidJUnit4::class)
 class ChatScreenTest {
+    @get:Rule val screen = ScreenOnRule()
     @get:Rule val rule = createComposeRule()
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
 
     private val resolved = mutableListOf<Resolution>()
+    private val read = mutableListOf<Pair<String, String>>()
 
     private val chat = object : ChatActions {
         override val sessionId = "s"
@@ -52,6 +59,9 @@ class ChatScreenTest {
         override fun rename(title: String) {}
         override fun delete() {}
         override fun compactNow() {}
+        override fun readAloud(messageId: String, text: String) { read += messageId to text }
+        override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock) =
+            com.ouor.localchat.chat.ToolStep(R.string.ui_read_aloud, "bank.example", failureRes = R.string.chat_step_fail_sensitive)
     }
 
     private val composer = object : ComposerActions {
@@ -136,5 +146,33 @@ class ChatScreenTest {
     @Test fun errorReplyShowsErrorCard() {
         show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("", ReplyStatus.ERROR, ChatError(ChatErrorKind.AUTH, 401))))))
         rule.onNodeWithText(ctx.getString(R.string.ui_err_auth_title)).assertIsDisplayed()
+    }
+
+    @Test fun readAloudButtonReadsTheReply() { // BUG-01
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello there")))))
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_read_aloud)).performClick()
+        rule.runOnIdle { assertEquals(listOf("a" to "Hello there"), read) }
+    }
+
+    @Test fun readingReplyShowsStop() {
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello there"))), readingId = "a"))
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_stop_reading)).assertIsDisplayed()
+    }
+
+    @Test fun streamingFollowsTheBottom() { // BUG-03
+        var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Start", ReplyStatus.STREAMING), live = true)), runPhase = RunPhase.Streaming))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        rule.waitForIdle()
+        val long = (1..60).joinToString("\n\n") { "Paragraph $it." } + "\n\nTAIL-MARKER"
+        state = state.copy(turns = listOf(turn("hi", reply(long, ReplyStatus.STREAMING), live = true)))
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+    }
+
+    @Test fun failedStepShowsItsReason() { // BUG-10
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "page_text", "{}", 0, com.ouor.localchat.core.model.ToolCallState.FAILED, 1)
+        val body = MessageBody.Assistant(listOf(call, TextBlock("Done", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
+        show(ChatUiState(loading = false, turns = listOf(turn("read it", body))))
+        rule.onNodeWithText(ctx.getString(R.string.ui_steps_failed, 1, 1)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.chat_step_fail_sensitive), substring = true).assertIsDisplayed()
     }
 }

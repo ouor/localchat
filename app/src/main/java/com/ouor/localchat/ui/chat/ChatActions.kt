@@ -19,6 +19,8 @@ interface ChatActions {
     fun compactNow()
     /** Step label and argument summary (F-01: ui does not branch on tool names for this). */
     fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock): com.ouor.localchat.chat.ToolStep? = null
+    /** M-09: starts reading [text], or stops when [messageId] is already being read. */
+    fun readAloud(messageId: String, text: String) {}
 }
 
 /** Composer callbacks; [ComposerViewModel] implements them. */

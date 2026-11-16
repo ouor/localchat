@@ -53,4 +53,12 @@ class ChatMappingTest {
         assertEquals("1M", compact(1_000_000))
         assertEquals("999", compact(999))
     }
+
+    @Test fun `text from different steps becomes separate paragraphs`() {
+        val t = { text: String, step: Int -> com.ouor.localchat.core.model.TextBlock(text, step) }
+        assertEquals("Let me check first.\n\nHere are", replyText(listOf(t("Let me check first.", 0), t("Here are", 1))))
+        assertEquals("Hello world", replyText(listOf(t("Hello ", 0), t("world", 0))))
+        assertEquals("a\n\nb", replyText(listOf(t("a\n\n", 0), t("b", 1))))
+        assertEquals("b", replyText(listOf(t("", 0), t("b", 1))))
+    }
 }

@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -73,6 +75,8 @@ data class ChatUiState(
     val usageTokens: Int? = null,
     val contextWindow: Int? = null,
     val lastModel: ModelRef? = null,
+    /** M-09: reply being read aloud. */
+    val readingId: String? = null,
 ) {
     val running get() = runPhase != null
     val pause: Pause? get() = (runPhase as? RunPhase.Paused)?.pause
@@ -82,6 +86,8 @@ sealed interface ChatEffect {
     data class Rejected(val reason: ChatRejected.Reason) : ChatEffect
     data object Deleted : ChatEffect
     data object CompactFailed : ChatEffect
+    data object NothingToCompact : ChatEffect
+    data object ReadAloudUnavailable : ChatEffect
 }
 
 /** SC-03/04 (architecture 10.3). [sessionId] null = new chat: nothing to observe until the first send. */
@@ -92,6 +98,8 @@ class ChatViewModel @AssistedInject constructor(
     private val engine: ChatEngine,
     private val sessions: SessionRepository,
     providers: ProviderRepository,
+    private val tts: com.ouor.localchat.speech.ReadAloud,
+    private val settings: com.ouor.localchat.storage.SettingsStore,
 ) : ViewModel(), ChatActions {
 
     @AssistedFactory
@@ -134,8 +142,13 @@ class ChatViewModel @AssistedInject constructor(
                 lastModel = s?.lastModel,
             )
         }
-    }.onEach { s -> attachmentIds.value = s.turns.flatMap { it.user.attachmentIds } }
+    }.onEach { s ->
+        // + the SC-13 approval preview, an ARTIFACT attachment (track C 9).
+        val preview = ((s.runPhase as? RunPhase.Paused)?.pause as? Pause.Approval)?.request?.screenshotId
+        attachmentIds.value = s.turns.flatMap { it.user.attachmentIds } + listOfNotNull(preview)
+    }
         .combine(attachmentIds.flatMapLatest { sessions.observeAttachments(it) }) { s, rows -> s.copy(attachments = rows.associateBy { it.id }) }
+        .combine(tts.state) { s, r -> s.copy(readingId = (r as? com.ouor.localchat.speech.ReadAloudState.Speaking)?.messageId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     override fun stop() { sessionId?.let(engine::stop) }
@@ -156,9 +169,24 @@ class ChatViewModel @AssistedInject constructor(
     }
     override fun compactNow() = guarded {
         val id = sessionId ?: return@guarded
-        try { engine.compactNow(id) } catch (e: Exception) {
+        try { if (!engine.compactNow(id)) _effects.send(ChatEffect.NothingToCompact) } catch (e: Exception) {
             if (e is ChatRejected) throw e
             _effects.send(ChatEffect.CompactFailed)
+        }
+    }
+
+    override fun readAloud(messageId: String, text: String) {
+        if (state.value.readingId == messageId) { tts.stop(); return }
+        launch {
+            val s = settings.settings.first()
+            tts.setVoice(s.ttsVoice, s.ttsRate)
+            tts.speak(messageId, text)
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            tts.state.drop(1).collect { if (it == com.ouor.localchat.speech.ReadAloudState.Unavailable) _effects.send(ChatEffect.ReadAloudUnavailable) }
         }
     }
 

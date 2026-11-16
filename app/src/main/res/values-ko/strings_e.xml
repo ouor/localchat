@@ -2,6 +2,7 @@
 <!-- Track E (ui.theme, ui.components, ui.markdown) -->
 <resources>
     <string name="ui_ai">AI</string>
+    <string name="ui_ai_tab_idle">대기 중</string>
     <string name="ui_ai_operating">조작 중</string>
     <string name="ui_allow">허용</string>
     <string name="ui_attach">첨부</string>
@@ -106,6 +107,7 @@
     <string name="ui_state_on">켜짐</string>
     <string name="ui_state_unavailable">사용할 수 없음</string>
     <string name="ui_stop">중지</string>
+    <string name="ui_read_aloud_unavailable">이 기기에서는 소리 내어 읽기를 쓸 수 없어요</string>
     <string name="ui_stop_reading">읽기 중지</string>
     <string name="ui_stop_task">작업 중지</string>
     <string name="ui_summarize_now">지금 요약</string>
@@ -174,6 +176,7 @@
     <string name="ui_reject_run_active">응답이 끝난 뒤에 보낼 수 있어요.</string>
     <string name="ui_reject_model">모델을 쓸 수 없어요. 다른 모델을 고르세요.</string>
     <string name="ui_reject_not_allowed">이 메시지에서는 할 수 없어요.</string>
+    <string name="ui_compact_nothing">아직 요약할 만큼 길지 않아요. 최근 질문 두 개는 항상 그대로 둬요.</string>
     <string name="ui_compact_failed">요약하지 못했어요.</string>
     <string name="ui_handoff_title">브라우저에서 직접 할 일이 있어요</string>
     <string name="ui_reading_link">읽는 중: %1$s</string>
@@ -245,6 +248,8 @@
     <string name="ui_pick_another_file">다른 파일 선택</string>
     <string name="ui_chats">대화</string>
     <string name="ui_attachments">첨부</string>
+    <string name="ui_backup_plain_note">백업은 일반 ZIP 파일이에요. 대화와 첨부는 암호화되지 않고, 비밀번호는 API 키(secrets.enc)에만 적용돼요.</string>
+    <string name="ui_approval_preview">페이지의 대상 요소</string>
     <string name="ui_include_keys">API 키 포함</string>
     <string name="ui_password">비밀번호</string>
     <string name="ui_password_short">8자 이상</string>
@@ -304,9 +309,9 @@
     <string name="ui_cookies">쿠키</string>
     <string name="ui_cache">캐시</string>
     <string name="ui_site_storage">사이트 저장소</string>
-    <string name="ui_privacy_note">데이터는 이 기기와 선택한 프로바이더로만 전송돼요.</string>
+    <string name="ui_privacy_note">대화와 키는 이 기기에만 저장돼요. 메시지와 첨부는 고른 프로바이더로 보내고, 검색어는 검색 엔진(DuckDuckGo 등)으로, 링크 읽기와 브라우저는 여는 사이트로 요청을 보내요.</string>
     <string name="ui_onboard_title">내 키로 쓰는 AI 채팅</string>
-    <string name="ui_onboard_privacy">대화와 키는 이 기기에만 저장돼요. 요청은 고른 프로바이더로만 가요.</string>
+    <string name="ui_onboard_privacy">대화와 키는 이 기기에만 저장돼요. 메시지는 고른 프로바이더로 가고, 검색·웹 페이지는 검색 엔진과 방문한 사이트에 요청해요.</string>
     <string name="ui_pick_provider">프로바이더 선택</string>
     <string name="ui_custom_endpoint">직접 입력</string>
     <string name="ui_custom_endpoint_sub">OpenAI 호환 서버</string>

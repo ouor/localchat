@@ -133,6 +133,8 @@ fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, browser: com.ouo
                 is ChatEffect.Rejected -> snackbar.showSnackbar(rejectText(e.reason))
                 ChatEffect.Deleted -> nav.closeSession()
                 ChatEffect.CompactFailed -> snackbar.showSnackbar(context.getString(R.string.ui_compact_failed))
+                ChatEffect.NothingToCompact -> snackbar.showSnackbar(context.getString(R.string.ui_compact_nothing))
+                ChatEffect.ReadAloudUnavailable -> snackbar.showSnackbar(context.getString(R.string.ui_read_aloud_unavailable))
             }
         }
     }
@@ -171,8 +173,23 @@ internal fun ChatScreen(
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val atBottom by remember { androidx.compose.runtime.derivedStateOf { !list.canScrollForward } }
-    val lastSize = state.turns.lastOrNull()?.reply?.body?.blocks?.sumOf { (it as? com.ouor.localchat.core.model.TextBlock)?.text?.length ?: 1 }
-    LaunchedEffect(state.turns.size, lastSize) { if (atBottom && state.turns.isNotEmpty()) list.scrollToItem(state.turns.lastIndex, Int.MAX_VALUE) }
+    // M-10 / BUG-03: follow the bottom while content grows; a user drag stops following, reaching the bottom resumes it.
+    var follow by remember { mutableStateOf(true) }
+    LaunchedEffect(list) {
+        list.interactionSource.interactions.collect { i ->
+            when (i) {
+                is androidx.compose.foundation.interaction.DragInteraction.Start -> follow = false
+                is androidx.compose.foundation.interaction.DragInteraction.Stop, is androidx.compose.foundation.interaction.DragInteraction.Cancel -> if (!list.canScrollForward) follow = true
+            }
+        }
+    }
+    LaunchedEffect(list) { androidx.compose.runtime.snapshotFlow { list.canScrollForward }.collect { if (!it) follow = true } }
+    LaunchedEffect(state.turns.size) { follow = true }
+    LaunchedEffect(list) {
+        androidx.compose.runtime.snapshotFlow { follow && list.canScrollForward && !list.isScrollInProgress }.collect {
+            if (it && list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
+        }
+    }
 
     val picks = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { composer.attach(it) }
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) composer.startVoice() }
@@ -222,6 +239,7 @@ internal fun ChatScreen(
                                         onSources = { sourcesOf = reply },
                                         onLink = { browserActions.open(it) },
                                         toolStep = chat::toolStep,
+                                        onReadAloud = { chat.readAloud(reply.node.id, it) },
                                         onErrorAction = { a ->
                                             when (a) {
                                                 ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) }
@@ -288,6 +306,7 @@ internal fun ChatScreen(
                 onDeny = { chat.resolve(Resolution.ApprovalAnswer(p.id, false)) },
                 onAllow = { chat.resolve(Resolution.ApprovalAnswer(p.id, true)) },
                 code = r.code,
+                preview = r.screenshotId?.let(state.attachments::get)?.let(composer::thumbnail),
             )
         }
         is Pause.StepLimit -> LcDialog(

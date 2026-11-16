@@ -2,6 +2,7 @@
 <!-- Track E (ui.theme, ui.components, ui.markdown) -->
 <resources>
     <string name="ui_ai">AI</string>
+    <string name="ui_ai_tab_idle">Idle</string>
     <string name="ui_ai_operating">Operating</string>
     <string name="ui_allow">Allow</string>
     <string name="ui_attach">Attach</string>
@@ -106,6 +107,7 @@
     <string name="ui_state_on">On</string>
     <string name="ui_state_unavailable">Unavailable</string>
     <string name="ui_stop">Stop</string>
+    <string name="ui_read_aloud_unavailable">Read aloud is not available on this device</string>
     <string name="ui_stop_reading">Stop reading</string>
     <string name="ui_stop_task">Stop task</string>
     <string name="ui_summarize_now">Summarize now</string>
@@ -174,6 +176,7 @@
     <string name="ui_reject_run_active">Wait until the current reply finishes.</string>
     <string name="ui_reject_model">This model is unavailable. Choose another one.</string>
     <string name="ui_reject_not_allowed">Not possible for this message.</string>
+    <string name="ui_compact_nothing">Not long enough to summarize yet. The last two questions always stay as they are.</string>
     <string name="ui_compact_failed">Could not summarize.</string>
     <string name="ui_handoff_title">Your turn in the browser</string>
     <string name="ui_reading_link">Reading: %1$s</string>
@@ -245,6 +248,8 @@
     <string name="ui_pick_another_file">Choose another file</string>
     <string name="ui_chats">Chats</string>
     <string name="ui_attachments">Attachments</string>
+    <string name="ui_backup_plain_note">The backup is a regular ZIP: chats and attachments are not encrypted. The password protects only the API keys (secrets.enc).</string>
+    <string name="ui_approval_preview">Target on the page</string>
     <string name="ui_include_keys">Include API keys</string>
     <string name="ui_password">Password</string>
     <string name="ui_password_short">At least 8 characters</string>
@@ -304,9 +309,9 @@
     <string name="ui_cookies">Cookies</string>
     <string name="ui_cache">Cache</string>
     <string name="ui_site_storage">Site storage</string>
-    <string name="ui_privacy_note">Data is sent only to this device and the providers you choose.</string>
+    <string name="ui_privacy_note">Chats and keys are stored only on this device. Messages and attachments go to the provider you pick; web search sends queries to the search engine (such as DuckDuckGo), and link reading and the browser send requests to the sites they open.</string>
     <string name="ui_onboard_title">AI chat with your own key</string>
-    <string name="ui_onboard_privacy">Chats and keys stay on this device. Requests go only to the provider you pick.</string>
+    <string name="ui_onboard_privacy">Chats and keys stay on this device. Messages go to the provider you pick; search and web pages contact the search engine and the sites visited.</string>
     <string name="ui_pick_provider">Choose a provider</string>
     <string name="ui_custom_endpoint">Enter manually</string>
     <string name="ui_custom_endpoint_sub">Any OpenAI-compatible server</string>
