@@ -245,6 +245,20 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `stopping during a handoff gives the tab back to the AI (AN 13, SE 22)`() = runTest {
+        val handoff = FakeTool("request_handoff") { _, _ -> ToolOutcome("waiting", handoff = HandoffRequest(7, "login")) }
+        val h = Harness(this, tools = listOf(handoff))
+        h.llm.events(call("c1", "request_handoff"), finished("tool_calls"))
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(Pause.Handoff(7, "login"), (phase(h, sid) as RunPhase.Paused).pause)
+        h.engine.stopAll()
+        advanceUntilIdle()
+        assertEquals(listOf(7 to Control.USER, 7 to Control.AI), h.browser.setCalls)
+        assertEquals(ReplyStatus.STOPPED, h.lastReply(sid).status)
+    }
+
+    @Test
     fun `ai tab waits while the user holds control`() = runTest {
         val click = FakeTool("click") { _, ctx -> ToolOutcome("clicked ${ctx.aiTab(3).id}") }
         val h = Harness(this, tools = listOf(click))

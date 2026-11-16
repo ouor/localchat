@@ -235,8 +235,12 @@ class TurnRunner @Inject constructor(
                 // B-05: hand the tab to the user until they give it back.
                 browserPort.setControl(handoff.tabId, Control.USER)
                 save()
-                handle.pause(Pause.Handoff(handoff.tabId, handoff.reason))
-                browserPort.setControl(handoff.tabId, Control.AI)
+                try {
+                    handle.pause(Pause.Handoff(handoff.tabId, handoff.reason))
+                } finally {
+                    // Also on stop: a tab left in USER would stall the next run's first tool (AN 13, SE 22).
+                    browserPort.setControl(handoff.tabId, Control.AI)
+                }
                 block = block.copy(content = SystemPrompt.HANDOFF_DONE, isError = false)
             }
             val now = clock.now()

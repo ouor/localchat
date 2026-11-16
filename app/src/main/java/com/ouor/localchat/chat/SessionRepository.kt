@@ -116,6 +116,9 @@ class SessionRepository @Inject constructor(
     override suspend fun saveNode(node: MessageNode) {
         queue.write(node.id) {
             db.withTransaction {
+                // A run's last save can land after its session was deleted: drop it instead of failing
+                // the FK forever and leaving E-05 FAILING (AN 7).
+                if (dao.session(node.sessionId) == null) return@withTransaction
                 // The selection pointer belongs to selectVersion/insertNodes, not to the run's copy.
                 val selected = dao.message(node.id)?.selectedChildId ?: node.selectedChildId
                 dao.upsertMessages(listOf(node.copy(selectedChildId = selected).toEntity()), mapOf(node.id to node.attachmentIds()))

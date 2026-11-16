@@ -30,23 +30,29 @@ class RunService : androidx.lifecycle.LifecycleService() {
 
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
+    /** stopSelf(startId) ignores a start that arrived after the runs emptied (AN 8). */
+    private var lastStartId = 0
+
     override fun onCreate() {
         super.onCreate()
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, getString(R.string.chat_run_channel), NotificationManager.IMPORTANCE_LOW),
         )
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(registry.runs.value), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        goForeground()
         lifecycleScope.launch {
             registry.runs.collect { runs ->
-                if (runs.isEmpty()) stopSelf() else manager.notify(NOTIFICATION_ID, notification(runs))
+                if (runs.isEmpty()) stopSelf(lastStartId) else manager.notify(NOTIFICATION_ID, notification(runs))
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        lastStartId = startId
         if (intent?.action == ACTION_STOP) appScope.launch { registry.stopAll() }
+        // Every startForegroundService needs its startForeground, also on an instance that is still alive (AN 8).
+        else goForeground()
         return START_NOT_STICKY
     }
 
@@ -55,6 +61,9 @@ class RunService : androidx.lifecycle.LifecycleService() {
         appScope.launch { registry.stopAll() }
         stopSelf()
     }
+
+    private fun goForeground() =
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(registry.runs.value), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
 
     private fun notification(runs: Map<String, RunState>): Notification {
         val attention = runs.values.firstOrNull {
@@ -99,7 +108,15 @@ class RunServiceController @Inject constructor(
             var wasEmpty = true
             registry.runs.collect { runs ->
                 // Runs start from a user action, so the app is in the foreground here.
-                if (wasEmpty && runs.isNotEmpty()) ContextCompat.startForegroundService(context, Intent(context, RunService::class.java))
+                if (wasEmpty && runs.isNotEmpty()) {
+                    try {
+                        ContextCompat.startForegroundService(context, Intent(context, RunService::class.java))
+                    } catch (e: IllegalStateException) {
+                        // ForegroundServiceStartNotAllowedException (app just went to the background): the run goes on
+                        // without the service; better than a crash (AN 8).
+                        android.util.Log.w("localchat", "run service not started", e)
+                    }
+                }
                 wasEmpty = runs.isEmpty()
             }
         }

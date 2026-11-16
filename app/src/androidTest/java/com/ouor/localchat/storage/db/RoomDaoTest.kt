@@ -147,6 +147,16 @@ class RoomDaoTest {
         assertEquals(listOf("c"), later.first { it.isNotEmpty() }.map { it.id })
     }
 
+    @Test
+    fun saveAfterSessionDeleteIsDroppedAndHealthStaysOk() = runBlocking {
+        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System)
+        saveSession(session("s"), user("m1", "s"))
+        repo.delete("s")
+        repo.saveNode(user("m1", "s")) // the stopped run's finish() arriving late (AN 7)
+        assertEquals(com.ouor.localchat.chat.SaveHealth.OK, repo.saveHealth.value)
+        assertNull(chat.message("m1"))
+    }
+
     private fun endpoint(id: String, name: String = id) = EndpointEntity(id, name, "https://h/v1", null, true, 5, false, 0, 0)
 
     private fun model(endpointId: String, modelId: String) =
