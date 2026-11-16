@@ -87,5 +87,8 @@ interface BrowserPort {
     /** S-03 hidden tab for LinkPrefetcher. */
     suspend fun openAiTab(sessionId: String, url: String): Int
     suspend fun close(tabId: Int)
+
+    /** BUG-13: closes the AI tabs of [sessionId] (a deleted chat), or of every chat when null. */
+    fun closeAiTabs(sessionId: String?)
     fun isSensitive(url: String): Boolean
 }

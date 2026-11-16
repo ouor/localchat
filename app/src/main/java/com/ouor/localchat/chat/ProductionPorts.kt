@@ -3,6 +3,7 @@ package com.ouor.localchat.chat
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
+import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.safety.CookieMasker
 import com.ouor.localchat.tools.ToolCatalog
 import com.ouor.localchat.tools.ToolExposure
@@ -75,6 +76,12 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
     override fun maskCookies(text: String, url: String): String = CookieMasker.mask(text, engine.cookieHeader(url))
 
     override fun clearAiActivity(sessionId: String) = engine.clearAiActivity(sessionId)
+
+    override fun closeAiTabs(sessionId: String?) {
+        // close() posts to the main thread itself.
+        engine.tabs.value.filter { (it.owner as? Owner.Ai)?.sessionId?.let { s -> sessionId == null || s == sessionId } == true }
+            .forEach { engine.close(it.id) }
+    }
 
     override suspend fun openAiTab(sessionId: String, url: String): Int =
         withContext(Dispatchers.Main.immediate) { engine.openAiTab(sessionId, url) }

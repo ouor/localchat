@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.backup.RoomBackupStore
+import com.ouor.localchat.chat.FakeBrowserPort
 import com.ouor.localchat.chat.SessionRepository
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.backup.format.ProvidersFile
@@ -136,7 +137,7 @@ class RoomDaoTest {
 
     @Test
     fun observeAttachmentsKeepsIdOrderAndSkipsMissingRows() = runBlocking {
-        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System)
+        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System, FakeBrowserPort())
         attachments.upsert(attachment("b").toEntity())
         attachments.upsert(attachment("a").toEntity())
         assertEquals(listOf("b", "a"), repo.observeAttachments(listOf("b", "gone", "a", "b")).first().map { it.id })
@@ -149,12 +150,23 @@ class RoomDaoTest {
 
     @Test
     fun saveAfterSessionDeleteIsDroppedAndHealthStaysOk() = runBlocking {
-        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System)
+        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System, FakeBrowserPort())
         saveSession(session("s"), user("m1", "s"))
         repo.delete("s")
         repo.saveNode(user("m1", "s")) // the stopped run's finish() arriving late (AN 7)
         assertEquals(com.ouor.localchat.chat.SaveHealth.OK, repo.saveHealth.value)
         assertNull(chat.message("m1"))
+    }
+
+    @Test
+    fun deletingChatsClosesTheirAiTabs() = runBlocking {
+        // BUG-13: AI tabs piled up per deleted chat.
+        val browser = FakeBrowserPort()
+        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System, browser)
+        saveSession(session("s"), user("m1", "s"))
+        repo.delete("s")
+        repo.deleteAll()
+        assertEquals(listOf("s", null), browser.closedAiTabsOf)
     }
 
     private fun endpoint(id: String, name: String = id) = EndpointEntity(id, name, "https://h/v1", null, true, 5, false, 0, 0)

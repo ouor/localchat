@@ -182,6 +182,8 @@ class FakeBrowserPort : BrowserPort {
     val cookies = HashMap<String, String>()
     override fun maskCookies(text: String, url: String) = text.replace("SECRETCOOKIE", "***").let { t -> cookies[url]?.let { t.replace(it, "***") } ?: t }
     val cleared = mutableListOf<String>()
+    val closedAiTabsOf = mutableListOf<String?>()
+    override fun closeAiTabs(sessionId: String?) { closedAiTabsOf += sessionId }
     override fun clearAiActivity(sessionId: String) { cleared += sessionId }
     val opened = mutableListOf<String>()
     val closed = mutableListOf<Int>()

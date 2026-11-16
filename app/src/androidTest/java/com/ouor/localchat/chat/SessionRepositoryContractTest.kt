@@ -16,7 +16,7 @@ class SessionRepositoryContractTest : ChatStoreContract() {
     private val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
 
     override fun store(): ChatStore =
-        SessionRepository(db, db.chatDao(), db.attachmentDao(), AttachmentFiles(context.cacheDir), Clock.System)
+        SessionRepository(db, db.chatDao(), db.attachmentDao(), AttachmentFiles(context.cacheDir), Clock.System, FakeBrowserPort())
 
     @After
     fun close() = db.close()
