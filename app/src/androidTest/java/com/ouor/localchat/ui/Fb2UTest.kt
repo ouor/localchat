@@ -30,7 +30,7 @@ import com.ouor.localchat.ui.components.MenuOption
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.components.SettingsRow
 import com.ouor.localchat.ui.nav.LcNavDisplay
-import com.ouor.localchat.ui.providers.CONTEXT_PRESETS
+import com.ouor.localchat.ui.format.CONTEXT_PRESETS
 import com.ouor.localchat.ui.providers.CONTEXT_RANGE
 import com.ouor.localchat.ui.providers.LimitRow
 import com.ouor.localchat.ui.settings.SelectRow

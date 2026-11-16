@@ -99,7 +99,7 @@ fun ComposerPanel(
     canSend: Boolean = text.isNotBlank(),
     enabled: Boolean = true,
     placeholder: String = stringResource(R.string.ui_composer_placeholder),
-    dropHint: String = stringResource(R.string.ui_drop_hint),
+    dropHint: String = stringResource(R.string.ui_drop_hint, com.ouor.localchat.ui.format.MAX_FILE_SIZE),
     attachments: (@Composable RowScope.() -> Unit)? = null,
     voice: (@Composable () -> Unit)? = null,
     onVoiceCancel: () -> Unit = {},

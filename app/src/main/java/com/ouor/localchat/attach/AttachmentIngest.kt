@@ -245,6 +245,9 @@ object PrepFailure {
 
     /** Corrupt document. */
     const val EXTRACT_FAILED = "extract_failed"
+
+    /** Retrying cannot fix this: the type, an old Office format or the size is the problem (FB2 QA Minor-2). */
+    fun isFinal(reason: String) = reason == UNSUPPORTED_TYPE || reason == LEGACY_OFFICE || reason == TOO_LARGE
 }
 
 data class ValidationResult(val issues: List<ValidationIssue>) {

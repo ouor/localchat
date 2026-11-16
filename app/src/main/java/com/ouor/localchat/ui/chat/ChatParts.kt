@@ -204,12 +204,15 @@ internal fun AssistantTurn(
             )
         }
         // P-STABLE L4: the bar keeps its place while the reply runs (disabled), so regenerate never makes it vanish and return.
+        // Which buttons show never depends on the run; running or not only enables and disables them (FB3 fix ui m1).
         MessageActionBar(
             { onCopy(text) },
-            onReadAloud = if (onReadAloud != null && (running || text.isNotBlank())) ({ onReadAloud(text) }) else null,
+            onReadAloud = onReadAloud?.let { read -> { read(text) } },
+            readAloudEnabled = text.isNotBlank(),
             reading = state.readingId == reply.node.id,
-            onRegenerate = if (running || reply.canRegenerate) onRegenerate else null,
-            onContinue = if (!running && reply.canContinue) onContinue else null,
+            onRegenerate = onRegenerate,
+            regenerateEnabled = reply.canRegenerate,
+            onContinue = if (reply.canContinue) onContinue else null,
             branch = if (reply.versions.size > 1) ({ Versions(reply.version, reply.versions, onVersion, enabled = !running) }) else null,
             modelName = body.model?.displayName,
             onModelLongPress = if (body.usage != null) ({ usageOpen = true }) else null, // BUG-14 (M-11)

@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.chat
 
+import com.ouor.localchat.ui.format.compact
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.MessageNode
@@ -63,6 +64,7 @@ class ChatMappingTest {
         assertEquals("851.2k", compact(851_234))
         assertEquals("1M", compact(1_000_000))
         assertEquals("999", compact(999))
+        assertEquals("64MB", com.ouor.localchat.ui.format.MAX_FILE_SIZE) // from AllowedTypes.MAX_BYTES, same in ko and en
     }
 
     @Test fun `text from different steps becomes separate paragraphs`() {
@@ -74,12 +76,8 @@ class ChatMappingTest {
     }
 
     @Test fun `only failures a retry can fix keep the retry - old Office and over 64 MB do not`() {
-        fun failed(reason: String) = com.ouor.localchat.core.model.Attachment(
-            "a", "f", "application/octet-stream", 1, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
-            com.ouor.localchat.core.model.PrepState.Failed(reason), hasOriginal = true, createdAt = 0,
-        )
         val p = com.ouor.localchat.attach.PrepFailure
-        listOf(p.UNSUPPORTED_TYPE, p.LEGACY_OFFICE, p.TOO_LARGE).forEach { org.junit.Assert.assertTrue(it, isUnsupported(failed(it))) }
-        org.junit.Assert.assertFalse(isUnsupported(failed(p.READ_FAILED)))
+        listOf(p.UNSUPPORTED_TYPE, p.LEGACY_OFFICE, p.TOO_LARGE).forEach { org.junit.Assert.assertTrue(it, p.isFinal(it)) }
+        listOf(p.READ_FAILED, p.IMAGE_DECODE, p.EXTRACT_FAILED).forEach { org.junit.Assert.assertFalse(it, p.isFinal(it)) }
     }
 }

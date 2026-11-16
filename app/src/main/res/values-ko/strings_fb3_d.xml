@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="fb3_d_file_too_large">%1$s: 64MB를 넘어요</string>
+    <string name="fb3_d_file_too_large">%1$s: %2$s를 넘어요</string>
 </resources>

@@ -430,6 +430,8 @@ fun MessageActionBar(
     modelName: String? = null,
     onModelLongPress: (() -> Unit)? = null,
     enabled: Boolean = true,
+    readAloudEnabled: Boolean = true,
+    regenerateEnabled: Boolean = true,
 ) {
     val c = LcTheme.colors
     Row(modifier.fillMaxWidth().offset(x = (-6).dp), verticalAlignment = Alignment.CenterVertically) {
@@ -438,12 +440,12 @@ fun MessageActionBar(
             if (reading) {
                 // P-STABLE M1: same Sm slot as the speaker button, so the buttons after it stay put.
                 val stopDesc = stringResource(R.string.ui_stop_reading)
-                androidx.compose.material3.IconButton(onReadAloud, Modifier.size(IconButtonSize.Sm.visual).semantics { contentDescription = stopDesc }, enabled) { ReadingBars(true) }
+                androidx.compose.material3.IconButton(onReadAloud, Modifier.size(IconButtonSize.Sm.visual).semantics { contentDescription = stopDesc }, enabled && readAloudEnabled) { ReadingBars(true) }
             } else {
-                LcIconButton(Icons.Outlined.VolumeUp, stringResource(R.string.ui_read_aloud), onReadAloud, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
+                LcIconButton(Icons.Outlined.VolumeUp, stringResource(R.string.ui_read_aloud), onReadAloud, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled && readAloudEnabled)
             }
         }
-        if (onRegenerate != null) LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_regenerate), onRegenerate, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
+        if (onRegenerate != null) LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_regenerate), onRegenerate, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled && regenerateEnabled)
         if (onContinue != null) LcIconButton(Icons.Rounded.PlayArrow, stringResource(R.string.ui_continue), onContinue, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
         if (onMore != null) LcIconButton(Icons.Rounded.MoreHoriz, stringResource(R.string.ui_more), onMore, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {

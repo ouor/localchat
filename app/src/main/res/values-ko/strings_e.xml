@@ -36,7 +36,7 @@
     <string name="ui_disabled">사용 안 함</string>
     <string name="ui_done">완료</string>
     <string name="ui_drop_here">여기에 놓아 첨부</string>
-    <string name="ui_drop_hint">이미지, PDF, 문서, 코드 · 파일당 64MB</string>
+    <string name="ui_drop_hint">이미지, PDF, 문서, 코드 · 파일당 %1$s</string>
     <string name="ui_err_action_change_key">키 변경</string>
     <string name="ui_err_action_model_settings">모델 설정 열기</string>
     <string name="ui_err_action_provider_settings">프로바이더 설정</string>
