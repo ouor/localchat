@@ -63,7 +63,7 @@ class Compactor @Inject constructor(
             for (block in b.blocks) when (block) {
                 is TextBlock -> append(block.text)
                 is ToolCallBlock -> append("\n[tool ${block.name} ${block.argumentsJson}]\n")
-                is ToolResultBlock -> append("[result] ").append(ToolResultTrimmer.cut(block.content)).append('\n')
+                is ToolResultBlock -> append("[untrusted tool result] ").append(ToolResultTrimmer.cut(block.content)).append('\n')
                 else -> Unit
             }
             append("\n\n")
