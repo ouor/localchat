@@ -7,6 +7,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.MainActivity
+import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.core.model.SearchEngine
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -27,6 +29,8 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SearchEnginesLiveTest {
+
+    @get:Rule val screen = ScreenOnRule()
 
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var tab: BrowserTab

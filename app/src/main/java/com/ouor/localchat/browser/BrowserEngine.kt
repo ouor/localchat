@@ -30,7 +30,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -114,7 +118,45 @@ class BrowserEngine @Inject constructor(
 
     /** Throws [PageError] at [MAX_TABS]. */
     @MainThread
-    fun openAiTab(sessionId: String, url: String?): Int = open(Owner.Ai(sessionId), url).also { defaultAiTab[sessionId] = it }
+    fun openAiTab(sessionId: String, url: String?): Int {
+        trimIdleAiTabs(except = sessionId)
+        return open(Owner.Ai(sessionId), url).also {
+            defaultAiTab[sessionId] = it
+            aiUsedAt[it] = clock.now()
+        }
+    }
+
+    /** Tab id -> last time an AI tool opened or acquired it (BUG-13 idle trimming). */
+    private val aiUsedAt = mutableMapOf<Int, Long>()
+
+    /**
+     * BUG-13: keeps at most [TabRules.MAX_IDLE_AI_TABS] idle AI tabs of other chats. Eligible = no tool running, AI
+     * control, parked (not shown in a panel); idle = unused for [TabRules.AI_IDLE_MS]. Oldest go first.
+     */
+    private fun trimIdleAiTabs(except: String) {
+        val eligible = byId.values.filter { t ->
+            val o = t.owner
+            o is Owner.Ai && o.sessionId != except && t.id !in _aiActivity.value && t.control == Control.AI && t.webView.parent === host
+        }
+        TabRules.idleAiTabsToClose(eligible.associate { it.id to (aiUsedAt[it.id] ?: 0L) }, clock.now()).forEach(::close)
+    }
+
+    // ---------- per chat (BUG-04)
+
+    /** The chat's own AI tabs, for its browser panel and preview (B-04). Any thread. */
+    fun sessionTabs(sessionId: String): Flow<List<TabInfo>> =
+        tabs.map { list -> list.filter { it.owner == Owner.Ai(sessionId) } }.distinctUntilChanged()
+
+    /** [aiActivity] limited to the chat's own tabs: what its "AI is operating" bar shows (B-09 ②). Any thread. */
+    fun sessionActivity(sessionId: String): Flow<Map<Int, String>> =
+        combine(aiActivity, sessionTabs(sessionId)) { act, mine -> act.filterKeys { id -> mine.any { it.id == id } } }
+            .distinctUntilChanged()
+
+    /** BUG-13: closes every AI tab of a chat (chat deleted). Any thread. */
+    fun closeSessionTabs(sessionId: String) = onMain {
+        byId.values.filter { it.owner == Owner.Ai(sessionId) }.map { it.id }.forEach(::close)
+        defaultAiTab.remove(sessionId)
+    }
 
     private fun open(owner: Owner, url: String?): Int {
         if (byId.size >= MAX_TABS) throw PageError("Too many tabs are open ($MAX_TABS). Close unused tabs with close_tab.")
@@ -153,6 +195,7 @@ class BrowserEngine @Inject constructor(
     fun close(tabId: Int) {
         onMain {
             val tab = byId.remove(tabId) ?: return@onMain
+            aiUsedAt.remove(tabId)
             defaultAiTab.values.removeAll { it == tabId }
             tab.cancelPrompts()
             (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
@@ -268,6 +311,7 @@ class BrowserEngine @Inject constructor(
             if (tab.control == Control.AI) {
                 withContext(Dispatchers.Main.immediate) {
                     defaultAiTab[sessionId] = tab.id
+                    aiUsedAt[tab.id] = clock.now()
                     _aiActivity.value += (tab.id to toolName)
                 }
                 return tab

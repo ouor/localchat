@@ -43,7 +43,7 @@ object Click : Tool {
             if (at.disabled) throw ToolError("${at.info.label()} is disabled.")
             val reason = IrreversibleAction.reasonForClick(at.info)
             val label = at.info.label()
-            if (!ctx.guardActivate(name, tab, reason, label)) return@onMain ToolOutcome.DENIED
+            if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED
             if (reason != null) at = locate(tab, target) // scroll back to it after the approval wait
             ctx.highlight(tab, at, R.string.browser_highlight_click)
             // SE 7: the page may have moved or swapped the element while the user decided or the outline showed.
