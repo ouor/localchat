@@ -6,6 +6,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.foundation.background
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertCountEquals
 import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.performClick
@@ -265,6 +269,39 @@ class ChatScreenTest {
         strip.assertIsDisplayed()
         rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
         assertTrue(tailBottom() <= strip.fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    /** FB-1 screenshots into the app's external files (pulled into docs/dev/ui/shots by hand); also checks the strip at 200% + dark. */
+    @Test fun fb1Screenshots() {
+        val long = (1..12).joinToString("\n\n") { "문단 $it. 강남구 아파트 전세 시세는 최근 3개월 기준 보합 흐름입니다." } + "\n\nTAIL-MARKER 마지막 줄"
+        val chatState = ChatUiState(loading = false, turns = listOf(turn("전세 시세 알려줘", reply(long))))
+        val strip = BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true)
+        var scene by mutableStateOf(0)
+        rule.setContent {
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            val big = scene == 3
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, if (big) 2f else 1f)) {
+                LocalchatTheme(big) {
+                    // The app's root surface paints the window; the test draws it so dark mode reads right.
+                    androidx.compose.runtime.key(scene) { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.background(com.ouor.localchat.ui.theme.LcTheme.colors.surface)) {
+                        when (scene) {
+                            0 -> ChatScreen(ChatUiState(loading = false), ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                            1 -> ChatScreen(chatState, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                            else -> ChatScreen(chatState, ComposerUiState(), strip, chat, composer, browser, nav)
+                        }
+                    } }
+                }
+            }
+        }
+        listOf("empty-expanded", "progress-collapsed", "strip-last-line", "strip-200-dark").forEachIndexed { i, name ->
+            scene = i
+            rule.waitForIdle()
+            if (i >= 1) rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+            if (i >= 2) assertTrue(tailBottom() <= rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki")).fetchSemanticsNode().boundsInRoot.top)
+            val dir = ctx.getExternalFilesDir("shots") ?: return@forEachIndexed
+            val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
+            java.io.File(dir, "fb1-e1-$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
     }
 
     @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel

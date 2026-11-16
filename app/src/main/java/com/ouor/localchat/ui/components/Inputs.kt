@@ -164,7 +164,7 @@ fun ModelChip(
             ModelChipState.Missing -> Icon(Icons.Outlined.WarningAmber, null, Modifier.size(16.dp))
             ModelChipState.Normal -> EndpointDot(dotColor)
         }
-        val text = if (state == ModelChipState.Missing) stringResource(R.string.ui_model_missing) else "$endpointName · $modelName"
+        val text = if (state == ModelChipState.Missing) stringResource(R.string.ui_model_missing) else if (endpointName.isEmpty()) modelName else "$endpointName · $modelName"
         Text(
             text, style = (if (hero) LcTheme.text.bodyStrong else LcTheme.text.label).copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
