@@ -115,7 +115,7 @@ class TurnRunner @Inject constructor(
             val prefs = settings.settings.first()
             val model = body.model?.let { models.resolve(it) }
             if (model == null) {
-                publish(body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.BAD_REQUEST, message = "Model unavailable")))
+                publish(body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.MODEL_UNAVAILABLE)))
                 return
             }
             store.session(sessionId) ?: return // deleted meanwhile

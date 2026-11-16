@@ -173,7 +173,10 @@ class ChatCompletionsClientTest {
     @Test
     fun `http base URL is refused unless allowed`() = runTest {
         val events = client.stream(target().copy(allowHttp = false), request).toList()
-        assertTrue((events.single() as LlmEvent.Failed).error is LlmError.BadRequest)
+        // F-11: a setup problem, not a server 400 (no P-05 "turn features off" hint).
+        val error = (events.single() as LlmEvent.Failed).error
+        assertTrue("$error", error is LlmError.Config)
+        assertEquals(com.ouor.localchat.core.model.ChatErrorKind.CONFIG, error.toChatError().kind)
     }
 
     @Test

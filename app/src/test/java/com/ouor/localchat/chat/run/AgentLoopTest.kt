@@ -567,6 +567,15 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a model deleted before the loop starts is stored as MODEL_UNAVAILABLE (F-11)`() = runTest {
+        val models = FakeModelPort().apply { goneAfter = 1 } // ChatEngine's check passes, the loop's fails
+        val h = Harness(this, models = models)
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(ChatErrorKind.MODEL_UNAVAILABLE, h.lastReply(sid).error?.kind)
+    }
+
+    @Test
     fun `an unexpected exception in the loop is saved as ERROR instead of escaping`() = runTest {
         val h = Harness(this)
         h.llm.scripts.addLast { emit(LlmEvent.TextDelta("half")); throw IllegalStateException("bad row") }

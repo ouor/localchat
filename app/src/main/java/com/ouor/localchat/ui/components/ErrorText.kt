@@ -33,6 +33,9 @@ fun errorPresentation(kind: ChatErrorKind, usedOptionalFeatures: Boolean = false
         if (usedOptionalFeatures) ErrorPresentation(R.string.ui_err_feature_title, R.string.ui_err_feature_body, ErrorAction.OpenModelSettings)
         else ErrorPresentation(R.string.ui_err_bad_request_title, R.string.ui_err_bad_request_body, ErrorAction.Retry)
     ChatErrorKind.PROTOCOL -> ErrorPresentation(R.string.ui_err_protocol_title, R.string.ui_err_protocol_body, ErrorAction.Retry)
+    // F-11 (strings in strings_b until UI takes them over).
+    ChatErrorKind.MODEL_UNAVAILABLE -> ErrorPresentation(R.string.chat_err_model_unavailable_title, R.string.chat_err_model_unavailable_body, ErrorAction.OpenModelSettings)
+    ChatErrorKind.CONFIG -> ErrorPresentation(R.string.chat_err_config_title, R.string.chat_err_config_body, ErrorAction.OpenModelSettings)
 }
 
 /** ErrorCard for a stored [ChatError]; the HTTP status is appended to the body ("(429)"). */

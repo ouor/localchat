@@ -8,4 +8,8 @@
     </plurals>
     <string name="chat_run_needs_attention">Your confirmation is needed</string>
     <string name="chat_run_stop">Stop</string>
+    <string name="chat_err_model_unavailable_title">The model is no longer available</string>
+    <string name="chat_err_model_unavailable_body">It was removed or its provider is turned off. Choose another model.</string>
+    <string name="chat_err_config_title">Check the provider settings</string>
+    <string name="chat_err_config_body">The base URL is invalid or uses http without permission.</string>
 </resources>

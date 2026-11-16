@@ -136,8 +136,12 @@ class FakeModelPort(var caps: ModelCapabilities = caps()) : ModelPort {
     val used = mutableListOf<ModelRef>()
     /** Virtual delay in resolve, to let two sends interleave. */
     var resolveDelayMs = 0L
-    override suspend fun resolve(ref: ModelRef): ResolvedModel {
+    /** resolve returns null from this call on (model deleted mid-flight, P-08). */
+    var goneAfter = Int.MAX_VALUE
+    private var resolves = 0
+    override suspend fun resolve(ref: ModelRef): ResolvedModel? {
         if (resolveDelayMs > 0) kotlinx.coroutines.delay(resolveDelayMs)
+        if (++resolves > goneAfter) return null
         return ResolvedModel(ref, LlmTarget("http://fake/v1", null, 0, true), caps)
     }
     override suspend fun markUsed(ref: ModelRef) { used += ref }

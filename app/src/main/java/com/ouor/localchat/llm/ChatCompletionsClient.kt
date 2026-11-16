@@ -42,7 +42,7 @@ class ChatCompletionsClient @Inject constructor(
      */
     fun stream(target: LlmTarget, request: ChatRequest): Flow<LlmEvent> = flow {
         val url = target.url("chat/completions")
-            ?: return@flow emit(LlmEvent.Failed(LlmError.BadRequest(null, target.urlProblem()), partial = false))
+            ?: return@flow emit(LlmEvent.Failed(LlmError.Config(target.urlProblem()), partial = false))
         val maxRetries = target.maxRetries.coerceIn(0, 10)
         var body = request.copy(stream = true)
         var strippedField = false
@@ -85,7 +85,7 @@ class ChatCompletionsClient @Inject constructor(
 
     /** `GET {baseUrl}/models`, entries returned as-is so extension fields survive. Throws [LlmException]. */
     suspend fun listModels(target: LlmTarget): List<JsonObject> {
-        val url = target.url("models") ?: throw LlmException(LlmError.BadRequest(null, target.urlProblem()))
+        val url = target.url("models") ?: throw LlmException(LlmError.Config(target.urlProblem()))
         val (code, body) = try {
             http.newCall(Request.Builder().url(url).auth(target.apiKey).get().build()).await()
         } catch (e: IOException) {

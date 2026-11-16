@@ -34,4 +34,10 @@ enum class ChatErrorKind {
 
     /** Unparseable response. */
     PROTOCOL,
+
+    /** P-08: the reply's model or endpoint is gone or disabled; "choose another model". */
+    MODEL_UNAVAILABLE,
+
+    /** Endpoint setup problem found before any request (bad base URL, http not allowed). */
+    CONFIG,
 }

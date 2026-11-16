@@ -60,7 +60,7 @@ class ModelsAndConnectionTest {
             val url = mock.url("/v1").toString()
             assertEquals(ChatErrorKind.AUTH, kind(client.checkModels(draft(url).toTarget()).first))
             assertEquals(ChatErrorKind.PROTOCOL, kind(client.checkModels(draft(url).toTarget()).first))
-            assertEquals(ChatErrorKind.BAD_REQUEST, kind(client.checkModels(draft(url, allowHttp = false).toTarget()).first))
+            assertEquals(ChatErrorKind.CONFIG, kind(client.checkModels(draft(url, allowHttp = false).toTarget()).first))
         }
         val closed = MockWebServer().apply { start() }.let { val u = it.url("/v1").toString(); it.close(); u }
         assertEquals(ChatErrorKind.NETWORK, kind(client.checkModels(draft(closed).toTarget()).first))

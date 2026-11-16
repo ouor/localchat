@@ -15,6 +15,9 @@ sealed interface LlmError {
     data class ContextOverflow(override val httpStatus: Int?, override val serverMessage: String?) : LlmError
     data class BadRequest(override val httpStatus: Int?, override val serverMessage: String?) : LlmError
     data class Protocol(override val serverMessage: String?) : LlmError { override val httpStatus: Int? get() = null }
+
+    /** Unusable endpoint setup, found before sending (F-11). */
+    data class Config(override val serverMessage: String?) : LlmError { override val httpStatus: Int? get() = null }
     data object Timeout : LlmError { override val httpStatus: Int? get() = null; override val serverMessage: String? get() = null }
     data object Network : LlmError { override val httpStatus: Int? get() = null; override val serverMessage: String? get() = null }
     data object EmptyResponse : LlmError { override val httpStatus: Int? get() = null; override val serverMessage: String? get() = null }
@@ -30,6 +33,7 @@ fun LlmError.toChatError(): ChatError {
         is LlmError.ContextOverflow -> ChatErrorKind.CONTEXT_OVERFLOW
         is LlmError.BadRequest -> ChatErrorKind.BAD_REQUEST
         is LlmError.Protocol -> ChatErrorKind.PROTOCOL
+        is LlmError.Config -> ChatErrorKind.CONFIG
         LlmError.Timeout -> ChatErrorKind.TIMEOUT
         LlmError.Network -> ChatErrorKind.NETWORK
         LlmError.EmptyResponse -> ChatErrorKind.EMPTY_RESPONSE
