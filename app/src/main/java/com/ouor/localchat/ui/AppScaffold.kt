@@ -1,0 +1,161 @@
+package com.ouor.localchat.ui
+
+import android.content.Intent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Construction
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.core.net.toUri
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
+import com.ouor.localchat.R
+import com.ouor.localchat.core.model.ThemeMode
+import com.ouor.localchat.storage.SettingsStore
+import com.ouor.localchat.ui.chat.ChatNav
+import com.ouor.localchat.ui.chat.ChatRoute
+import com.ouor.localchat.ui.chat.ChatViewModel
+import com.ouor.localchat.ui.chat.ComposerViewModel
+import com.ouor.localchat.ui.components.AdaptiveScaffold
+import com.ouor.localchat.ui.components.EmptyState
+import com.ouor.localchat.ui.components.LcIconButton
+import com.ouor.localchat.ui.components.LcTopBar
+import com.ouor.localchat.ui.components.NavDrawerContent
+import com.ouor.localchat.ui.components.isExpandedWidth
+import com.ouor.localchat.ui.markdown.JsRenderEngine
+import com.ouor.localchat.ui.markdown.LocalJsRenderEngine
+import com.ouor.localchat.ui.nav.ChatKey
+import com.ouor.localchat.ui.nav.DataKey
+import com.ouor.localchat.ui.nav.EndpointKey
+import com.ouor.localchat.ui.nav.ModelKey
+import com.ouor.localchat.ui.nav.ProvidersKey
+import com.ouor.localchat.ui.nav.SettingsKey
+import com.ouor.localchat.ui.sessions.SessionDrawer
+import com.ouor.localchat.ui.sessions.SessionListViewModel
+import com.ouor.localchat.ui.theme.LcTheme
+import com.ouor.localchat.ui.theme.LocalchatTheme
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class AppViewModel @Inject constructor(settings: SettingsStore, val renderEngine: JsRenderEngine) : ViewModel() {
+    val theme = settings.settings.map { it.theme }.stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
+}
+
+/** Root: theme, render engine, navigation, drawer / permanent session panel (C-06, architecture 10.3). */
+@Composable
+fun AppScaffold(app: AppViewModel = hiltViewModel()) {
+    val theme by app.theme.collectAsStateWithLifecycle()
+    val dark = when (theme) { ThemeMode.SYSTEM -> isSystemInDarkTheme(); ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
+    LocalchatTheme(dark) {
+        CompositionLocalProvider(LocalJsRenderEngine provides app.renderEngine) {
+            val backStack = rememberNavBackStack(ChatKey())
+            BoxWithConstraints(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
+                val wide = isExpandedWidth(maxWidth)
+                val drawer = rememberDrawerState(DrawerValue.Closed)
+                val scope = rememberCoroutineScope()
+                val sessionsVm: SessionListViewModel = hiltViewModel()
+                val sessions by sessionsVm.state.collectAsStateWithLifecycle()
+                val currentSession = (backStack.lastOrNull() as? ChatKey)?.sessionId
+                fun closeDrawer() = scope.launch { drawer.close() }
+                val drawerContent: @Composable () -> Unit = {
+                    NavDrawerContent(permanent = wide) {
+                        SessionDrawer(
+                            sessions, currentSession, sessionsVm::onQuery,
+                            onOpen = { backStack.showChat(it); closeDrawer() },
+                            onNewChat = { backStack.showChat(null); closeDrawer() },
+                            onRename = { id, t -> sessionsVm.rename(id, t) },
+                            onDelete = { id -> sessionsVm.delete(id); if (id == currentSession) backStack.showChat(null) },
+                            onSettings = { backStack.add(SettingsKey); closeDrawer() },
+                            onProviders = { backStack.add(ProvidersKey); closeDrawer() },
+                        )
+                    }
+                }
+                val content: @Composable () -> Unit = {
+                    AppNav(backStack, openDrawer = if (wide) null else ({ scope.launch { drawer.open() } }))
+                }
+                if (wide) {
+                    AdaptiveScaffold(list = drawerContent, main = content)
+                } else {
+                    ModalNavigationDrawer(drawerContent = drawerContent, drawerState = drawer, gesturesEnabled = drawer.isOpen) { content() }
+                }
+            }
+        }
+    }
+}
+
+/** Chat entries are replaced, not stacked: back from a chat leaves the app (one chat at a time, C-01). */
+private fun NavBackStack<NavKey>.showChat(sessionId: String?) {
+    clear()
+    add(ChatKey(sessionId))
+}
+
+@Composable
+private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
+    val context = LocalContext.current
+    NavDisplay(
+        backStack = backStack,
+        onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
+        entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+        entryProvider = entryProvider {
+            entry<ChatKey> { key ->
+                val chat = hiltViewModel<ChatViewModel, ChatViewModel.Factory> { it.create(key.sessionId) }
+                val composer = hiltViewModel<ComposerViewModel, ComposerViewModel.Factory> { it.create(key.sessionId) }
+                ChatRoute(
+                    chat, composer,
+                    ChatNav(
+                        openDrawer = openDrawer,
+                        newChat = { backStack.showChat(null) },
+                        openBrowser = { /* shortcut: browser panel arrives with the browser screens (Phase 3 step 5). */ },
+                        openSession = { id -> backStack[backStack.lastIndex] = ChatKey(id) },
+                        closeSession = { backStack.showChat(null) },
+                        addProvider = { backStack.add(EndpointKey()) },
+                        editEndpoint = { backStack.add(EndpointKey(it)) },
+                        modelDetail = { e, m -> backStack.add(ModelKey(e, m)) },
+                        // shortcut: external browser until the in-app browser screens land (Phase 3 step 5).
+                        openLink = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+                    ),
+                )
+            }
+            entry<EndpointKey> { ComingSoon { backStack.removeLastOrNull() } }
+            entry<ModelKey> { ComingSoon { backStack.removeLastOrNull() } }
+            entry<ProvidersKey> { ComingSoon { backStack.removeLastOrNull() } }
+            entry<SettingsKey> { ComingSoon { backStack.removeLastOrNull() } }
+            entry<DataKey> { ComingSoon { backStack.removeLastOrNull() } }
+        },
+    )
+}
+
+@Composable
+private fun ComingSoon(onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        LcTopBar("", navigationIcon = { LcIconButton(Icons.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack) })
+        EmptyState(Icons.Outlined.Construction, stringResource(R.string.ui_coming_soon), null)
+    }
+}

@@ -30,12 +30,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) receiveShare(intent)
-        // TODO(ui): AppScaffold; after a share, navigate to the new chat (I-02).
-        setContent {
-            MaterialTheme {
-                Surface(Modifier.fillMaxSize()) {}
-            }
-        }
+        setContent { com.ouor.localchat.ui.AppScaffold() }
         // Tab WebViews live at full size under the Compose content (Phase 0 spike (b), track-c.md 5).
         val webViewHost = FrameLayout(this)
         findViewById<FrameLayout>(android.R.id.content).addView(webViewHost, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
