@@ -34,14 +34,19 @@ class ScreenOffTabTest {
         check(power.isInteractive == on) { "screen did not turn ${if (on) "on" else "off"}" }
     }
 
-    @After fun wake() {
+    /** Some devices ignore WAKEUP while dozing; POWER then toggles the screen on. */
+    private fun wakeUp() {
         key("KEYCODE_WAKEUP")
+        runCatching { waitInteractive(true) }.onFailure { key("KEYCODE_POWER"); waitInteractive(true) }
+    }
+
+    @After fun wake() {
+        wakeUp()
         scenario?.close()
     }
 
     @Test fun aiTabOpenedWithTheScreenOffHasRealSize() {
-        key("KEYCODE_WAKEUP")
-        waitInteractive(true)
+        wakeUp()
         check(!(ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { "Unlock the device by hand first." }
         lateinit var engine: BrowserEngine
         scenario = ActivityScenario.launch(MainActivity::class.java).onActivity { engine = it.browserEngine }
