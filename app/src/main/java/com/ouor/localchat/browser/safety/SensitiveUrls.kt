@@ -1,5 +1,6 @@
 package com.ouor.localchat.browser.safety
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.net.URI
 
 /**
@@ -11,8 +12,9 @@ class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = empt
 
     private val domains: Set<String> = (builtIn + user).mapNotNull(::normalize).toSet()
 
+    /** Fail-closed (SE 20): an http(s) URL whose host cannot be parsed counts as sensitive. */
     fun isSensitive(url: String): Boolean {
-        val host = hostOf(url) ?: return false
+        val host = hostOf(url) ?: return isWeb(url)
         return generateSequence(host) { h -> h.substringAfter('.', "").takeIf { it.isNotEmpty() } }
             .any { it in domains }
     }
@@ -24,9 +26,12 @@ class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = empt
         fun parseList(text: String): List<String> =
             text.lineSequence().map { it.substringBefore('#').trim() }.filter { it.isNotEmpty() }.toList()
 
+        /** OkHttp's parser first: it accepts IDN and `_` hosts that java.net.URI rejects. */
         fun hostOf(url: String): String? =
-            runCatching { URI(url.trim()).host }.getOrNull()?.lowercase()?.trimEnd('.')?.removePrefix("www.")
-                ?.takeIf { it.isNotEmpty() }
+            (url.trim().toHttpUrlOrNull()?.host ?: runCatching { URI(url.trim()).host }.getOrNull())
+                ?.lowercase()?.trimEnd('.')?.removePrefix("www.")?.takeIf { it.isNotEmpty() }
+
+        private fun isWeb(url: String) = url.trim().substringBefore(':').lowercase().let { it == "http" || it == "https" }
 
         /** Accepts `bank.com`, `*.bank.com`, `https://bank.com/x`. */
         private fun normalize(entry: String): String? {

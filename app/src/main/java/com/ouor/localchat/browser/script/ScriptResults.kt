@@ -38,7 +38,7 @@ data class QueryResult(val attached: Boolean, val visible: Boolean, val stale: B
 data class ScrollResult(val x: Int, val y: Int, val maxY: Int, val elementY: Int? = null, val elementMaxY: Int? = null)
 
 @Serializable
-data class FocusResult(val info: ElementInfo? = null)
+data class FocusResult(val info: ElementInfo? = null, val sensitive: Boolean = false)
 
 @Serializable
 data class TypeResult(val value: String)

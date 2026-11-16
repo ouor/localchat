@@ -16,6 +16,17 @@ object SensitiveFields {
 
     private val nameRegex = Regex(NAME_PATTERN, RegexOption.IGNORE_CASE)
 
+    private val FRAMES = setOf("iframe", "frame")
+
+    /**
+     * Every input tool (type, keyboard) asks this one rule. [scriptSensitive] is agent.js's verdict on the live
+     * element. A focused frame is refused too: its (cross-origin) content, e.g. a payment widget, cannot be checked.
+     */
+    fun refusesInput(target: ElementInfo?, scriptSensitive: Boolean): Boolean =
+        target != null && (scriptSensitive || target.tag in FRAMES || isSensitive(target))
+
+    fun isFrame(e: ElementInfo): Boolean = e.tag in FRAMES
+
     fun isSensitive(e: ElementInfo): Boolean {
         if (e.type == "password") return true
         val tokens = e.autocomplete.orEmpty().lowercase().split(' ').filter { it.isNotBlank() }

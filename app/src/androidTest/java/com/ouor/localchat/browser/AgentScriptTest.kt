@@ -99,6 +99,26 @@ class AgentScriptTest {
         Regex(Regex.escape(line) + "[^\\n]*\\[ref=(e\\d+)]").find(snap)?.groupValues?.get(1) ?: error("no ref for '$line' in\n$snap")
 
     @Test
+    fun focusInfoReportsSensitiveFieldsAndFrames() = runBlocking<Unit> {
+        load("snapshot.html")
+        js("document.getElementById('pw').focus()")
+        val pw = PageScript.call<FocusResult>(tab, "focusInfo")
+        assertTrue(pw.sensitive)
+        js("document.getElementById('cross').focus()")
+        assertEquals("iframe", PageScript.call<FocusResult>(tab, "focusInfo").info?.tag)
+    }
+
+    @Test
+    fun consoleIsClearedOnNavigation() = runBlocking<Unit> {
+        load("snapshot.html")
+        js("console.log('old-page-secret')")
+        delay(200)
+        assertTrue(tab.consoleLines().any { "old-page-secret" in it })
+        load("forms.html")
+        assertTrue(tab.consoleLines().toString(), tab.consoleLines().none { "old-page-secret" in it })
+    }
+
+    @Test
     fun thumbnailAfterLoad() {
         load("snapshot.html")
         runBlocking { delay(1_500) }
@@ -233,7 +253,7 @@ class AgentScriptTest {
         assertNull(reason("#override"))
         assertEquals(Reason.RISKY_KEYWORD, reason("#del"))
         assertEquals(Reason.RISKY_KEYWORD, reason("#buy"))
-        assertNull(reason("#article"))
+        assertEquals(Reason.RISKY_KEYWORD, reason("#article")) // SE 18: the label start is checked even on long links
         PageScript.callJson(tab, "type", buildJsonObject { put("target", "#user"); put("text", "kim") })
         assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(PageScript.call<FocusResult>(tab, "focusInfo").info))
         PageScript.callJson(tab, "type", buildJsonObject { put("target", "#sq"); put("text", "cats") })

@@ -259,6 +259,7 @@ class BrowserTab internal constructor(
 
     private inner class Client : WebViewClient() {
         override fun onPageStarted(view: WebView, startUrl: String, favicon: Bitmap?) {
+            console.clear() // SE 6: a previous page's logs (maybe a sensitive site during handoff) must not reach console_logs
             _loading.value = true
             url = startUrl
             events.onChanged(this@BrowserTab)

@@ -13,9 +13,12 @@ object CookieMasker {
         val values = cookieHeader.split(';')
             .mapNotNull { it.substringAfter('=', "").trim().takeIf { v -> v.length >= MIN_LENGTH } }
             .flatMap { listOf(it, runCatching { URLDecoder.decode(it, "UTF-8") }.getOrDefault(it)) }
+            .flatMap { listOf(it, jsonEscaped(it)) } // SE 19: values echoed inside JSON strings
             .filter { it.length >= MIN_LENGTH }
             .distinct()
             .sortedByDescending { it.length } // longer first so a value containing another is masked whole
         return values.fold(text) { acc, v -> acc.replace(v, MASK) }
     }
+
+    private fun jsonEscaped(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"")
 }

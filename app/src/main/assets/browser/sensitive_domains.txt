@@ -3,6 +3,8 @@
 
 # Accounts / OAuth / sign-in
 accounts.google.com
+signin.aws.amazon.com
+login.coupang.com
 myaccount.google.com
 login.microsoftonline.com
 login.live.com
@@ -18,6 +20,10 @@ login.yahoo.com
 id.atlassian.com
 auth0.com
 okta.com
+
+# Personal documents (SE 28)
+docs.google.com
+drive.google.com
 
 # Email
 mail.google.com
@@ -47,6 +53,7 @@ nordpass.com
 
 # Payments
 paypal.com
+paypal.me
 stripe.com
 pay.naver.com
 pay.kakao.com
