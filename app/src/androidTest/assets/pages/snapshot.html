@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snapshot test</title>
+<style>body{font:16px sans-serif;margin:8px} #box{width:200px;height:50px;margin-top:20px} .gone{display:none}</style>
+</head><body>
+<nav aria-label="Main"><a href="/next">Next page</a></nav>
+<main>
+  <h1>Search results</h1>
+  <p>Plain paragraph text.</p>
+  <label for="q">Query</label><input id="q" name="q" value="foo">
+  <label>Password <input id="pw" type="password" value="hunter22"></label>
+  <input id="otp" name="otp_code" placeholder="One-time code" value="123456">
+  <input id="cc" autocomplete="cc-number" aria-label="Card" value="4111111111111111">
+  <input type="hidden" name="secret" value="hidden-value">
+  <input type="checkbox" id="agree" checked><label for="agree">I agree</label>
+  <select id="color" aria-label="Color"><option value="r">Red</option><option value="g" selected>Green</option><option value="b">Blue</option></select>
+  <ul><li>First item</li><li>Second item</li></ul>
+  <button id="box" onclick="document.getElementById('out').textContent='clicked:'+event.isTrusted">Press me</button>
+  <p id="out">idle</p>
+  <div class="gone"><button>Invisible</button></div>
+  <div aria-hidden="true"><button>Hidden from AT</button></div>
+  <x-card id="card"><span slot="title">Slotted title</span></x-card>
+  <iframe id="same" title="Same origin" srcdoc="<button id='inner'>Inner button</button>" style="width:300px;height:80px"></iframe>
+  <iframe id="cross" title="Cross origin" style="width:300px;height:80px"></iframe>
+</main>
+<script>
+  customElements.define('x-card', class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({mode: 'open'}).innerHTML =
+        '<h2><slot name="title"></slot></h2><button id="shadowBtn">Shadow button</button><input aria-label="Shadow field" value="sv">';
+      this.shadowRoot.getElementById('shadowBtn').addEventListener('click', function () {
+        document.getElementById('out').textContent = 'shadow clicked';
+      });
+    }
+  });
+  // Cross-origin: 127.0.0.1 vs localhost on the same port.
+  var u = new URL(location.href); u.hostname = u.hostname === 'localhost' ? '127.0.0.1' : 'localhost'; u.pathname = '/pages/dialog.html';
+  document.getElementById('cross').src = u.href;
+</script>
+</body></html>

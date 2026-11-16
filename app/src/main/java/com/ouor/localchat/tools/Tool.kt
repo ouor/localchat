@@ -2,13 +2,16 @@ package com.ouor.localchat.tools
 
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
+import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.core.model.Source
-import com.ouor.localchat.storage.AttachmentFiles
 import kotlinx.serialization.json.JsonObject
 
 /**
  * A model-callable tool (architecture 6.1). Implementations are stateless `object`s; every
  * dependency comes through [ToolContext], so tests use a fake context and no Hilt.
+ *
+ * [run] may be called from any dispatcher (tools switch to Main for WebView work) and may throw
+ * [ToolError]; the executor turns it into `ToolOutcome(message, isError = true)`.
  */
 interface Tool {
     /** Name exposed to the model, e.g. "click". */
@@ -44,13 +47,18 @@ enum class ApprovalMode {
     ALWAYS,
 }
 
+/** A model-facing failure (bad argument, refused action, stale ref). The message goes to the model as is. */
+class ToolError(message: String) : Exception(message)
+
 /** Implemented by chat.run.ToolExecutor; this is how tools reach the loop without importing chat. */
 interface ToolContext {
     val sessionId: String
     val browser: BrowserEngine
-    val files: AttachmentFiles
 
-    /** The AI tab to act on, after ownership, sensitive-URL and control checks (architecture 6.4). */
+    /**
+     * The AI tab to act on, after ownership, sensitive-URL and control checks (architecture 6.4).
+     * Implement with [BrowserEngine.aiTabAccess] + [BrowserEngine.awaitAiControl]; throws [ToolError] when denied.
+     */
     suspend fun aiTab(tabIdArg: Int?): BrowserTab
 
     /** B-S2: suspends until the user answers SC-13. */
@@ -58,6 +66,9 @@ interface ToolContext {
 
     /** S-04: citation number for [url], stable within the current message. */
     fun numberSource(url: String, title: String, snippet: String?): Int
+
+    /** B-08: stores a tool artifact (screenshot PNG, PDF) as an ARTIFACT attachment and returns its id. */
+    suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String
 }
 
 /** Contents of the SC-13 dialog. */
@@ -68,6 +79,8 @@ data class ApprovalRequest(
     val screenshotId: String? = null,
     /** execute: full code shown before running. */
     val code: String? = null,
+    /** Why approval is needed; null for execute (always approved). */
+    val reason: IrreversibleAction.Reason? = null,
 )
 
 /** B-05 request to hand the tab to the user; the loop pauses on it. */
@@ -81,4 +94,10 @@ data class ToolOutcome(
     val artifactIds: List<String> = emptyList(),
     val imageForModelId: String? = null,
     val handoff: HandoffRequest? = null,
-)
+    /** The user refused a CONDITIONAL approval inside the tool; the call is shown as DENIED. */
+    val denied: Boolean = false,
+) {
+    companion object {
+        val DENIED = ToolOutcome("User denied.", isError = true, denied = true)
+    }
+}
