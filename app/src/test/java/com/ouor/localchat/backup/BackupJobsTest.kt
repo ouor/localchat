@@ -158,6 +158,30 @@ class BackupJobsTest {
     }
 
     @Test
+    fun `restore copies originals again when GC removed the pass-1 copies`() = runTest {
+        val zip = export()
+        val files = AttachmentFiles(tempDir())
+        val target = FakeStore(files)
+        val inspection = jobs(target, files).inspect({ ByteArrayInputStream(zip) }, null)
+        files.delete("f1") // an attachment GC ran: the copy had no row yet
+        jobs(target, files).restore({ ByteArrayInputStream(zip) }, inspection, RestoreChoice.REPLACE_ALL, "")
+        assertTrue(files.original("f1").readBytes().contentEquals(BackupFixtures.bytes("f1")))
+    }
+
+    @Test
+    fun `failed restore leaves no file it wrote`() = runTest {
+        val zip = export()
+        val files = AttachmentFiles(tempDir())
+        val target = FakeStore(files)
+        val inspection = jobs(target, files).inspect({ ByteArrayInputStream(zip) }, null)
+        files.delete("f1")
+        val tampered = rewrite(zip) { entries -> entries.map { if (it.first.startsWith("attachments/f1/")) it.first to "tampered".encodeToByteArray() else it } }
+        expectError(BackupError.BROKEN_ATTACHMENT) { jobs(target, files).restore({ ByteArrayInputStream(tampered) }, inspection, RestoreChoice.REPLACE_ALL, "") }
+        assertFalse(files.original("f1").exists())
+        assertTrue(target.sessions.isEmpty())
+    }
+
+    @Test
     fun `summary counts sessions and attachment bytes`() = runTest {
         val s = jobs(source, sourceFiles).summary(BackupScope.Full)
         assertEquals(BackupSummary(2, 2, BackupFixtures.bytes("f1").size + BackupFixtures.bytes("f2").size.toLong()), s)

@@ -17,6 +17,9 @@ import com.ouor.localchat.core.model.AttachmentKind
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.PrepState
 import com.ouor.localchat.storage.AttachmentFiles
+import com.ouor.localchat.storage.db.dao.AttachmentDao
+import com.ouor.localchat.storage.db.toEntity
+import com.ouor.localchat.storage.db.toModel
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -30,15 +33,20 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Attachment intake (public surface, architecture 10.2). Type/size failures surface as PrepState.Failed. */
+/**
+ * Attachment intake (public surface, architecture 10.2). Type/size failures surface as PrepState.Failed.
+ * Every state is upserted to the `attachments` table before it is emitted, so the row exists before
+ * any draft or message refers to the id.
+ */
 @Singleton
 class AttachmentIngest @Inject constructor(
     @ApplicationContext private val context: Context,
     private val files: AttachmentFiles,
+    private val dao: AttachmentDao,
     private val clock: Clock,
 ) {
-    // shortcut: retry knows only attachments ingested in this process; read rows from track B's store once it exists.
-    private val known = ConcurrentHashMap<String, Pair<Attachment, Uri>>()
+    /** Source Uris of this process, to retry a failed copy. After a restart only preparation can be retried. */
+    private val uris = ConcurrentHashMap<String, Uri>()
 
     /** Copies, checks and prepares [uri]: emits PREPARING, then READY or FAILED (I-05). */
     fun ingest(uri: Uri): Flow<Attachment> = flow {
@@ -49,19 +57,16 @@ class AttachmentIngest @Inject constructor(
             id = Ids.new(), name = name, mime = mime, size = size ?: 0, kind = kindOf(mime, name),
             state = PrepState.Preparing, hasOriginal = true, createdAt = clock.now(),
         )
-        known[base.id] = base to uri
-        emit(base)
-        emit(remember(uri, copyAndPrepare(base, uri)))
+        uris[base.id] = uri
+        emit(save(base))
+        emit(save(copyAndPrepare(base, uri)))
     }.flowOn(Dispatchers.IO)
 
     /** Re-runs preparation of a FAILED attachment. Throws IllegalArgumentException for an unknown id. */
     fun retry(attachmentId: String): Flow<Attachment> = flow {
-        val (failed, uri) = requireNotNull(known[attachmentId]) { "unknown attachment $attachmentId" }
-        val again = failed.copy(state = PrepState.Preparing)
-        emit(again)
-        val original = files.original(again.id)
-        val result = if (again.sha256 != null && original.exists()) prepare(again) else copyAndPrepare(again, uri)
-        emit(remember(uri, result))
+        val failed = requireNotNull(dao.get(attachmentId)?.toModel()) { "unknown attachment $attachmentId" }
+        emit(save(failed.copy(state = PrepState.Preparing)))
+        emit(save(retried(failed.copy(state = PrepState.Preparing), uris[attachmentId])))
     }.flowOn(Dispatchers.IO)
 
     /** Send-time check against the target model (I-03). */
@@ -73,7 +78,15 @@ class AttachmentIngest @Inject constructor(
      */
     fun prepareStored(a: Attachment): Attachment = if (a.hasOriginal && files.original(a.id).isFile) prepare(a) else a
 
-    private fun remember(uri: Uri, a: Attachment): Attachment = a.also { known[a.id] = a to uri }
+    /** Prepare again from the copied original, copy again from [uri], or give up when neither exists. */
+    internal fun retried(a: Attachment, uri: Uri?): Attachment = when {
+        a.sha256 != null && files.original(a.id).isFile -> prepare(a)
+        uri != null -> copyAndPrepare(a, uri)
+        // The Uri permission did not survive a restart.
+        else -> a.failed(PrepFailure.READ_FAILED)
+    }
+
+    private suspend fun save(a: Attachment): Attachment = a.also { dao.upsert(it.toEntity()) }
 
     private fun copyAndPrepare(a: Attachment, uri: Uri): Attachment {
         if (!AllowedTypes.isAllowed(a.name)) return a.failed(PrepFailure.UNSUPPORTED_TYPE)
