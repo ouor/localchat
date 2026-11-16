@@ -20,3 +20,7 @@ local.properties
 /.idea/
 .kotlin
 /.claude/worktrees/
+
+# release signing secrets (signing/SIGNING.md)
+signing/release.p12
+signing/keystore.properties
