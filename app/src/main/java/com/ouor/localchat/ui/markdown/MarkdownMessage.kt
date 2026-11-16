@@ -174,13 +174,14 @@ private fun MarkdownBlock(
             textLink = TextLinkStyles(SpanStyle(color = c.accentText, textDecoration = TextDecoration.Underline)),
         ),
         padding = markdownPadding(block = 4.dp, listIndent = 6.dp),
-        dimens = markdownDimens(codeBackgroundCornerSize = 12.dp, tableCornerSize = 12.dp, tableCellWidth = 140.dp),
+        dimens = markdownDimens(codeBackgroundCornerSize = 12.dp, tableCornerSize = 12.dp),
         annotator = annotator,
         inlineContent = markdownInlineContent(inline),
         components = remember {
             markdownComponents(
                 codeFence = { MarkdownCodeFence(it.content, it.node, it.typography.code) { code, lang, _ -> CodeOrDiagram(code, lang) } },
                 codeBlock = { MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, lang, _ -> CodeBlock(code, lang) } },
+                table = { WrapTable(it.content, it.node, it.typography.table) },
                 // Mockup: body-size dot / number on the first line's baseline (library default floats it to the top).
                 unorderedList = {
                     MarkdownListItems(it.content, it.node, depth = it.listDepth, markerModifier = { Modifier.alignByBaseline() }, listModifier = { Modifier.alignByBaseline() }) { _, _, _ ->
