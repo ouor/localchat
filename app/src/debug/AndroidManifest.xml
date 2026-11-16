@@ -13,5 +13,9 @@
             android:name=".ui.gallery.GalleryActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Material.NoActionBar" />
+        <activity
+            android:name=".ui.gallery.DebugSeedActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     </application>
 </manifest>

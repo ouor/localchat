@@ -143,9 +143,25 @@ private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
                     ),
                 )
             }
-            entry<EndpointKey> { ComingSoon { backStack.removeLastOrNull() } }
-            entry<ModelKey> { ComingSoon { backStack.removeLastOrNull() } }
-            entry<ProvidersKey> { ComingSoon { backStack.removeLastOrNull() } }
+            entry<EndpointKey> { key ->
+                val vm = hiltViewModel<com.ouor.localchat.ui.providers.EndpointEditViewModel, com.ouor.localchat.ui.providers.EndpointEditViewModel.Factory> { it.create(key.endpointId) }
+                com.ouor.localchat.ui.providers.EndpointRoute(
+                    vm, onBack = { backStack.removeLastOrNull() },
+                    // New provider: replace the form with its detail page.
+                    onSaved = { id -> if (key.endpointId == null) { backStack.removeLastOrNull(); backStack.add(EndpointKey(id)) } },
+                    onModel = { e, m -> backStack.add(ModelKey(e, m)) },
+                )
+            }
+            entry<ModelKey> { key ->
+                val vm = hiltViewModel<com.ouor.localchat.ui.providers.ModelDetailViewModel, com.ouor.localchat.ui.providers.ModelDetailViewModel.Factory> { it.create(key.endpointId, key.modelId) }
+                com.ouor.localchat.ui.providers.ModelDetailRoute(vm) { backStack.removeLastOrNull() }
+            }
+            entry<ProvidersKey> {
+                com.ouor.localchat.ui.providers.ProvidersRoute(
+                    hiltViewModel(), onBack = { backStack.removeLastOrNull() },
+                    onOpen = { backStack.add(EndpointKey(it)) }, onAdd = { backStack.add(EndpointKey()) },
+                )
+            }
             entry<SettingsKey> { ComingSoon { backStack.removeLastOrNull() } }
             entry<DataKey> { ComingSoon { backStack.removeLastOrNull() } }
         },
