@@ -40,8 +40,8 @@ android {
     }
     // FakeOpenAiServer is shared by JVM tests and instrumented tests (architecture 11).
     sourceSets {
-        getByName("test").java.srcDir("src/testShared/java")
-        getByName("androidTest").java.srcDir("src/testShared/java")
+        getByName("test").kotlin.directories += "src/testShared/java"
+        getByName("androidTest").kotlin.directories += "src/testShared/java"
     }
 }
 
