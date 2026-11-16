@@ -9,6 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -25,12 +26,14 @@ import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.components.LcTopBar
 import com.ouor.localchat.ui.components.LocalReducedMotion
+import com.ouor.localchat.ui.components.MenuOption
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.components.SettingsRow
 import com.ouor.localchat.ui.nav.LcNavDisplay
 import com.ouor.localchat.ui.providers.CONTEXT_PRESETS
 import com.ouor.localchat.ui.providers.CONTEXT_RANGE
 import com.ouor.localchat.ui.providers.LimitRow
+import com.ouor.localchat.ui.settings.SelectRow
 import com.ouor.localchat.ui.theme.LcTheme
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Assert.assertEquals
@@ -71,6 +74,66 @@ class Fb2UTest {
         // Below the row when there is room.
         assertTrue(item.positionOnScreen.y >= rowNode.positionOnScreen.y + rowNode.size.height - 1)
         Shots.save("fb2-u-limit-menu")
+    }
+
+    private fun SemanticsNode.top() = positionOnScreen.y
+    private fun SemanticsNode.bottom() = positionOnScreen.y + size.height
+    private fun SemanticsNode.right() = positionOnScreen.x + size.width
+
+    @Test fun selectMenuOpensAlignedToTheRowEndEdge() {
+        rule.setContent {
+            LocalchatTheme(darkTheme = true) {
+                Column(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
+                    Spacer(Modifier.height(160.dp))
+                    SettingsGroup { SelectRow("검색 엔진", "DuckDuckGo", listOf(MenuOption("DuckDuckGo"), MenuOption("Google")), 0) {} }
+                }
+            }
+        }
+        val row = rule.onNodeWithText("검색 엔진").fetchSemanticsNode()
+        rule.onNodeWithText("검색 엔진").performClick()
+        val item = rule.onNodeWithText("Google").fetchSemanticsNode()
+        assertTrue("menu right ${item.right()} vs row right ${row.right()}", abs(item.right() - row.right()) <= 16 * density)
+        assertTrue("menu left ${item.positionOnScreen.x} must clear the 16dp screen margin", item.positionOnScreen.x > 16 * density)
+        assertTrue(item.top() >= row.bottom() - 1)
+    }
+
+    private val small = listOf(4_096, 8_192)
+
+    @Test fun limitMenuFlippedUpEndsAboveTheRow() {
+        rule.setContent {
+            LocalchatTheme(darkTheme = true) {
+                Column(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
+                    Spacer(Modifier.weight(1f))
+                    SettingsGroup { LimitRow("최대 출력 토큰", Sourced(4_096, CapSource.USER), Sourced(null, CapSource.UNKNOWN), small, CONTEXT_RANGE, null, false) {} }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        }
+        val row = rule.onNodeWithText("최대 출력 토큰").fetchSemanticsNode()
+        rule.onNodeWithText("최대 출력 토큰").performClick()
+        // The last item is the menu's lowest: no room below, so the whole menu sits above the tapped row.
+        val last = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_custom)).fetchSemanticsNode()
+        assertTrue("menu bottom ${last.bottom()} vs row top ${row.top()}", last.bottom() <= row.top() + 1)
+        Shots.save("fb2-u-limit-menu-up")
+    }
+
+    @Test fun limitMenuOpensAtTheRowNotUnderItsWarning() {
+        rule.setContent {
+            LocalchatTheme(darkTheme = true) {
+                Column(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
+                    Spacer(Modifier.height(160.dp))
+                    SettingsGroup {
+                        LimitRow("최대 출력 토큰", Sourced(8_192, CapSource.USER), Sourced(null, CapSource.UNKNOWN), small, CONTEXT_RANGE, "4K" to 4_096, false) {}
+                    }
+                }
+            }
+        }
+        val row = rule.onNodeWithText("최대 출력 토큰").fetchSemanticsNode()
+        val warn = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_warn_gt_ctx, "4K")).fetchSemanticsNode()
+        rule.onNodeWithText("최대 출력 토큰").performClick()
+        val first = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_auto_unknown)).fetchSemanticsNode()
+        assertTrue("menu top ${first.top()} vs row bottom ${row.bottom()}", first.top() >= row.bottom() - 1)
+        assertTrue("menu top ${first.top()} must start above the warning bottom ${warn.bottom()}", first.top() < warn.bottom())
     }
 
     private val stack = mutableStateListOf("home")

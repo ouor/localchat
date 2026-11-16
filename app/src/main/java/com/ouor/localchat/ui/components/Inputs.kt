@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -351,6 +353,17 @@ fun SegmentedControl(options: List<String>, selectedIndex: Int, onSelect: (Int) 
             )
         }
     }
+}
+
+/**
+ * FB2-1: anchors a dropdown [menu] to the end edge of the row this Box wraps (put the Box around the row only).
+ * The anchor is zero wide and as tall as the row: below the row when there is room, above it (never over it)
+ * when not. A zero-wide anchor at the row end makes M3's first candidate (menu start at anchor start) overflow
+ * the window, so endToAnchorEnd is chosen and the menu's end edge lines up with the row's.
+ */
+@Composable
+fun BoxScope.EndAnchoredMenu(menu: @Composable () -> Unit) {
+    Box(Modifier.matchParentSize().wrapContentWidth(Alignment.End).width(0.dp)) { menu() }
 }
 
 data class MenuOption(val label: String, val hint: String? = null, val enabled: Boolean = true)

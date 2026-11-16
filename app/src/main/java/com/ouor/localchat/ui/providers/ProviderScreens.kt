@@ -69,6 +69,7 @@ import com.ouor.localchat.ui.components.ChipVariant
 import com.ouor.localchat.ui.components.ConnectionStatus
 import com.ouor.localchat.ui.components.ConnectionUi
 import com.ouor.localchat.ui.components.DialogKind
+import com.ouor.localchat.ui.components.EndAnchoredMenu
 import com.ouor.localchat.ui.components.EndpointDot
 import com.ouor.localchat.ui.components.HelperTone
 import com.ouor.localchat.ui.components.IconButtonSize
@@ -371,36 +372,37 @@ internal fun LimitRow(
             stringResource(R.string.fb_e3_limit_warn_gt_server, limitLabel(autoValue, presets))
         else -> null
     }
-    Box {
-        Column {
+    Column {
+        // The menu anchors to the row itself, not to the row + warning caption.
+        Box {
             // Value goes in the FB-2 value slot so the label keeps priority at 200% font.
             SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
                 SourceBadge(cap.source)
                 Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
             }
-            if (warn != null) Text(warn, Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp), style = LcTheme.text.caption, color = c.warning)
-        }
-        // FB2-1: zero-size anchor at the row's bottom end, so the menu opens under the value/▾ with its end edges aligned.
-        Box(Modifier.align(Alignment.BottomEnd)) {
-            DropdownMenu(
-                menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
-                shape = LcRadius.sm, containerColor = c.surfaceRaised,
-            ) {
-                LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
-                HorizontalDivider(color = c.border)
-                presets.forEach { p ->
-                    val label = limitLabel(p, presets)
-                    val exact = "%,d".format(p)
-                    LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
+            // FB2-1: the menu opens under (or above) the value/▾ with its end edge at the row's.
+            EndAnchoredMenu {
+                DropdownMenu(
+                    menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
+                    shape = LcRadius.sm, containerColor = c.surfaceRaised,
+                ) {
+                    LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
+                    HorizontalDivider(color = c.border)
+                    presets.forEach { p ->
+                        val label = limitLabel(p, presets)
+                        val exact = "%,d".format(p)
+                        LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
+                    }
+                    HorizontalDivider(color = c.border)
+                    val outside = v != null && v !in presets
+                    LimitItem(
+                        if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
+                        null, null, outside,
+                    ) { menu = false; custom = true }
                 }
-                HorizontalDivider(color = c.border)
-                val outside = v != null && v !in presets
-                LimitItem(
-                    if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
-                    null, null, outside,
-                ) { menu = false; custom = true }
             }
         }
+        if (warn != null) Text(warn, Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp), style = LcTheme.text.caption, color = c.warning)
     }
     if (custom) {
         var text by remember { mutableStateOf(v?.toString().orEmpty()) }
