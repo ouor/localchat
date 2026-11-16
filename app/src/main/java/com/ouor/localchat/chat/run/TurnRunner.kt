@@ -76,6 +76,8 @@ class TurnRunner @Inject constructor(
             // A broken row, a full disk, a bug: the reply ends as ERROR instead of killing the process (AN 3).
             turn.fail(e)
         } finally {
+            // BUG-04: however the run ends, B-09 ② "AI is operating" must not outlive it.
+            browserPort.clearAiActivity(turn.sessionId)
             withContext(NonCancellable) { turn.finish() }
         }
     }

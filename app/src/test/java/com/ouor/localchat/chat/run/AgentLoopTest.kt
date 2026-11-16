@@ -293,6 +293,30 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `every run end clears the AI activity - done, stopped and model gone`() = runTest {
+        // BUG-04: "AI is operating" stayed on after the loop ended.
+        val click = FakeTool("click") { _, ctx -> ToolOutcome("clicked ${ctx.aiTab(3).id}") }
+        val h = Harness(this, tools = listOf(click))
+        h.llm.text("plain")
+        val done = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(listOf(done), h.browser.cleared)
+
+        h.browser.controls.value = mapOf(3 to Control.USER)
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        val stopped = h.sendNew()
+        advanceUntilIdle()
+        h.engine.stop(stopped)
+        advanceUntilIdle()
+        assertEquals(listOf(done, stopped), h.browser.cleared)
+
+        h.models.goneAfter = 5 // two runs resolved twice each; the third passes send, then the runner finds none
+        val gone = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(listOf(done, stopped, gone), h.browser.cleared)
+    }
+
+    @Test
     fun `ai tab waits while the user holds control`() = runTest {
         val click = FakeTool("click") { _, ctx -> ToolOutcome("clicked ${ctx.aiTab(3).id}") }
         val h = Harness(this, tools = listOf(click))
