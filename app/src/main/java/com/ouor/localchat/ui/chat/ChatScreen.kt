@@ -307,7 +307,7 @@ internal fun ChatScreen(
             )
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.turns.isEmpty() && !state.loading) {
-                    // Centered as before; pushed down only as far as a banner would otherwise cover it (L1 keeps it put otherwise).
+                    // Centered as before; pushed down only as far as a banner would otherwise cover it (P-STABLE L1 keeps it put otherwise).
                     Welcome(cs, Modifier.fillMaxSize().layout { m, c ->
                         val p = m.measure(c.copy(minWidth = 0, minHeight = 0))
                         layout(c.maxWidth, c.maxHeight) { p.place((c.maxWidth - p.width) / 2, maxOf((c.maxHeight - p.height) / 2, bannerPx)) }
@@ -353,7 +353,7 @@ internal fun ChatScreen(
                     }
                     if (!atBottom) ScrollToBottomButton(
                         { scope.launch { list.animateScrollToItem(state.turns.lastIndex.coerceAtLeast(0), Int.MAX_VALUE) } },
-                        Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = FAB_GAP),
                         hasNew = state.running,
                     )
                 }
@@ -378,8 +378,8 @@ internal fun ChatScreen(
                     inputModifier = Modifier.focusRequester(inputFocus).onFocusChanged { if (chat.sessionId == null) NewChatOptions.focused = it.hasFocus })
             }
         }
-        // P-STABLE L3: snackbars sit above the "scroll to bottom" button's slot (8dp + 40dp + 8dp), never over it.
-        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + 56.dp))
+        // P-STABLE L3: snackbars sit above the "scroll to bottom" button's slot (gap + button + gap), never over it.
+        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + FAB_GAP + com.ouor.localchat.ui.components.ScrollToBottomSize + FAB_GAP))
         BrowserOverlay(browserState, browserActions) { cover = it }
     }
 
@@ -597,6 +597,9 @@ private fun Toggles(cs: ComposerUiState, composer: ComposerActions, nav: ChatNav
 }
 
 private fun ModelInfo.endpointName(cs: ComposerUiState): String = cs.endpointNames[endpointId] ?: ""
+
+/** Space between the composer and the "scroll to bottom" button, and between the button and a snackbar. */
+private val FAB_GAP = 8.dp
 
 /** A final failure's tile offers no retry ([PrepFailure.isFinal]). */
 private fun isFinalFailure(a: Attachment) = (a.state as? PrepState.Failed)?.reason?.let(PrepFailure::isFinal) == true

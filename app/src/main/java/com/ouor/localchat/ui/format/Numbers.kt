@@ -1,6 +1,6 @@
 package com.ouor.localchat.ui.format
 
-import com.ouor.localchat.attach.AllowedTypes
+import com.ouor.localchat.attach.PrepFailure
 
 // Number wording shared by the chat (gauge, context card, attachments) and the provider screens (limit rows), so both say the same.
 
@@ -23,4 +23,4 @@ fun compact(n: Int): String = when {
 }
 
 /** The per-file attachment limit, "64MB" in every language. */
-val MAX_FILE_SIZE = "${AllowedTypes.MAX_BYTES / (1024 * 1024)}MB"
+val MAX_FILE_SIZE = "${PrepFailure.TOO_LARGE_BYTES / (1024 * 1024)}MB"

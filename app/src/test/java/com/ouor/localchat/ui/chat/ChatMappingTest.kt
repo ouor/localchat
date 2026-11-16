@@ -64,7 +64,7 @@ class ChatMappingTest {
         assertEquals("851.2k", compact(851_234))
         assertEquals("1M", compact(1_000_000))
         assertEquals("999", compact(999))
-        assertEquals("64MB", com.ouor.localchat.ui.format.MAX_FILE_SIZE) // from AllowedTypes.MAX_BYTES, same in ko and en
+        assertEquals("64MB", com.ouor.localchat.ui.format.MAX_FILE_SIZE) // from AllowedTypes.MAX_BYTES via PrepFailure, same in ko and en
     }
 
     @Test fun `text from different steps becomes separate paragraphs`() {

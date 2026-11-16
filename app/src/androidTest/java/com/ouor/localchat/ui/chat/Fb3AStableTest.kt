@@ -17,7 +17,13 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
+import com.ouor.localchat.core.model.Session
 import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.core.model.TitleSource
+import com.ouor.localchat.ui.sessions.SessionDrawer
+import com.ouor.localchat.ui.sessions.SessionGroup
+import com.ouor.localchat.ui.sessions.SessionListUiState
+import com.ouor.localchat.ui.sessions.SessionRowUi
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.components.BranchSwitcher
 import com.ouor.localchat.ui.components.MessageActionBar
@@ -30,6 +36,7 @@ import com.ouor.localchat.ui.markdown.MarkdownMessage
 import com.ouor.localchat.ui.markdown.MermaidBlock
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -96,6 +103,25 @@ class Fb3AStableTest {
         assertEquals(before, toggle(code))
         rule.onNodeWithText(code).performClick()
         assertEquals(before, toggle(diagram))
+    }
+
+    @Test fun drawerKeepsItsOrderUntilReopened() { // L10, state kept as snapshot state (FB3 fix arch m7)
+        fun row(id: String) = SessionRowUi(Session(id, id, TitleSource.USER, 0, 0, null, null), false)
+        val today = SessionGroup(SessionGroup.Period.TODAY)
+        var state by mutableStateOf(SessionListUiState(groups = listOf(today to listOf(row("CHAT-A"), row("CHAT-B"))), loaded = true))
+        var key by mutableStateOf(0)
+        rule.setContent {
+            LocalchatTheme(false) {
+                androidx.compose.foundation.layout.Column { SessionDrawer(state, null, {}, {}, {}, { _, _ -> }, {}, {}, {}, orderKey = key) }
+            }
+        }
+        fun top(id: String) = rule.onNodeWithText(id).fetchSemanticsNode().boundsInRoot.top
+        rule.runOnIdle { state = state.copy(groups = listOf(today to listOf(row("CHAT-B"), row("CHAT-A")))) } // B was just used
+        rule.waitForIdle()
+        assertTrue("open drawer keeps A above B", top("CHAT-A") < top("CHAT-B"))
+        rule.runOnIdle { key = 1 } // reopened
+        rule.waitForIdle()
+        assertTrue("reopened drawer shows the new order", top("CHAT-B") < top("CHAT-A"))
     }
 
     @Test fun citationBadgeFillsItsPlaceholder() { // QA FB1 Minor: "…[1] ." → "…[1]."

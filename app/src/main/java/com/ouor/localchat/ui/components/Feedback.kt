@@ -334,6 +334,9 @@ fun ReadingBars(playing: Boolean, modifier: Modifier = Modifier) {
 
 private val RoundedBar = androidx.compose.foundation.shape.RoundedCornerShape(2.dp)
 
+/** Diameter of [ScrollToBottomButton]; the chat's snackbar sits above this slot (P-STABLE L3). */
+val ScrollToBottomSize = 40.dp
+
 /** M-10 floating "scroll to bottom" (e2), dot when new content arrived. */
 @Composable
 fun ScrollToBottomButton(onClick: () -> Unit, modifier: Modifier = Modifier, hasNew: Boolean = false) {
@@ -341,7 +344,7 @@ fun ScrollToBottomButton(onClick: () -> Unit, modifier: Modifier = Modifier, has
     Box(modifier) {
         Surface(
             onClick = onClick, shape = CircleShape, color = c.surfaceRaised, contentColor = c.iconPrimary, shadowElevation = LcElevation.e2,
-            modifier = Modifier.size(40.dp).then(if (c.isDark) Modifier.border(1.dp, c.floatingBorder, CircleShape) else Modifier),
+            modifier = Modifier.size(ScrollToBottomSize).then(if (c.isDark) Modifier.border(1.dp, c.floatingBorder, CircleShape) else Modifier),
         ) {
             Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ArrowDownward, stringResource(R.string.ui_scroll_bottom), Modifier.size(20.dp)) }
         }

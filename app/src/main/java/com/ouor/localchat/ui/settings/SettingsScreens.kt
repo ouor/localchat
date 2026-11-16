@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -281,7 +283,7 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
 }
 
 /**
- * User sensitive domains. P-STABLE (L8): a deleted domain keeps its row, greyed with [되돌리기], until the screen
+ * User sensitive domains. P-STABLE L8: a deleted domain keeps its row, greyed with [되돌리기], until the screen
  * closes, so the next row's X never slides under the finger after a tap.
  */
 @Composable
@@ -290,9 +292,11 @@ internal fun SensitiveDomainRows(domains: List<String>, onChange: (List<String>)
     val removed = remember { mutableStateMapOf<String, Int>() }
     val rows = domains.toMutableList()
     removed.entries.sortedBy { it.value }.forEach { (d, i) -> if (d !in rows) rows.add(i.coerceAtMost(rows.size), d) }
+    val removedState = stringResource(R.string.fb3_c_removed)
     rows.forEachIndexed { i, d ->
         val gone = d !in domains
-        SettingsRow(d, divider = true, enabled = !gone) {
+        // FB3 fix ui m4: TalkBack says a greyed row is removed, not just dimmed.
+        SettingsRow(d, divider = true, enabled = !gone, modifier = if (gone) Modifier.semantics { stateDescription = removedState } else Modifier) {
             if (gone) LcButton(stringResource(R.string.fb3_c_undo), {
                 removed -= d
                 onChange(domains.toMutableList().apply { add(rows.take(i).count { it in domains }, d) })

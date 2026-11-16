@@ -325,7 +325,7 @@ internal fun ModelPickerSheet(
     endpointIds: List<String> = emptyList(),
     onPick: (ModelRef) -> Unit,
 ) {
-    // P-STABLE (H4): fixed height so expanding a group only adds rows below the header that was tapped.
+    // P-STABLE H4: fixed height so expanding a group only adds rows below the header that was tapped.
     LcBottomSheet(onDismiss, stringResource(R.string.ui_choose_model), heightFraction = 0.9f) {
         ModelPickerList(models, current, endpointName, showRecent, endpointIds, onPick, Modifier.fillMaxSize())
     }
@@ -349,8 +349,6 @@ internal fun ModelPickerList(
     val open = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LazyColumn(modifier, listState) {
-        // Item index of each group header, counted the way the items below are added.
-        var nextIndex = if (recent.isNotEmpty()) 1 + recent.size else 0
         @Composable fun Row(m: ModelInfo) = ModelRow(
             m.displayName, { onPick(m.ref) },
             subtitle = if (m.displayName != m.modelId) m.modelId else null,
@@ -363,12 +361,12 @@ internal fun ModelPickerList(
         groups.forEachIndexed { i, endpointId ->
             val list = byEndpoint[endpointId].orEmpty()
             val expanded = open[endpointId] == true
-            val at = nextIndex
-            nextIndex += 1 + if (expanded) maxOf(list.size, 1) else 0
             val toggle = {
-                // P-STABLE (M10): collapsing a header stuck at the top (its rows scrolled under it) would drop the
+                // The header's index comes from the laid-out list by its key (it is on screen: it was just tapped).
+                val at = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "h$endpointId" }?.index
+                // P-STABLE M10: collapsing a header stuck at the top (its rows scrolled under it) would drop the
                 // first visible row; keep the header where it is, at the top, instead of letting the list jump.
-                if (expanded && (listState.firstVisibleItemIndex > at || (listState.firstVisibleItemIndex == at && listState.firstVisibleItemScrollOffset > 0))) {
+                if (expanded && at != null && (listState.firstVisibleItemIndex > at || (listState.firstVisibleItemIndex == at && listState.firstVisibleItemScrollOffset > 0))) {
                     listState.requestScrollToItem(at)
                 }
                 open[endpointId] = !expanded

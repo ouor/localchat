@@ -144,7 +144,7 @@ class DataViewModel @Inject constructor(
     fun inspect(uri: Uri, password: CharArray? = null) {
         restoreUri = uri
         job = viewModelScope.launch {
-            // P-STABLE (M8): unlocking keys keeps the plan on screen (spinner in the button) instead of the progress step.
+            // P-STABLE M8: unlocking keys keeps the plan on screen (spinner in the button) instead of the progress step.
             val shown = _step.value as? BackupStep.Plan
             _step.value = shown?.copy(unlocking = true) ?: BackupStep.Inspecting
             _step.value = try { BackupStep.Plan(backup.inspect(uri, password)) } catch (e: BackupException) {
@@ -245,7 +245,7 @@ private fun BackupSheet(step: BackupStep, vm: DataViewModel, onPickAnother: () -
         is BackupStep.Working -> stringResource(if (step.restoring) R.string.ui_restoring else R.string.ui_backing_up)
         else -> stringResource(R.string.ui_restore)
     }, locked = working, heightFraction = if (step is BackupStep.Export && step.scope is BackupScope.Full) 0.9f else null) {
-        // P-STABLE (H5): the full-backup sheet has a fixed height, so "include keys" adds its fields below the checkbox.
+        // P-STABLE H5: the full-backup sheet has a fixed height, so "include keys" adds its fields below the checkbox.
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -300,7 +300,7 @@ internal fun ExportStep(step: BackupStep.Export, onCancel: () -> Unit, onExport:
             Text(stringResource(R.string.ui_include_keys), style = LcTheme.text.body, color = LcTheme.colors.textPrimary)
         }
         if (withKeys) {
-            // P-STABLE (M9): each helper line is always there (a hint until it turns into the error), so the field
+            // P-STABLE M9: each helper line is always there (a hint until it turns into the error), so the field
             // being typed in does not move when the error appears.
             val short = pw.isNotEmpty() && pw.length < 8
             val mismatch = pw2.isNotEmpty() && pw != pw2
@@ -333,7 +333,7 @@ internal fun PlanStep(step: BackupStep.Plan, onUnlock: (CharArray) -> Unit, onCa
                 var pw by remember { mutableStateOf("") }
                 LcTextField(pw, { pw = it }, label = stringResource(R.string.ui_password), kind = TextFieldKind.Password, enabled = !step.unlocking,
                     helper = stringResource(if (step.passwordError) R.string.ui_password_wrong else R.string.ui_password_for_keys), helperTone = if (step.passwordError) HelperTone.Error else HelperTone.Normal)
-                // P-STABLE (M8): the check runs with a spinner in this button; the sheet and its buttons stay as they are.
+                // P-STABLE M8: the check runs with a spinner in this button; the sheet and its buttons stay as they are.
                 LcButton(stringResource(R.string.ui_unlock_keys), { onUnlock(pw.toCharArray()); pw = "" }, Modifier.testTag("unlock"), variant = ButtonVariant.Outline,
                     enabled = pw.isNotEmpty(), loading = step.unlocking)
             }
