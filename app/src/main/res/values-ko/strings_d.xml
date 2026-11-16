@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="backup_copy_suffix">" (사본)"</string>
+    <string name="tts_preview_sample">답변은 이렇게 읽어 드립니다.</string>
+</resources>
