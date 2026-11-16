@@ -80,5 +80,9 @@ class IngestRowsTest {
         files.requestImage(image.id).writeText("r")
         assertEquals(files.requestImage(image.id), ingest.imageModel(image))
         assertEquals(null, ingest.imageModel(image.copy(kind = com.ouor.localchat.core.model.AttachmentKind.DOCUMENT)))
+        val artifact = image.copy(id = "art1", kind = com.ouor.localchat.core.model.AttachmentKind.ARTIFACT, mime = "image/jpeg")
+        files.original(artifact.id).writeText("a")
+        assertEquals(files.original(artifact.id), ingest.imageModel(artifact))
+        assertEquals(null, ingest.imageModel(artifact.copy(mime = "application/pdf")))
     }
 }

@@ -74,10 +74,12 @@ class AttachmentIngest @Inject constructor(
 
     /**
      * Coil model for an image tile: the downscaled request image when it exists (cheaper), else the
-     * original. null for non-images and when neither file exists (name-only rows, failed copies).
+     * original. Image artifacts (approval previews, screenshots) have no request image and use the original.
+     * null for non-images and when neither file exists (name-only rows, failed copies).
      */
     fun imageModel(a: Attachment): File? {
-        if (a.kind != AttachmentKind.IMAGE) return null
+        val image = a.kind == AttachmentKind.IMAGE || (a.kind == AttachmentKind.ARTIFACT && a.mime.startsWith("image/"))
+        if (!image) return null
         return files.requestImage(a.id).takeIf { it.isFile } ?: files.original(a.id).takeIf { it.isFile }
     }
 
