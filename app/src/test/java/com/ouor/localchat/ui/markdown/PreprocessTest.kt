@@ -69,9 +69,31 @@ class PreprocessTest {
         assertEquals("Prices rose ⦃c1⦄⦃c2⦄ but [9] and [link](u) and [x]⦃c1⦄ stay.", p.text)
     }
 
-    @Test fun `colon after a citation and index-like brackets`() {
-        val p = tokenizeInline("See [1]: it says so. arr[1] is not one.\n[2]: https://example.com", setOf(1, 2))
-        assertEquals("See ⦃c1⦄: it says so. arr[1] is not one.\n[2]: https://example.com", p.text)
+    @Test fun `colon after a citation and line-leading definition`() {
+        // FB-1e: `a[1]` index exception dropped (lead gate) — a known source number after a letter is a badge.
+        val p = tokenizeInline("See [1]: it says so. arr[1] is one.\n[2]: https://example.com", setOf(1, 2))
+        assertEquals("See ⦃c1⦄: it says so. arr⦃c1⦄ is one.\n[2]: https://example.com", p.text)
+    }
+
+    // FB-1e: cases from s25 screenshots 1 and 5 (Korean text right before the bracket).
+    @Test fun `korean sentence end citations`() {
+        val src = setOf(14, 21, 22, 36)
+        assertEquals("해이기도 합니다⦃c36⦄.", tokenizeInline("해이기도 합니다[36].", src).text)
+        assertEquals("상태입니다⦃c22⦄⦃c36⦄.", tokenizeInline("상태입니다[22][36].", src).text)
+        assertEquals("합니다.⦃c36⦄", tokenizeInline("합니다.[36]", src).text)
+        assertEquals("• 참고로 없습니다⦃c21⦄.", tokenizeInline("• 참고로 없습니다[21].", src).text)
+        assertEquals("- 대표적입니다⦃c14⦄.", tokenizeInline("- 대표적입니다[14].", src).text)
+        assertEquals("**일레이나 22명이다⦃c14⦄**", tokenizeInline("**일레이나 22명이다[14]**", src).text)
+    }
+
+    @Test fun `citation lists and unknown numbers`() {
+        val src = setOf(1, 2)
+        assertEquals("다⦃c1⦄⦃c2⦄.", tokenizeInline("다[1, 2].", src).text)
+        assertEquals("다⦃c1⦄⦃c2⦄", tokenizeInline("다[1,2]", src).text)
+        assertEquals("다[99].", tokenizeInline("다[99].", src).text)
+        assertEquals("다[1, 99].", tokenizeInline("다[1, 99].", src).text)
+        assertEquals("![1](img) \\[1]", tokenizeInline("![1](img) \\[1]", src).text)
+        assertEquals("다 `x[1]`\n```\n다[1]\n```", tokenizeInline("다 `x[1]`\n```\n다[1]\n```", src).text)
     }
 
     @Test fun `code spans and fences are untouched`() {
