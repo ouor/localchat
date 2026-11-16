@@ -62,5 +62,22 @@ class SessionListViewModel @Inject constructor(
                     else -> SessionGroup(SessionGroup.Period.OLDER, "%d-%02d".format(d.year, d.monthValue))
                 }
             }.toList() // input is newest first, so groups come out in order
+
+        /**
+         * P-STABLE L10: [current] rows laid out in the order [shown] (group → ids) had, so a reply finishing in another chat
+         * does not reorder the list under the finger. Rows not shown before (a new chat) go first in their group; gone rows drop.
+         */
+        fun keepOrder(current: List<Pair<SessionGroup, List<SessionRowUi>>>, shown: List<Pair<SessionGroup, List<String>>>): List<Pair<SessionGroup, List<SessionRowUi>>> {
+            val byId = current.flatMap { it.second }.associateBy { it.session.id }
+            val known = shown.flatMap { it.second }.toSet()
+            val out = shown.map { (g, ids) -> g to ids.mapNotNull(byId::get) }.toMutableList()
+            current.forEach { (g, rows) ->
+                val fresh = rows.filter { it.session.id !in known }
+                if (fresh.isEmpty()) return@forEach
+                val i = out.indexOfFirst { it.first == g }
+                if (i >= 0) out[i] = g to fresh + out[i].second else out.add(0, g to fresh)
+            }
+            return out.filter { it.second.isNotEmpty() }
+        }
     }
 }

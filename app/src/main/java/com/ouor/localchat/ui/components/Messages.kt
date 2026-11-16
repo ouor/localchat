@@ -184,16 +184,19 @@ fun StepList(
                 steps.forEachIndexed { i, s -> StepItem(s, first = i == 0, last = i == steps.lastIndex) }
             }
         }
-        if (!expanded && live != null) StepItem(live, first = true, last = true)
+        // P-STABLE L5: collapsed, the latest step keeps one framed line whether it runs or is done, so finishing a step
+        // never pulls the reply up (result and thumbnail stay in the expanded list).
+        val summary = live ?: steps.lastOrNull()
+        if (!expanded && summary != null) StepItem(summary.copy(result = null, thumbnail = null), first = true, last = true, framed = true)
     }
 }
 
 @Composable
-fun StepItem(step: StepItemData, modifier: Modifier = Modifier, first: Boolean = true, last: Boolean = true) {
+fun StepItem(step: StepItemData, modifier: Modifier = Modifier, first: Boolean = true, last: Boolean = true, framed: Boolean = false) {
     val c = LcTheme.colors
     val live = step.state == StepState.Running || step.state == StepState.AwaitingApproval
     val line = c.border
-    val rowMod = if (live) {
+    val rowMod = if (live || framed) {
         Modifier.padding(horizontal = 8.dp, vertical = 4.dp).fillMaxWidth().clip(LcRadius.md).background(c.surface)
             .border(1.dp, c.borderStrong, LcRadius.md).padding(horizontal = 6.dp, vertical = 10.dp)
     } else {
@@ -208,7 +211,7 @@ fun StepItem(step: StepItemData, modifier: Modifier = Modifier, first: Boolean =
         modifier.then(rowMod).then(if (step.onClick != null) Modifier.combinedClickable(onClick = step.onClick) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.size(20.dp).background(if (live) c.surface else c.surfaceRaised, CircleShape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(20.dp).background(if (live || framed) c.surface else c.surfaceRaised, CircleShape), contentAlignment = Alignment.Center) {
             when (step.state) {
                 StepState.Running -> LcSpinner(size = 14.dp, color = if (step.agent) c.agent else c.accent)
                 StepState.Done -> Icon(step.icon, null, Modifier.size(16.dp), tint = c.success)
@@ -401,11 +404,11 @@ fun SourceCard(n: Int, title: String, site: SourceSite, url: String, onClick: ()
 
 /** M-06 `‹ n/m ›`; arrows disable at the ends. */
 @Composable
-fun BranchSwitcher(index: Int, count: Int, onPrev: () -> Unit, onNext: () -> Unit, modifier: Modifier = Modifier) {
+fun BranchSwitcher(index: Int, count: Int, onPrev: () -> Unit, onNext: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        LcIconButton(Icons.Rounded.ChevronLeft, stringResource(R.string.ui_prev_version), onPrev, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = index > 1)
+        LcIconButton(Icons.Rounded.ChevronLeft, stringResource(R.string.ui_prev_version), onPrev, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled && index > 1)
         Text("$index/$count", style = LcTheme.text.caption.copy(fontWeight = FontWeight.Medium), color = LcTheme.colors.textSecondary)
-        LcIconButton(Icons.Rounded.ChevronRight, stringResource(R.string.ui_next_version), onNext, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = index < count)
+        LcIconButton(Icons.Rounded.ChevronRight, stringResource(R.string.ui_next_version), onNext, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled && index < count)
     }
 }
 
@@ -426,29 +429,33 @@ fun MessageActionBar(
     branch: (@Composable () -> Unit)? = null,
     modelName: String? = null,
     onModelLongPress: (() -> Unit)? = null,
+    enabled: Boolean = true,
 ) {
     val c = LcTheme.colors
     Row(modifier.fillMaxWidth().offset(x = (-6).dp), verticalAlignment = Alignment.CenterVertically) {
-        LcIconButton(Icons.Outlined.ContentCopy, stringResource(R.string.ui_copy), onCopy, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)
+        LcIconButton(Icons.Outlined.ContentCopy, stringResource(R.string.ui_copy), onCopy, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
         if (onReadAloud != null) {
             if (reading) {
+                // P-STABLE M1: same Sm slot as the speaker button, so the buttons after it stay put.
                 val stopDesc = stringResource(R.string.ui_stop_reading)
-                Box(Modifier.size(48.dp).combinedClickable(onClick = onReadAloud).semantics { contentDescription = stopDesc }, contentAlignment = Alignment.Center) { ReadingBars(true) }
+                androidx.compose.material3.IconButton(onReadAloud, Modifier.size(IconButtonSize.Sm.visual).semantics { contentDescription = stopDesc }, enabled) { ReadingBars(true) }
             } else {
-                LcIconButton(Icons.Outlined.VolumeUp, stringResource(R.string.ui_read_aloud), onReadAloud, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)
+                LcIconButton(Icons.Outlined.VolumeUp, stringResource(R.string.ui_read_aloud), onReadAloud, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
             }
         }
-        if (onRegenerate != null) LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_regenerate), onRegenerate, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)
-        if (onContinue != null) LcIconButton(Icons.Rounded.PlayArrow, stringResource(R.string.ui_continue), onContinue, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)
-        if (onMore != null) LcIconButton(Icons.Rounded.MoreHoriz, stringResource(R.string.ui_more), onMore, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)
-        branch?.invoke()
-        Box(Modifier.weight(1f))
-        if (modelName != null) {
-            Text(
-                modelName, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onModelLongPress).padding(end = 2.dp, start = 4.dp),
-            )
+        if (onRegenerate != null) LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_regenerate), onRegenerate, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
+        if (onContinue != null) LcIconButton(Icons.Rounded.PlayArrow, stringResource(R.string.ui_continue), onContinue, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
+        if (onMore != null) LcIconButton(Icons.Rounded.MoreHoriz, stringResource(R.string.ui_more), onMore, variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm, enabled = enabled)
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            if (modelName != null) {
+                Text(
+                    modelName, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onModelLongPress).padding(end = 2.dp, start = 4.dp),
+                )
+            }
         }
+        // P-STABLE M2: ‹ n/m › sits at the end, so buttons that come and go before it never move it.
+        branch?.invoke()
     }
 }
 

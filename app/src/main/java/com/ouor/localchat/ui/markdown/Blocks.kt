@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -211,11 +213,17 @@ fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = M
     CodeFrame(
         "mermaid", source, modifier, // language label like code blocks; the toggle says 다이어그램/코드
         headerExtra = {
-            if (engine != null && renderNow && !empty && state !is DiagramState.Failed) {
-                LcButton(
-                    stringResource(if (codeMode) R.string.ui_show_diagram else R.string.ui_show_code), { showCode = !codeMode },
-                    variant = ButtonVariant.Text, size = ButtonSize.Sm,
-                )
+            // P-STABLE L9: the toggle is there while streaming too (disabled) and is as wide as its longer label, so it
+            // neither appears when the reply ends nor changes width when tapped.
+            if (engine != null && !empty) {
+                val labels = listOf(stringResource(R.string.ui_show_diagram), stringResource(R.string.ui_show_code))
+                Box {
+                    labels.forEach { LcButton(it, {}, Modifier.alpha(0f).clearAndSetSemantics {}, variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = false) }
+                    LcButton(
+                        labels[if (codeMode) 0 else 1], { showCode = !codeMode }, Modifier.matchParentSize(),
+                        variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = renderNow && state !is DiagramState.Failed,
+                    )
+                }
             }
         },
     ) {

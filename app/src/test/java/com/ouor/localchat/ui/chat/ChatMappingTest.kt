@@ -48,6 +48,17 @@ class ChatMappingTest {
         )
     }
 
+    @Test fun `L10 drawer rows keep the shown order, new chats go first, gone ones drop`() {
+        val today = SessionGroup(SessionGroup.Period.TODAY)
+        val week = SessionGroup(SessionGroup.Period.WEEK)
+        fun row(id: String) = SessionRowUi(Session(id, id, TitleSource.USER, 0, 0, null, null), false)
+        val shown = listOf(today to listOf("a", "b"), week to listOf("c", "d"))
+        // "c" finished a reply (now newest), "d" was deleted, "n" is new.
+        val current = listOf(today to listOf(row("n"), row("c"), row("a"), row("b")))
+        val out = SessionListViewModel.keepOrder(current, shown).map { (g, rows) -> g to rows.map { it.session.id } }
+        assertEquals(listOf(today to listOf("n", "a", "b"), week to listOf("c")), out)
+    }
+
     @Test fun `token counts are compact`() {
         assertEquals("851.2k", compact(851_234))
         assertEquals("1M", compact(1_000_000))

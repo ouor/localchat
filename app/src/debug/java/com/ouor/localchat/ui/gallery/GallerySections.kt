@@ -272,7 +272,7 @@ private fun LazyListScope.composer() {
     }
     cell("7. 음성 입력 중(I-08)") {
         val levels = remember { listOf(.3f, .5f, .8f, .4f, 1f, .6f, .3f, .7f, .5f, .9f, .4f, .2f, .6f, .3f, .2f, .1f) }
-        ComposerPanel("", {}, noop, noop, noop, noop, mode = ComposerMode.Voice, voice = { VoiceRecorderRow("0:07", levels, "듣는 중 · 한국어", noop, noop) }) { Toggles() }
+        ComposerPanel("", {}, noop, noop, noop, noop, mode = ComposerMode.Voice, voice = { VoiceRecorderRow("0:07", levels, "듣는 중 · 한국어") }) { Toggles() }
     }
     cell("8. 생성 중 → 중지(M-02) · 재시도 중 표시(P-09)") {
         Column { ComposerPanel("", {}, noop, noop, noop, noop, mode = ComposerMode.Running) { Toggles(r = true) }; Rail("DeepSeek", "flash", 40, retry = true) }
