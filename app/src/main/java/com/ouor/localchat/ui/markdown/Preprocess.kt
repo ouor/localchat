@@ -137,6 +137,10 @@ private val INLINE_MATH = Regex("""(?<![\\$])\$(?=[^\s$])([^$\n]*?[^\s$\\])\$(?!
 // FB-1e: any letter may precede (Korean "다[36]"); `[1, 2]` is a citation list, kept raw unless every number is a source.
 private val CITATION = Regex("""(?<![\\!])\[(\d{1,3}(?:\s*,\s*\d{1,3})*)](?!\()""")
 private val CODE_SPAN = Regex("""(`+)[\s\S]*?\1""")
+// m-1: `[1]` inside a link target or a bare/auto URL is part of the address, not a citation.
+private val LINK_TARGET = Regex("""]\([^)\s]*\)""")
+// Stops at brackets so a link's `)` and a citation after it stay outside.
+private val BARE_URL = Regex("""https?://[^\s()<>]+""")
 
 fun tokenizeInline(markdown: String, citable: Set<Int>): InlineParts {
     val math = mutableListOf<String>()
@@ -167,7 +171,7 @@ private fun tokenizePlain(s: String, citable: Set<Int>, math: MutableList<String
     }
 }
 
-/** Fenced code blocks and inline code spans (sorted, non-overlapping). */
+/** Fenced code blocks, inline code spans, link targets and URLs (sorted, merged). */
 private fun protectedRanges(md: String): List<IntRange> {
     val ranges = mutableListOf<IntRange>()
     var offset = 0
@@ -186,7 +190,13 @@ private fun protectedRanges(md: String): List<IntRange> {
     if (fence != null) ranges += fenceStart until md.length
     val result = ranges.toMutableList()
     CODE_SPAN.findAll(md).forEach { m -> if (ranges.none { m.range.first in it }) result += m.range }
-    return result.sortedBy { it.first }
+    (LINK_TARGET.findAll(md) + BARE_URL.findAll(md)).forEach { result += it.range }
+    val merged = mutableListOf<IntRange>()
+    for (r in result.sortedBy { it.first }) {
+        val prev = merged.lastOrNull()
+        if (prev != null && r.first <= prev.last) merged[merged.size - 1] = prev.first..maxOf(prev.last, r.last) else merged += r
+    }
+    return merged
 }
 
 // ---------------- latex-renderer workarounds (phase0.md 3(a)) ----------------
