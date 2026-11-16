@@ -1,0 +1,9 @@
+{
+  "uniqueId": "npm:mermaid",
+  "artifactVersion": "11.17.2",
+  "name": "Mermaid",
+  "description": "Diagram rendering (bundled as assets/render/mermaid/mermaid.min.js)",
+  "website": "https://mermaid.js.org",
+  "developers": [{ "name": "Knut Sveidqvist and contributors" }],
+  "licenses": ["MIT"]
+}

@@ -106,3 +106,5 @@ dependencies {
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.room.testing)
 }
+
+aboutLibraries { collect { configPath = file("config") } } // non-Gradle bundles (Mermaid asset)
