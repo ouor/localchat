@@ -73,6 +73,17 @@ sealed interface EndpointEffect {
     data object Deleted : EndpointEffect
 }
 
+/** What the URL, key and connection-check parts of SC-02 call ([EndpointEditViewModel]; fakes in layout tests). */
+interface EndpointFieldActions {
+    fun onUrl(v: String)
+    fun onAllowHttp(v: Boolean)
+    fun onKey(v: String)
+    fun check()
+    fun saveKey()
+    fun editKey()
+    fun cancelEditKey()
+}
+
 /** SC-02 add / detail (architecture 10.3). */
 @HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
 class EndpointEditViewModel @AssistedInject constructor(
@@ -80,7 +91,7 @@ class EndpointEditViewModel @AssistedInject constructor(
     @Assisted private val preset: PresetId?,
     @Assisted private val custom: Boolean,
     private val providers: ProviderRepository,
-) : ViewModel() {
+) : ViewModel(), EndpointFieldActions {
 
     @AssistedFactory
     interface Factory { fun create(endpointId: String?, preset: PresetId?, custom: Boolean): EndpointEditViewModel }
@@ -111,11 +122,11 @@ class EndpointEditViewModel @AssistedInject constructor(
 
     fun pickPreset(p: Preset) = _state.update { it.copy(name = p.name, baseUrl = p.baseUrl, preset = p.id, allowHttp = p.baseUrl.startsWith("http:"), check = null) }
     fun onName(v: String) = _state.update { it.copy(name = v) }
-    fun onUrl(v: String) = _state.update { it.copy(baseUrl = v, check = null) }
-    fun onKey(v: String) = _state.update { it.copy(key = v, check = null) }
-    fun onAllowHttp(v: Boolean) = _state.update { it.copy(allowHttp = v) }
-    fun editKey() = _state.update { it.copy(editingKey = true) }
-    fun cancelEditKey() = _state.update { it.copy(editingKey = false, key = "") }
+    override fun onUrl(v: String) = _state.update { it.copy(baseUrl = v, check = null) }
+    override fun onKey(v: String) = _state.update { it.copy(key = v, check = null) }
+    override fun onAllowHttp(v: Boolean) = _state.update { it.copy(allowHttp = v) }
+    override fun editKey() = _state.update { it.copy(editingKey = true) }
+    override fun cancelEditKey() = _state.update { it.copy(editingKey = false, key = "") }
 
     private fun draft(s: EndpointUiState) =
         EndpointDraft(s.name.trim(), s.baseUrl.trim(), s.key.trim().takeIf { it.isNotEmpty() }?.let(::ApiKey), s.preset, s.allowHttp, s.maxRetries)
@@ -139,7 +150,7 @@ class EndpointEditViewModel @AssistedInject constructor(
         if (send && retry != null) viewModelScope.launch { retry() }
     }
 
-    fun check() {
+    override fun check() {
         val s = _state.value
         _state.update { it.copy(check = CheckUi.Checking) }
         // A saved endpoint's check also stores the list: the "모델 N" header and the status line read the same rows (FB2 QA O1).
@@ -160,7 +171,7 @@ class EndpointEditViewModel @AssistedInject constructor(
     }
 
     /** Detail screen: key replaced in place (P-02 "키 교체"). */
-    fun saveKey() {
+    override fun saveKey() {
         val id = endpointId ?: return
         val k = _state.value.key.trim().takeIf { it.isNotEmpty() } ?: return
         viewModelScope.launch {

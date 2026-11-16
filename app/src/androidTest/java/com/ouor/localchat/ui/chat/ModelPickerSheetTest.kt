@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
@@ -141,6 +142,26 @@ class ModelPickerSheetTest {
         header("Alpha").performClick()
         rule.waitForIdle()
         org.junit.Assert.assertEquals(alpha, header("Alpha").getBoundsInRoot().top)
+    }
+
+    @Test fun collapsingAStuckHeaderKeepsItAtTheTop() {
+        // P-STABLE M10: scrolled into a long group, its header sticks at the top; collapsing it leaves it there.
+        val models = List(5) { model("a", "alpha-m$it") } + List(120) { model("b", "beta-m$it") } + List(120) { model("z", "zero-m$it") }
+        rule.setContent {
+            LocalchatTheme(false) {
+                ModelPickerList(models, null, { names[it].orEmpty() }, false, listOf("a", "b", "z"), {}, androidx.compose.ui.Modifier.height(400.dp).testTag("list"))
+            }
+        }
+        header("Zero").performClick() // rows below Beta, so the list can keep Beta at the top after collapsing
+        header("Beta").performClick()
+        rule.onNodeWithTag("list").performScrollToIndex(60)
+        rule.waitForIdle()
+        val top = rule.onNodeWithTag("list").getBoundsInRoot().top
+        org.junit.Assert.assertEquals(top, header("Beta").getBoundsInRoot().top)
+        header("Beta").performClick()
+        rule.waitForIdle()
+        rows("beta-m").assertCountEquals(0)
+        org.junit.Assert.assertEquals(top, header("Beta").getBoundsInRoot().top)
     }
 
     @Test fun backupSheetCheckboxStaysPutWhenFieldsAppear() {

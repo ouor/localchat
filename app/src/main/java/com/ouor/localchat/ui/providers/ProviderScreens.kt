@@ -247,7 +247,7 @@ private fun SecureWindow() {
 }
 
 @Composable
-private fun UrlField(s: EndpointUiState, vm: EndpointEditViewModel) {
+internal fun UrlField(s: EndpointUiState, vm: EndpointFieldActions) {
     val (helper, tone) = when {
         s.baseUrl.isNotBlank() && !s.urlValid -> stringResource(R.string.ui_url_invalid) to HelperTone.Error
         s.isHttp -> stringResource(R.string.ui_http_warning) to HelperTone.Warn
@@ -263,7 +263,7 @@ private fun UrlField(s: EndpointUiState, vm: EndpointEditViewModel) {
 }
 
 @Composable
-private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: (() -> Unit)?, storedModels: Int? = null) {
+private fun Check(s: EndpointUiState, vm: EndpointFieldActions, onSaveAnyway: (() -> Unit)?, storedModels: Int? = null) {
     val ui = when (val ch = s.check) {
         null -> null
         CheckUi.Checking -> ConnectionUi.Checking
@@ -275,7 +275,7 @@ private fun Check(s: EndpointUiState, vm: EndpointEditViewModel, onSaveAnyway: (
 }
 
 @Composable
-private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel, storedModels: Int) {
+internal fun KeySection(s: EndpointUiState, vm: EndpointFieldActions, storedModels: Int) {
     val pad = Modifier.padding(horizontal = 16.dp)
     if (s.keyHint == null) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LcTextField(s.key, vm::onKey, label = stringResource(R.string.ui_api_key), kind = TextFieldKind.Secret, helper = stringResource(R.string.ui_key_helper))

@@ -53,6 +53,8 @@ class BackupJobsTest {
         val inspection = jobs.inspect({ ByteArrayInputStream(zip) }, "password1".toCharArray())
         assertEquals(RestorePlan.Kind.FULL, inspection.contents.kind)
         assertEquals(listOf("s1", "s2"), inspection.contents.sessionIds)
+        // FB2: the source settings have the built-in sensitive list off; the restore sheet says so before restoring.
+        assertTrue(inspection.contents.turnsOffBuiltInSensitive)
         assertEquals("sk-test-not-a-real-key", inspection.keys!!.getValue("ep1").value)
         assertTrue("originals copied in pass 1", files.original("f1").isFile)
         assertTrue("tables untouched in pass 1", target.sessions.isEmpty())
@@ -94,6 +96,7 @@ class BackupJobsTest {
         val inspection = jobs.inspect({ ByteArrayInputStream(zip) }, null)
         assertEquals(RestorePlan.Kind.SESSION, inspection.contents.kind)
         assertEquals(listOf("s1"), inspection.conflicts)
+        assertFalse("a chat backup carries no settings", inspection.contents.turnsOffBuiltInSensitive)
 
         jobs.restore({ ByteArrayInputStream(zip) }, inspection, RestoreChoice.COPY, " (copy)")
         assertEquals(2, target.sessions.size)
