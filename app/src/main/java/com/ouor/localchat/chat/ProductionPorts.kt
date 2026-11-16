@@ -5,6 +5,7 @@ import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
 import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.safety.CookieMasker
+import com.ouor.localchat.provider.KnownModels
 import com.ouor.localchat.tools.ToolCatalog
 import com.ouor.localchat.tools.ToolExposure
 import com.ouor.localchat.core.model.ModelCapabilities
@@ -40,7 +41,11 @@ class ProviderModelPort @Inject constructor(
         val endpoint = providers.endpoints.first().firstOrNull { it.id == ref.endpointId && it.enabled } ?: return null
         val model = providers.models(ref.endpointId).first().firstOrNull { it.modelId == ref.modelId } ?: return null
         val target = LlmTarget(endpoint.baseUrl, secrets.get(endpoint.id)?.value, endpoint.maxRetries, endpoint.allowHttp)
-        return ResolvedModel(model.ref, target, model.caps, model.reasoningWire)
+        // U-1: the DeepSeek fallback applies on api.deepseek.com only, so a user "off" elsewhere sends no `thinking`.
+        val wire = model.caps.reasoning.value?.wire ?: model.reasoningWire?.takeIf {
+            KnownModels.find(model.modelId, KnownModels.hostOf(endpoint.baseUrl)) != null
+        }
+        return ResolvedModel(model.ref, target, model.caps, wire)
     }
 
     override suspend fun markUsed(ref: ModelRef) = providers.markUsed(ref.endpointId, ref.modelId)
