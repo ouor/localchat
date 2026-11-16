@@ -150,6 +150,27 @@ class ProviderRepositoryTest {
     }
 
     @Test
+    fun `FB-6 a user context window reaches the gauge and the compaction threshold on the next read`() = runTest {
+        val id = repo.add(draft())
+        val server = AppJson.parseToJsonElement("""{"id":"s","context_length":131072}""") as kotlinx.serialization.json.JsonObject
+        dao.upsertModels(listOf(ModelRecord(id, "s", server).toEntity()))
+        val port = com.ouor.localchat.chat.ProviderModelPort(repo, secrets)
+        val ref = repo.models(id).first().single().ref
+        // Gauge denominator: ChatViewModel reads allVisibleModels; compaction (TurnRunner, Compactor): ModelPort.resolve.
+        suspend fun gauge() = repo.allVisibleModels.first().single().caps.contextWindow
+        suspend fun threshold() = port.resolve(ref)!!.caps.contextWindow
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), gauge())
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), threshold())
+
+        repo.updateModel(id, "s", ModelOverrides(contextWindow = 32_768))
+        assertEquals(Sourced<Int?>(32_768, CapSource.USER), gauge())
+        assertEquals(Sourced<Int?>(32_768, CapSource.USER), threshold())
+
+        repo.resetModel(id, "s") // "자동" again
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), threshold())
+    }
+
+    @Test
     fun `U-1 a deepseek model on a local endpoint gets no DeepSeek defaults`() = runTest {
         val id = repo.add(draft())
         repo.addManualModel(id, "deepseek-r1:8b")

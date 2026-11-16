@@ -159,6 +159,18 @@ class ContextAssemblerTest {
     }
 
     @Test
+    fun `FB-6 max_tokens is sent only for a user-set max output`() {
+        fun maxTokens(source: com.ouor.localchat.core.model.CapSource) = ContextAssembler.build(
+            input(listOf(user("u", "q"))).copy(model = model.copy(caps = caps().copy(maxOutputTokens = com.ouor.localchat.core.model.Sourced(8192, source)))),
+        ).maxTokens
+        assertEquals(8192, maxTokens(com.ouor.localchat.core.model.CapSource.USER))
+        assertNull(maxTokens(com.ouor.localchat.core.model.CapSource.SERVER))
+        assertNull(maxTokens(com.ouor.localchat.core.model.CapSource.DEFAULT))
+        assertNull(ContextAssembler.build(input(listOf(user("u", "q")))).maxTokens)
+        assertNull(ContextAssembler.plain(model.copy(caps = caps().copy(maxOutputTokens = com.ouor.localchat.core.model.Sourced(8192, com.ouor.localchat.core.model.CapSource.USER))), "s", "u").maxTokens)
+    }
+
+    @Test
     fun `only older bulky results are trimmed`() {
         val big = "x".repeat(3000)
         val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "snapshot", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
