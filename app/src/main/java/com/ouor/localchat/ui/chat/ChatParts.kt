@@ -104,8 +104,8 @@ internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, atta
 }
 
 @Composable
-private fun Versions(version: Int, ids: List<String>, onSelect: (String) -> Unit) =
-    BranchSwitcher(version, ids.size, { ids.getOrNull(version - 2)?.let(onSelect) }, { ids.getOrNull(version)?.let(onSelect) })
+private fun Versions(version: Int, ids: List<String>, onSelect: (String) -> Unit, enabled: Boolean = true) =
+    BranchSwitcher(version, ids.size, { ids.getOrNull(version - 2)?.let(onSelect) }, { ids.getOrNull(version)?.let(onSelect) }, enabled = enabled)
 
 @Composable
 internal fun AssistantTurn(
@@ -203,18 +203,18 @@ internal fun AssistantTurn(
                 dismissLabel = null,
             )
         }
-        if (!running) {
-            MessageActionBar(
-                { onCopy(text) },
-                onReadAloud = if (onReadAloud != null && text.isNotBlank()) ({ onReadAloud(text) }) else null,
-                reading = state.readingId == reply.node.id,
-                onRegenerate = if (reply.canRegenerate) onRegenerate else null,
-                onContinue = if (reply.canContinue) onContinue else null,
-                branch = if (reply.versions.size > 1) ({ Versions(reply.version, reply.versions, onVersion) }) else null,
-                modelName = body.model?.displayName,
-                onModelLongPress = if (body.usage != null) ({ usageOpen = true }) else null, // BUG-14 (M-11)
-            )
-        }
+        // P-STABLE L4: the bar keeps its place while the reply runs (disabled), so regenerate never makes it vanish and return.
+        MessageActionBar(
+            { onCopy(text) },
+            onReadAloud = if (onReadAloud != null && (running || text.isNotBlank())) ({ onReadAloud(text) }) else null,
+            reading = state.readingId == reply.node.id,
+            onRegenerate = if (running || reply.canRegenerate) onRegenerate else null,
+            onContinue = if (!running && reply.canContinue) onContinue else null,
+            branch = if (reply.versions.size > 1) ({ Versions(reply.version, reply.versions, onVersion, enabled = !running) }) else null,
+            modelName = body.model?.displayName,
+            onModelLongPress = if (body.usage != null) ({ usageOpen = true }) else null, // BUG-14 (M-11)
+            enabled = !running,
+        )
     }
 }
 
