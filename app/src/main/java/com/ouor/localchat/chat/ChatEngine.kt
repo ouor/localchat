@@ -171,14 +171,16 @@ class ChatEngine @Inject constructor(
     fun resolve(sessionId: String, resolution: Resolution) = registry.resolve(sessionId, resolution)
 
     /**
-     * A-07 "summarize now" with the session's last model. Throws [ChatRejected] while a run is
-     * active or the model is gone, [CompactionFailed] when the request fails.
+     * A-07 "summarize now" with the session's last model. Returns false when there is nothing to
+     * summarize: the latest two user turns always stay, so it needs three, and turns already summarized
+     * are not redone (ui says so). Throws [ChatRejected] while a run is active or the model is gone,
+     * [CompactionFailed] when the request fails.
      */
-    suspend fun compactNow(sessionId: String) {
+    suspend fun compactNow(sessionId: String): Boolean {
         checkIdle(sessionId)
         val session = store.session(sessionId) ?: throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         val model = session.lastModel?.let { models.resolve(it) } ?: throw ChatRejected(ChatRejected.Reason.MODEL_UNAVAILABLE)
-        compactor.compact(sessionId, MessageTree.path(session.rootSelectedId, store.nodes(sessionId)), model)
+        return compactor.compact(sessionId, MessageTree.path(session.rootSelectedId, store.nodes(sessionId)), model) != null
     }
 
     /** Names of the tools a request would expose (same rule as the loop, P-05). */

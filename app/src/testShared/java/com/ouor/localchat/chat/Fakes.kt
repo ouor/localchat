@@ -245,7 +245,7 @@ fun wireEngine(
     browserEngine: Provider<BrowserEngine> = Provider { throw AssertionError("browser used") },
 ): Wired {
     val registry = RunRegistry(scope)
-    val compactor = Compactor(store, llm, clock)
+    val compactor = Compactor(store, llm, attachments, clock)
     val runner = TurnRunner(
         store, llm, models, tools, attachments, browser, browserEngine, settings, compactor,
         TitleGenerator(store, llm, settings), LinkPrefetcher(tools, browser, attachments), clock, scope,

@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /** A-06 trigger estimate (architecture 5.5): known usage plus chars / 3.5 for what came after it. */
 object TokenEstimate {
-    private const val CHARS_PER_TOKEN = 3.5
+    const val CHARS_PER_TOKEN = 3.5
     /** An image part counts as about 1,000 tokens instead of its base64 length. */
     private const val IMAGE_CHARS = 3500
 
