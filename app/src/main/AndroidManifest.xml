@@ -51,6 +51,18 @@
             </intent-filter>
         </activity>
 
+        <!-- BUG-17: attachment originals only (res/xml/attachment_paths.xml); read access is granted per Uri. -->
+        <provider
+            android:name=".attach.AttachmentFileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <!-- FileProvider.getUriForFile reads the paths from here. -->
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/attachment_paths" />
+        </provider>
+
         <service
             android:name=".chat.run.RunService"
             android:exported="false"
