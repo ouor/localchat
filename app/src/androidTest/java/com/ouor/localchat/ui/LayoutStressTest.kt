@@ -15,7 +15,7 @@ import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.then
 import androidx.compose.ui.test.getBoundsInRoot
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -25,6 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.platform.testTag
+import com.ouor.localchat.ui.components.SourceBadge
 import com.ouor.localchat.R
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.Sourced
@@ -49,7 +54,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class LayoutStressTest {
     @get:Rule val screen = ScreenOnRule()
-    @get:Rule val rule = createComposeRule()
+    @get:Rule val rule = createAndroidComposeRule<androidx.activity.ComponentActivity>()
     private val ctx = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
 
     private val model80 = (1..16).joinToString("-") { "mdl$it" }.take(80)
@@ -124,7 +129,45 @@ class LayoutStressTest {
         assertEquals(1, lines(rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_custom_n, "200,000"), useUnmergedTree = true)))
         // User value above the server value is allowed, with a note under the row.
         rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_warn_gt_server, "128K")).assertExists()
+    }
+
+    @Test fun limitMenuReachesCustomItemAndOpensDialog() {
+        // Popups take their font scale from the window's resources, not from DeviceConfigurationOverride:
+        // scale this test activity's resources (only this activity; no system setting is touched).
+        rule.runOnUiThread {
+            val res = rule.activity.resources
+            @Suppress("DEPRECATION")
+            res.updateConfiguration(android.content.res.Configuration(res.configuration).apply { fontScale = 2f }, res.displayMetrics)
+        }
+        stress {
+            SettingsGroup {
+                LimitRow("컨텍스트 창", Sourced(131_072, CapSource.SERVER), Sourced(131_072, CapSource.SERVER), CONTEXT_PRESETS, CONTEXT_RANGE, null, false) {}
+            }
+        }
+        rule.onNodeWithText("컨텍스트 창", useUnmergedTree = true).performClick()
+        val custom = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_custom), useUnmergedTree = true)
+        // The menu itself runs at 200% too (popup inherits the font scale).
+        assertEquals(2f, layout(custom).layoutInput.density.fontScale)
+        custom.performScrollTo()
+        rule.onNodeWithText("1M", useUnmergedTree = true).assertIsDisplayed()
+        custom.assertIsDisplayed()
         Shots.save("fb1-e3-limit-menu")
+        custom.performClick()
+        rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_range, "1,024", "10,000,000")).assertIsDisplayed()
+    }
+
+    @Test fun badgeTextFitsAt200Percent() {
+        stress { SourceBadge(CapSource.USER, Modifier.testTag("badge")) }
+        val badge = rule.onNodeWithTag("badge").getBoundsInRoot()
+        val text = layout(rule.onNodeWithText(ctx.getString(R.string.ui_src_user), useUnmergedTree = true))
+        val badgePx = with(rule.density) { (badge.bottom - badge.top).toPx() }
+        assertTrue("text ${text.multiParagraph.height}px > badge ${badgePx}px", text.multiParagraph.height <= badgePx + 0.5f)
+    }
+
+    private fun layout(n: SemanticsNodeInteraction): TextLayoutResult {
+        val out = mutableListOf<TextLayoutResult>()
+        n.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(out)
+        return out.first()
     }
 
     @Test fun settingsShot() {
