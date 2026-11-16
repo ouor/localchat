@@ -193,6 +193,10 @@ fun LcTextField(
     kind: TextFieldKind = TextFieldKind.Text,
     enabled: Boolean = true,
     onPaste: (() -> Unit)? = null,
+    /** Overrides the keyboard [kind] picks (e.g. KeyboardType.Number for counts). */
+    keyboardOptions: KeyboardOptions? = null,
+    /** Unit shown after the text, e.g. "토큰". */
+    suffix: String? = null,
 ) {
     val c = LcTheme.colors
     var focused by remember { mutableStateOf(false) }
@@ -210,7 +214,7 @@ fun LcTextField(
             textStyle = LcTheme.text.bodyLarge.copy(color = if (enabled) c.textPrimary else c.textDisabled),
             cursorBrush = SolidColor(c.accent),
             visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(
+            keyboardOptions = keyboardOptions ?: KeyboardOptions(
                 keyboardType = when (kind) {
                     TextFieldKind.Url -> KeyboardType.Uri
                     TextFieldKind.Secret, TextFieldKind.Password -> KeyboardType.Password
@@ -239,6 +243,7 @@ fun LcTextField(
                         }
                         inner()
                     }
+                    if (suffix != null) Text(suffix, style = LcTheme.text.bodyLarge, color = c.textTertiary, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp, end = 8.dp))
                     if (kind == TextFieldKind.Secret && onPaste != null) {
                         LcIconButton(Icons.Outlined.ContentPaste, stringResource(R.string.ui_paste), onPaste,
                             variant = IconButtonVariant.Secondary, size = IconButtonSize.Sm)

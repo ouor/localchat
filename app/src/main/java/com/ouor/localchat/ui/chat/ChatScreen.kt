@@ -333,7 +333,7 @@ internal fun ChatScreen(
     }
 
     // ---- sheets and dialogs ----
-    if (picker) ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { picker = false }) { composer.selectModel(it); picker = false }
+    if (picker) ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { picker = false }, endpointIds = cs.endpointNames.keys.toList()) { composer.selectModel(it); picker = false }
     if (contextCard) LcBottomSheet({ contextCard = false }, null) {
         ContextUsageCard(
             state.gaugePercent ?: 0,
