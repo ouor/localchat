@@ -77,6 +77,7 @@ class Scenario private constructor(
     private val httpCode: Int = 200,
     private val retryAfterSec: Int? = null,
     private val rawSse: String? = null,
+    private val errorMessage: String? = null,
 ) {
     private val deltas = mutableListOf<JsonObject>()
     private var toolCalls = 0
@@ -109,7 +110,7 @@ class Scenario private constructor(
             return MockResponse.Builder().code(httpCode)
                 .setHeader("Content-Type", "application/json")
                 .apply { retryAfterSec?.let { setHeader("Retry-After", it) } }
-                .body(errorBody("fake error $httpCode").toString())
+                .body(errorBody(errorMessage ?: "fake error $httpCode").toString())
                 .build()
         }
         val events = rawSse?.let { listOf(it) } ?: chunks().map { "data: $it\n\n" }.let { all ->
@@ -167,7 +168,8 @@ class Scenario private constructor(
         fun toolCall(name: String, argumentsJson: String) = Scenario().toolCall(name, argumentsJson)
 
         /** Non-200 response with an OpenAI error body; [retryAfter] in seconds. */
-        fun http(code: Int, retryAfter: Int? = null) = Scenario(httpCode = code, retryAfterSec = retryAfter)
+        fun http(code: Int, retryAfter: Int? = null, message: String? = null) =
+            Scenario(httpCode = code, retryAfterSec = retryAfter, errorMessage = message)
 
         /** Replays a recorded stream verbatim (e.g. fixtures/deepseek-flash-reasoning-toolcall.sse). */
         fun raw(sse: String) = Scenario(rawSse = sse)
