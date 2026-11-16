@@ -122,6 +122,8 @@ internal fun AssistantTurn(
     toolStep: (ToolCallBlock, ToolResultBlock?) -> com.ouor.localchat.chat.ToolStep? = { _, _ -> null },
     thumbnail: (Attachment) -> Any? = { null },
     onOpenFile: ((Attachment) -> Unit)? = null,
+    onShareFile: ((Attachment) -> Unit)? = null,
+    onSaveFile: ((Attachment) -> Unit)? = null,
 ) {
     val body = reply.body
     val running = reply.live && state.running
@@ -167,10 +169,16 @@ internal fun AssistantTurn(
                 .mapNotNull { state.attachments[it] }.filterNot { it.mime.startsWith("image/") }
             val context = androidx.compose.ui.platform.LocalContext.current
             files.forEach { a ->
-                com.ouor.localchat.ui.components.FileCard(
-                    a.name, android.text.format.Formatter.formatShortFileSize(context, a.size), a.name.substringAfterLast('.', ""),
-                    onClick = onOpenFile?.let { { it(a) } },
-                )
+                Column {
+                    com.ouor.localchat.ui.components.FileCard(
+                        a.name, android.text.format.Formatter.formatShortFileSize(context, a.size), a.name.substringAfterLast('.', ""),
+                        onClick = onOpenFile?.let { { it(a) } },
+                    )
+                    androidx.compose.foundation.layout.Row {
+                        onShareFile?.let { f -> com.ouor.localchat.ui.components.LcButton(stringResource(R.string.ui_share), { f(a) }, variant = com.ouor.localchat.ui.components.ButtonVariant.Text, size = com.ouor.localchat.ui.components.ButtonSize.Sm) }
+                        onSaveFile?.let { f -> com.ouor.localchat.ui.components.LcButton(stringResource(R.string.ui_save), { f(a) }, variant = com.ouor.localchat.ui.components.ButtonVariant.Text, size = com.ouor.localchat.ui.components.ButtonSize.Sm) }
+                    }
+                }
             }
         }
         viewing?.let { m -> ImageViewer(m) { viewing = null } }

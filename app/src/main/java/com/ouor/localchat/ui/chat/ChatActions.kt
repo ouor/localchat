@@ -21,6 +21,10 @@ interface ChatActions {
     fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock, result: com.ouor.localchat.core.model.ToolResultBlock?): com.ouor.localchat.chat.ToolStep? = null
     /** M-09: starts reading [text], or stops when [messageId] is already being read. */
     fun readAloud(messageId: String, text: String) {}
+    /** BUG-17: content:// Uri of a tool artifact for open/share; null when the original is gone. */
+    fun fileUri(a: com.ouor.localchat.core.model.Attachment): android.net.Uri? = null
+    /** BUG-17: copies an artifact to a SAF document the user picked. */
+    fun saveFile(a: com.ouor.localchat.core.model.Attachment, dest: android.net.Uri) {}
 }
 
 /** Composer callbacks; [ComposerViewModel] implements them. */

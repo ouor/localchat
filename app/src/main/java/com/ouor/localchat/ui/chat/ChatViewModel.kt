@@ -88,6 +88,8 @@ sealed interface ChatEffect {
     data object CompactFailed : ChatEffect
     data object NothingToCompact : ChatEffect
     data object ReadAloudUnavailable : ChatEffect
+    data class FileSaved(val name: String) : ChatEffect
+    data object FileSaveFailed : ChatEffect
 }
 
 /** SC-03/04 (architecture 10.3). [sessionId] null = new chat: nothing to observe until the first send. */
@@ -100,6 +102,7 @@ class ChatViewModel @AssistedInject constructor(
     providers: ProviderRepository,
     private val tts: com.ouor.localchat.speech.ReadAloud,
     private val settings: com.ouor.localchat.storage.SettingsStore,
+    private val ingest: com.ouor.localchat.attach.AttachmentIngest,
 ) : ViewModel(), ChatActions {
 
     @AssistedFactory
@@ -175,6 +178,11 @@ class ChatViewModel @AssistedInject constructor(
             if (e is ChatRejected) throw e
             _effects.send(ChatEffect.CompactFailed)
         }
+    }
+
+    override fun fileUri(a: com.ouor.localchat.core.model.Attachment) = ingest.contentUri(a)
+    override fun saveFile(a: com.ouor.localchat.core.model.Attachment, dest: android.net.Uri) = launch {
+        _effects.send(runCatching { ingest.copyOriginal(a, dest) }.fold({ ChatEffect.FileSaved(a.name) }, { ChatEffect.FileSaveFailed }))
     }
 
     override fun readAloud(messageId: String, text: String) {

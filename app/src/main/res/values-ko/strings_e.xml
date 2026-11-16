@@ -256,6 +256,11 @@
     <string name="ui_usage_cached">캐시 적중 %1$s</string>
     <string name="ui_screenshot">스크린샷</string>
     <string name="ui_stopped_no_undo">이미 실행된 브라우저 동작은 되돌리지 않아요</string>
+    <string name="ui_share">공유</string>
+    <string name="ui_file_saved">저장됨 · %1$s</string>
+    <string name="ui_file_save_failed">파일을 저장하지 못했어요.</string>
+    <string name="ui_file_missing">파일이 기기에 더 이상 없어요.</string>
+    <string name="ui_no_app_to_open">이 파일을 열 수 있는 앱이 없어요.</string>
     <string name="ui_include_keys">API 키 포함</string>
     <string name="ui_password">비밀번호</string>
     <string name="ui_password_short">8자 이상</string>

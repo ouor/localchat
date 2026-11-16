@@ -212,4 +212,16 @@ class ChatScreenTest {
         show(ChatUiState(loading = false, turns = listOf(turn("do it", body))))
         rule.onNodeWithText(ctx.getString(R.string.ui_stopped_no_undo), substring = true).assertIsDisplayed()
     }
+
+    @Test fun pdfArtifactShowsFileCardWithActions() { // BUG-17
+        val pdf = com.ouor.localchat.core.model.Attachment("f1", "Example_Domain.pdf", "application/pdf", 120_000, com.ouor.localchat.core.model.AttachmentKind.ARTIFACT,
+            com.ouor.localchat.core.model.PrepState.Ready, hasOriginal = true, createdAt = 1)
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "print_to_pdf", "{}", 0, com.ouor.localchat.core.model.ToolCallState.DONE, 1)
+        val result = com.ouor.localchat.core.model.ToolResultBlock("c1", 0, "saved", false, artifactIds = listOf("f1"))
+        val body = MessageBody.Assistant(listOf(call, result, TextBlock("Saved.", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
+        show(ChatUiState(loading = false, turns = listOf(turn("pdf", body)), attachments = mapOf("f1" to pdf)))
+        rule.onNodeWithText("Example_Domain.pdf").assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_share)).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_save)).assertIsDisplayed()
+    }
 }
