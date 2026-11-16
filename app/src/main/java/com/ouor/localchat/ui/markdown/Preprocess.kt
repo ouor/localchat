@@ -75,6 +75,30 @@ fun splitSegments(text: String): List<MdSegment> {
     return out
 }
 
+private val TABLE_ROW = Regex("""^\s*\|""")
+
+/**
+ * Chat convention (QA1 decision): a single line break inside a paragraph shows as a line break, so
+ * "• a\n• b" lists from the model stay on separate lines. Adds a Markdown hard break (two spaces);
+ * fenced code and table rows are left as they are. Display math is already a separate segment.
+ */
+fun hardBreaks(markdown: String): String {
+    val lines = markdown.split('\n')
+    var fence: String? = null
+    return lines.mapIndexed { i, line ->
+        val t = line.trimStart()
+        if (fence != null) {
+            if (t.startsWith(fence!!) && t.trimEnd().all { it == fence!![0] }) fence = null
+            return@mapIndexed line
+        }
+        FENCE_OPEN.find(line)?.let { fence = it.groupValues[1].take(3); return@mapIndexed line }
+        val next = lines.getOrNull(i + 1)
+        val keep = next == null || line.isBlank() || next.isBlank() || line.endsWith("  ") || line.endsWith("\\") ||
+            TABLE_ROW.containsMatchIn(line) || TABLE_ROW.containsMatchIn(next) || t.startsWith("#")
+        if (keep) line else "$line  "
+    }.joinToString("\n")
+}
+
 /** Returns (tex, lastLineIndex) when the display math starting at [start] is closed. */
 private fun findDisplayMath(lines: List<String>, start: Int, close: String): Pair<String, Int>? {
     val first = lines[start].trim().drop(2)
