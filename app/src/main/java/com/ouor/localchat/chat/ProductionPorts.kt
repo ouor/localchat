@@ -78,9 +78,9 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
     override fun clearAiActivity(sessionId: String) = engine.clearAiActivity(sessionId)
 
     override fun closeAiTabs(sessionId: String?) {
-        // close() posts to the main thread itself.
-        engine.tabs.value.filter { (it.owner as? Owner.Ai)?.sessionId?.let { s -> sessionId == null || s == sessionId } == true }
-            .forEach { engine.close(it.id) }
+        val sessions = sessionId?.let(::listOf)
+            ?: engine.tabs.value.mapNotNull { (it.owner as? Owner.Ai)?.sessionId }.distinct()
+        sessions.forEach(engine::closeSessionTabs)
     }
 
     override suspend fun openAiTab(sessionId: String, url: String): Int =
