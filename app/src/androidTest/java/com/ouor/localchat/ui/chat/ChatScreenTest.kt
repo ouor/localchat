@@ -3,6 +3,10 @@ package com.ouor.localchat.ui.chat
 import android.net.Uri
 import android.webkit.WebView
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -59,8 +63,11 @@ class ChatScreenTest {
     private val read = mutableListOf<Pair<String, String>>()
     private val opened = mutableListOf<String?>()
 
+    /** Snapshot state, so a test can move a new chat (null) to its id like the first send does. */
+    private var sid by mutableStateOf<String?>("s")
+
     private val chat = object : ChatActions {
-        override val sessionId = "s"
+        override val sessionId: String? get() = sid
         override fun stop() {}
         override fun selectVersion(messageId: String) {}
         override fun regenerate(assistantId: String, model: ModelRef) {}
@@ -125,10 +132,10 @@ class ChatScreenTest {
         LocalchatTheme(false) { ChatScreen(state, cs, BrowserUiState(), chat, composer, browser, nav) }
     }
 
-    private fun turn(question: String, body: MessageBody.Assistant, live: Boolean = false): TurnUi {
-        val u = MessageNode("u", "s", null, null, Role.USER, 1, MessageBody.User(question))
-        val a = MessageNode("a", "s", "u", null, Role.ASSISTANT, 2, body)
-        return TurnUi(UserUi(u, question, emptyList(), 1, listOf("u")), AssistantUi(a, body, 1, listOf("a"), live, !live, false))
+    private fun turn(question: String, body: MessageBody.Assistant, live: Boolean = false, id: String = ""): TurnUi {
+        val u = MessageNode("u$id", "s", null, null, Role.USER, 1, MessageBody.User(question))
+        val a = MessageNode("a$id", "s", "u$id", null, Role.ASSISTANT, 2, body)
+        return TurnUi(UserUi(u, question, emptyList(), 1, listOf("u$id")), AssistantUi(a, body, 1, listOf("a$id"), live, !live, false))
     }
 
     private fun reply(text: String, status: ReplyStatus = ReplyStatus.DONE, error: ChatError? = null) =
@@ -295,15 +302,135 @@ class ChatScreenTest {
                 }
             }
         }
-        listOf("empty-expanded", "progress-collapsed", "strip-last-line", "strip-200-dark").forEachIndexed { i, name ->
-            scene = i
+        val search = ctx.getString(R.string.ui_search)
+        listOf("fb1-e1-empty-expanded", "fb1-e1-progress-collapsed", "fb1-e1-strip-last-line", "fb1-e1-strip-200-dark", "fb1-r2a-progress-expanded").forEachIndexed { i, name ->
+            scene = if (i == 4) 1 else i
+            rule.waitForIdle()
+            if (i == 4) rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick()
             rule.waitForIdle()
             if (i >= 1) rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
-            if (i >= 2) assertTrue(tailBottom() <= rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki")).fetchSemanticsNode().boundsInRoot.top)
-            val dir = ctx.getExternalFilesDir("shots") ?: return@forEachIndexed
-            val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
-            java.io.File(dir, "fb1-e1-$name.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            when (i) {
+                0, 4 -> rule.onNodeWithText(search, useUnmergedTree = true).assertIsDisplayed()
+                1 -> rule.onNodeWithText(search, useUnmergedTree = true).assertDoesNotExist()
+                else -> assertTrue(tailBottom() <= rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki")).fetchSemanticsNode().boundsInRoot.top)
+            }
+            saveBitmap(rule.onRoot().captureToImage().asAndroidBitmap(), name)
         }
+    }
+
+    // ---- R2a ----
+
+    private fun bounds(cd: Int) = rule.onNodeWithContentDescription(ctx.getString(cd)).fetchSemanticsNode().boundsInRoot
+
+    @Test fun optionsOpenAboveTheInputWithoutMovingIt() { // R2a user rule: controls never move because of an interaction
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))))
+        val input = bounds(R.string.ui_composer_placeholder)
+        val send = bounds(R.string.ui_send)
+        val opts = bounds(R.string.fb_e1_options_show)
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick()
+        rule.waitForIdle()
+        assertEquals(input, bounds(R.string.ui_composer_placeholder))
+        assertEquals(send, bounds(R.string.ui_send))
+        assertEquals(opts, bounds(R.string.fb_e1_options_hide))
+        // Top to bottom: model row, toggle row, input.
+        val model = rule.onNodeWithText(ctx.getString(R.string.ui_choose_model), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val chip = rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("model row above chips", model.bottom <= chip.top)
+        assertTrue("chips above input", chip.bottom <= input.top)
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).assertIsDisplayed()
+            .assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, ctx.getString(R.string.fb_e3_group_expanded)))
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).performClick()
+        rule.waitForIdle()
+        assertEquals(input, bounds(R.string.ui_composer_placeholder))
+        assertEquals(send, bounds(R.string.ui_send))
+        assertEquals(opts, bounds(R.string.fb_e1_options_show))
+    }
+
+    @Test fun optionsChoiceSurvivesTheFirstSend() { // R2a-3: null → id keeps the user's pick
+        sid = null
+        var state by mutableStateOf(ChatUiState(loading = false))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_hide)).performClick()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick() // user picked "open"
+        rule.runOnIdle { sid = "new"; state = ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertIsDisplayed() // default would be collapsed
+        rule.runOnIdle { sid = "other" } // another chat starts from its default
+        rule.onNodeWithText(ctx.getString(R.string.ui_search), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    // ---- P-STABLE (audit-stable-controls.md H1-H3, H6) ----
+
+    @Test fun topBarIconsKeepTheirSlotsAfterTheFirstSend() { // H1
+        sid = null
+        var state by mutableStateOf(ChatUiState(loading = false))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        val web = bounds(R.string.ui_browser)
+        val newChat = bounds(R.string.ui_new_chat)
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_more)).assertIsNotEnabled()
+        rule.runOnIdle { sid = "new"; state = ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))) }
+        assertEquals(web, bounds(R.string.ui_browser))
+        assertEquals(newChat, bounds(R.string.ui_new_chat))
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_more)).assertIsEnabled()
+    }
+
+    @Test fun statusCaptionDoesNotMoveTheInput() { // H2
+        var cs by mutableStateOf(ComposerUiState())
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))), cs, BrowserUiState(), chat, composer, browser, nav) } }
+        val input = bounds(R.string.ui_composer_placeholder)
+        val send = bounds(R.string.ui_send)
+        rule.runOnIdle { cs = ComposerUiState(waitingForFiles = true) }
+        val caption = rule.onNodeWithText(ctx.getString(R.string.ui_files_waiting)).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("caption above the input", caption.bottom <= input.top)
+        assertEquals(input, bounds(R.string.ui_composer_placeholder))
+        assertEquals(send, bounds(R.string.ui_send))
+    }
+
+    @Test fun expandingThinkingAtTheBottomKeepsItsHeader() { // H3: no auto-follow for a user's expand
+        val long = (1..12).joinToString("\n\n") { "문단 $it. 강남구 아파트 전세 시세는 최근 3개월 기준 보합 흐름입니다." }
+        val thought = (1..30).joinToString("\n") { "생각 $it" }
+        val body = MessageBody.Assistant(
+            listOf(com.ouor.localchat.core.model.ThinkingBlock(thought, 0, 0L, 1000L), TextBlock("Answer TAIL-MARKER", 0)),
+            ReplyStatus.DONE, model = null, options = GenOptions(),
+        )
+        show(ChatUiState(loading = false, turns = listOf(turn("q1", reply(long)), turn("q2", body, id = "2"))))
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
+        val header = rule.onNodeWithText(ctx.getString(R.string.ui_thought_for, ctx.getString(R.string.ui_seconds, 1)))
+        val before = header.fetchSemanticsNode().boundsInRoot.top
+        header.performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("생각 1", substring = true).assertExists()
+        assertEquals(before, header.fetchSemanticsNode().boundsInRoot.top, 1f)
+    }
+
+    @Test fun firstSendKeepsTheInputFocused() { // H6: the first send swaps the nav entry; the new entry takes focus back
+        sid = null
+        val stack = androidx.compose.runtime.mutableStateListOf(com.ouor.localchat.ui.nav.ChatKey())
+        lateinit var view: android.view.View
+        rule.setContent {
+            view = androidx.compose.ui.platform.LocalView.current
+            LocalchatTheme(false) {
+                androidx.navigation3.ui.NavDisplay(
+                    backStack = stack,
+                    entryDecorators = listOf(androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator()),
+                    entryProvider = { k -> androidx.navigation3.runtime.NavEntry(k) {
+                        val st = if (k.sessionId == null) ChatUiState(loading = false) else ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello"))))
+                        ChatScreen(st, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                    } },
+                )
+            }
+        }
+        val input = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder))
+        input.performClick()
+        input.assertIsFocused()
+        fun ime() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+        val imeBefore = runCatching { rule.waitUntil(3_000) { ime() } }.isSuccess
+        // What ChatRoute does on ComposerEffect.Sent from a new chat.
+        rule.runOnIdle { sid = "new"; NewChatOptions.carry("new"); stack[0] = com.ouor.localchat.ui.nav.ChatKey("new") }
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("Hello").assertIsDisplayed() }.isSuccess }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder)).assertIsFocused()
+        android.util.Log.i("ChatScreenTest", "H6 ime before=$imeBefore after=${ime()}")
+        if (imeBefore) assertTrue("keyboard stays up", ime())
     }
 
     @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel

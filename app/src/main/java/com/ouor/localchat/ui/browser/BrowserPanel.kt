@@ -9,6 +9,9 @@ import androidx.compose.foundation.background
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
+import kotlin.math.abs
+import com.ouor.localchat.ui.components.reducedMotion
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
 import androidx.compose.foundation.gestures.AnchoredDraggableState
@@ -155,10 +158,12 @@ private val PanelSnap = spring<Float>(dampingRatio = 1f, stiffness = 400f)
 internal fun PanelState.up() = if (this >= PanelState.Half) PanelState.Full else PanelState.Half
 internal fun PanelState.down() = if (this == PanelState.Full) PanelState.Half else PanelState.Peek
 
+private fun panelAnchors(h: Float) = DraggableAnchors { PanelState.Full at 0f; PanelState.Half at h * 0.45f; PanelState.Peek at h }
+
 /**
  * Half / full panel overlay plus the tab list, prompts and the B-09 ③ snackbar. Place in a full-size Box.
- * FB-5: the handle + toolbar drag the panel between Peek (gone), Half (55%) and Full; [onCoverHeight] gets the px of the
- * screen bottom the panel covers (0 at Peek), every frame while it moves.
+ * FB-5: the handle + toolbar drag the panel between Peek (gone), Half (55%) and Full. [onCoverHeight] gets the px of the
+ * screen bottom the panel covers once it settles at Peek (0) or Half; Full is not reported (the chat is hidden anyway).
  */
 @Composable
 fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (Int) -> Unit = {}) {
@@ -168,19 +173,26 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
         val h = constraints.maxHeight.toFloat()
         val target = maxOf(s.panel, PanelState.Peek)
         val panelNow by rememberUpdatedState(target)
-        val state = remember { AnchoredDraggableState(PanelState.Peek) }
-        LaunchedEffect(h) { state.updateAnchors(DraggableAnchors { PanelState.Full at 0f; PanelState.Half at h * 0.45f; PanelState.Peek at h }) }
-        LaunchedEffect(target) { state.animateTo(target, PanelSnap) }
-        // A drag that settles on another anchor becomes the panel state (drop the initial Peek before the open animation).
+        val snapSpec = if (reducedMotion()) snap() else PanelSnap
+        // Starts where the panel already is, so a rotation keeps Half/Full instead of sliding up from Peek again.
+        val state = remember { AnchoredDraggableState(target, panelAnchors(h)) }
+        // BoxWithConstraints composes its content during layout, so a new height reaches the anchors in the same frame.
+        val anchors = remember(h) { panelAnchors(h) }
+        if (state.anchors != anchors) state.updateAnchors(anchors)
+        LaunchedEffect(target) { state.animateTo(target, snapSpec) }
+        // A drag that settles on another anchor becomes the panel state.
         LaunchedEffect(state) { snapshotFlow { state.settledValue }.drop(1).collect { if (it != panelNow) actions.setPanel(it) } }
-        LaunchedEffect(state, h) { snapshotFlow { state.offset.takeUnless(Float::isNaN)?.let { (h - it).roundToInt().coerceAtLeast(0) } ?: 0 }.collect { cover(it) } }
+        LaunchedEffect(state, h) {
+            snapshotFlow { state.settledValue }.collect { if (it != PanelState.Full) cover((h - state.anchors.positionOf(it)).roundToInt().coerceAtLeast(0)) }
+        }
         DisposableEffect(Unit) { onDispose { cover(0) } }
         BackHandler(s.panel >= PanelState.Half) { actions.setPanel(s.panel.down()) }
 
         // Stay composed until a drag to the bottom settles; removing the drag node mid-gesture would cancel the settle.
         val shown by remember(h) { derivedStateOf { state.offset < h - 0.5f || state.settledValue != PanelState.Peek } }
         // Resizing the WebView every frame janks: while the panel moves it keeps full height and only slides.
-        val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { state.offset == it } ?: 0f } }
+        // "Settled" allows 1px so an offset an ulp off its anchor never leaves the WebView taller than the screen.
+        val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { abs(state.offset - it) < 1f } ?: 0f } }
         if (shown) Box(Modifier.fillMaxSize()) {
             var editing by remember { mutableStateOf(false) }
             val drag = remember { MutableInteractionSource() }
@@ -195,7 +207,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                         Column(
                             Modifier.anchoredDraggable(
                                 state, Orientation.Vertical, interactionSource = drag,
-                                flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, positionalThreshold = { it * 0.5f }, animationSpec = PanelSnap),
+                                flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, positionalThreshold = { it * 0.5f }, animationSpec = snapSpec),
                             ),
                         ) {
                             PanelHandle(target, drag, actions)
@@ -248,8 +260,9 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
 @Composable
 private fun PanelHandle(panel: PanelState, drag: MutableInteractionSource, actions: BrowserActions) {
     val dragged by drag.collectIsDraggedAsState()
-    val w by animateDpAsState(if (dragged) 48.dp else 36.dp, tween(120), label = "handleW")
-    val color by animateColorAsState(if (dragged) LcTheme.colors.textTertiary else LcTheme.colors.borderStrong, tween(120), label = "handleC")
+    val reduced = reducedMotion()
+    val w by animateDpAsState(if (dragged) 48.dp else 36.dp, if (reduced) snap() else tween(120), label = "handleW")
+    val color by animateColorAsState(if (dragged) LcTheme.colors.textTertiary else LcTheme.colors.borderStrong, if (reduced) snap() else tween(120), label = "handleC")
     val desc = stringResource(R.string.fb_e4_handle_cd)
     val state = stringResource(if (panel == PanelState.Full) R.string.fb_e4_state_full else R.string.fb_e4_state_half)
     val expand = stringResource(R.string.ui_expand)
