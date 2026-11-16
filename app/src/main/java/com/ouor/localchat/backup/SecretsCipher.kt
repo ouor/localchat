@@ -20,6 +20,9 @@ object SecretsCipher {
     private const val AAD = "localchat-secrets-v1"
     const val ITERATIONS = 600_000
 
+    /** Accepted on decrypt: a file cannot pick a weak KDF or tie up the CPU for minutes (SE 26). */
+    val ACCEPTED_ITERATIONS = 100_000..2_000_000
+
     fun encrypt(plaintext: ByteArray, password: CharArray, iterations: Int = ITERATIONS): SecretsEnvelope {
         val random = SecureRandom()
         val salt = ByteArray(16).also(random::nextBytes)
@@ -33,13 +36,13 @@ object SecretsCipher {
         )
     }
 
-    /** Throws [BackupException] WRONG_PASSWORD on a bad tag, UNRECOGNIZED for an unknown algorithm. */
+    /** Throws [BackupException] WRONG_PASSWORD on a bad tag, UNRECOGNIZED for an unknown algorithm, AAD or round count. */
     fun decrypt(e: SecretsEnvelope, password: CharArray): ByteArray {
-        if (e.kdf != KDF || e.cipher != CIPHER || e.iterations !in 1..10_000_000) throw BackupException(BackupError.UNRECOGNIZED)
+        if (e.kdf != KDF || e.cipher != CIPHER || e.aad != AAD || e.iterations !in ACCEPTED_ITERATIONS) throw BackupException(BackupError.UNRECOGNIZED)
         return try {
             val cipher = Cipher.getInstance(CIPHER)
             cipher.init(Cipher.DECRYPT_MODE, key(password, unb64(e.salt), e.iterations), GCMParameterSpec(128, unb64(e.iv)))
-            cipher.updateAAD(e.aad.encodeToByteArray())
+            cipher.updateAAD(AAD.encodeToByteArray())
             cipher.doFinal(unb64(e.ciphertext))
         } catch (x: AEADBadTagException) {
             throw BackupException(BackupError.WRONG_PASSWORD, x)
@@ -51,7 +54,12 @@ object SecretsCipher {
     private fun key(password: CharArray, salt: ByteArray, iterations: Int): SecretKeySpec {
         val spec = PBEKeySpec(password, salt, iterations, 256)
         try {
-            return SecretKeySpec(SecretKeyFactory.getInstance(KDF).generateSecret(spec).encoded, "AES")
+            val raw = SecretKeyFactory.getInstance(KDF).generateSecret(spec).encoded
+            return try {
+                SecretKeySpec(raw, "AES")
+            } finally {
+                raw.fill(0)
+            }
         } finally {
             spec.clearPassword()
         }

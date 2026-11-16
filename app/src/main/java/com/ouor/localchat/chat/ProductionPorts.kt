@@ -14,17 +14,7 @@ import com.ouor.localchat.llm.wire.ChatRequest
 import com.ouor.localchat.provider.ProviderRepository
 import com.ouor.localchat.provider.reasoningWire
 import com.ouor.localchat.storage.SecretStore
-import com.ouor.localchat.storage.db.dao.AttachmentDao
-import com.ouor.localchat.storage.db.toModel
-import com.ouor.localchat.storage.db.toEntity
-import com.ouor.localchat.storage.AttachmentFiles
-import com.ouor.localchat.core.Clock
-import com.ouor.localchat.core.Ids
-import com.ouor.localchat.core.model.Attachment
-import com.ouor.localchat.core.model.AttachmentKind
-import com.ouor.localchat.core.model.PrepState
-import com.ouor.localchat.attach.AttachmentIngest
-import java.util.Base64
+import com.ouor.localchat.attach.StoredAttachments
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.ouor.localchat.tools.Tool
@@ -62,49 +52,10 @@ class CatalogToolPort @Inject constructor() : ToolPort {
     override fun byName(name: String): Tool? = ToolCatalog.byName(name)
 }
 
-class StoredAttachmentPort @Inject constructor(
-    private val dao: AttachmentDao,
-    private val files: AttachmentFiles,
-    private val ingest: AttachmentIngest,
-    private val clock: Clock,
-) : AttachmentPort {
-    /** Derived files are made on demand (e.g. after a restore) with prepareStored (track-d.md 6). */
-    override suspend fun payload(id: String): AttachmentPayload? {
-        val a = dao.get(id)?.toModel() ?: return null
-        if (!a.hasOriginal || a.state != PrepState.Ready) return AttachmentPayload(a)
-        return withContext(Dispatchers.IO) {
-            val derived = if (a.kind == AttachmentKind.IMAGE) files.requestImage(id) else files.text(id)
-            if (!derived.isFile) ingest.prepareStored(a)
-            when {
-                !derived.isFile -> AttachmentPayload(a)
-                a.kind == AttachmentKind.IMAGE ->
-                    AttachmentPayload(a, imageDataUrl = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(derived.readBytes()))
-                else -> AttachmentPayload(a, text = derived.readText())
-            }
-        }
-    }
-
-    override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String = withContext(Dispatchers.IO) {
-        val id = Ids.new()
-        files.original(id).writeBytes(bytes)
-        dao.upsert(
-            Attachment(id, name, mime, bytes.size.toLong(), AttachmentKind.ARTIFACT, PrepState.Ready, hasOriginal = true, createdAt = clock.now())
-                .toEntity(),
-        )
-        id
-    }
-
-    override suspend fun saveText(name: String, text: String): String = withContext(Dispatchers.IO) {
-        val id = Ids.new()
-        val bytes = text.encodeToByteArray()
-        files.original(id).writeBytes(bytes)
-        files.text(id).writeText(text)
-        dao.upsert(
-            Attachment(id, name, "text/plain", bytes.size.toLong(), AttachmentKind.DOCUMENT, PrepState.Ready, hasOriginal = true, createdAt = clock.now())
-                .toEntity(),
-        )
-        id
-    }
+class StoredAttachmentPort @Inject constructor(private val stored: StoredAttachments) : AttachmentPort {
+    override suspend fun payload(id: String) = stored.payload(id)
+    override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = stored.saveArtifact(name, mime, bytes)
+    override suspend fun saveText(name: String, text: String) = stored.saveText(name, text)
 }
 
 class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) : BrowserPort {

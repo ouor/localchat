@@ -2,7 +2,6 @@ package com.ouor.localchat.chat
 
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
-import com.ouor.localchat.core.model.Attachment
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.ReasoningWire
@@ -49,10 +48,10 @@ interface ToolPort {
     fun byName(name: String): Tool?
 }
 
-/** What a request sends for one attachment: extracted [text] (documents) or a downscaled [imageDataUrl]. */
-data class AttachmentPayload(val attachment: Attachment, val text: String? = null, val imageDataUrl: String? = null)
+/** Owned by attach (AR F-04). */
+typealias AttachmentPayload = com.ouor.localchat.attach.AttachmentPayload
 
-/** Attachment rows + AttachmentFiles (track D). */
+/** Implemented by attach.StoredAttachments (AR F-04). */
 interface AttachmentPort {
     suspend fun payload(id: String): AttachmentPayload?
 
