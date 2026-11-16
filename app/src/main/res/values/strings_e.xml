@@ -165,7 +165,6 @@
     <string name="ui_files_waiting">Sends when files are ready</string>
     <string name="ui_choose_model">Choose model</string>
     <string name="ui_recent">Recent</string>
-    <string name="ui_context_breakdown">Input %1$s · output %2$s</string>
     <string name="ui_context_note" formatted="false">Above 80%, older messages are summarized automatically on the next send.</string>
     <string name="ui_step_limit_title">Reached %1$d steps</string>
     <string name="ui_step_limit_body">Keep going?</string>
@@ -176,14 +175,10 @@
     <string name="ui_reject_not_allowed">Not possible for this message.</string>
     <string name="ui_compact_nothing">Not long enough to summarize yet. The last two questions always stay as they are.</string>
     <string name="ui_compact_failed">Could not summarize.</string>
-    <string name="ui_handoff_title">Your turn in the browser</string>
     <string name="ui_reading_link">Reading: %1$s</string>
     <string name="ui_tokens">%1$s tokens</string>
-    <string name="ui_effort">Reasoning effort</string>
     <string name="ui_off">Off</string>
     <string name="ui_default">default</string>
-    <string name="ui_always_on">Always on</string>
-    <string name="ui_always_on_note">This model cannot turn reasoning off.</string>
     <string name="ui_approval_title">Allow %1$s?</string>
     <string name="ui_approval_body">This action may not be reversible.</string>
     <string name="ui_search_chats">Search chat titles</string>
@@ -195,7 +190,6 @@
     <string name="ui_yesterday">Yesterday</string>
     <string name="ui_last_7_days">Last 7 days</string>
     <string name="ui_last_30_days">Last 30 days</string>
-    <string name="ui_coming_soon">This screen is coming soon.</string>
     <string name="ui_no_key">No key</string>
     <string name="ui_name">Name</string>
     <string name="ui_api_key_optional">API key (optional)</string>
