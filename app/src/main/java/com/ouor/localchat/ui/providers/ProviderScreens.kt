@@ -1,5 +1,11 @@
 package com.ouor.localchat.ui.providers
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
@@ -132,8 +138,8 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
         LcTopBar(if (s.isNew) stringResource(R.string.ui_add_provider) else s.name, navigationIcon = { Back(onBack) })
         // SettingsGroup insets itself 16dp; everything else gets the 16dp gutter from this column (detail) or `pad`.
         val pad = Modifier.padding(horizontal = 16.dp)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (s.isNew) Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (s.isNew) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Presets.ALL.forEach { p -> LcChip(p.name, { vm.pickPreset(p) }, variant = ChipVariant.Preset, selected = s.preset == p.id) }
                 }
@@ -144,30 +150,32 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
                     helper = stringResource(R.string.ui_key_helper),
                 )
                 Check(s, vm, onSaveAnyway = vm::save)
-            } else {
-                KeySection(s, vm)
-                // FB-3: one "모델 N" group, collapsed whenever the screen opens.
-                var modelsOpen by remember { mutableStateOf(false) }
-                Row(Modifier.padding(end = 16.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    EndpointGroupHeader(stringResource(R.string.ui_models), null, models.size, Modifier.weight(1f), expanded = modelsOpen, onToggle = { modelsOpen = !modelsOpen })
-                    LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_refresh_models), vm::refresh, size = IconButtonSize.Sm, enabled = !s.refreshing)
-                    LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_add_model), { adding = true }, size = IconButtonSize.Sm)
-                }
-                // shortcut: plain Column, so the first expand of 300+ models is heavy; move to LazyColumn if it stutters.
-                if (modelsOpen) SettingsGroup {
-                    if (models.isEmpty()) Text(stringResource(R.string.fb_e3_group_empty), Modifier.padding(16.dp), style = LcTheme.text.caption, color = LcTheme.colors.textTertiary)
-                    models.forEachIndexed { i, m -> ModelLine(m, i > 0, { onModel(m.endpointId, m.modelId) }, { vm.setHidden(m, !m.hidden) }) }
-                }
-                Text(stringResource(R.string.ui_connection), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = pad.padding(start = 4.dp, top = 4.dp))
-                SettingsGroup {
-                    SettingsRow(stringResource(R.string.ui_max_retries), subtitle = stringResource(R.string.ui_max_retries_sub)) {
-                        Stepper(s.maxRetries.toString(), if (s.maxRetries > 0) ({ vm.retries(-1) }) else null, if (s.maxRetries < 10) ({ vm.retries(1) }) else null)
-                    }
-                    SettingsRow(stringResource(R.string.ui_enabled), divider = true) { LcSwitch(s.enabled, vm::setEnabled) }
-                }
-                LcButton(stringResource(R.string.ui_delete_provider), { deleting = true }, Modifier.align(Alignment.CenterHorizontally), variant = ButtonVariant.Text)
             }
             Spacer(Modifier.height(16.dp))
+        } else {
+            // FB-3: one "모델 N" group, collapsed whenever the screen opens. Lazy so 300+ models expand smoothly.
+            var modelsOpen by remember { mutableStateOf(false) }
+            val gap = Modifier.padding(top = 12.dp)
+            LazyColumn(Modifier.weight(1f)) {
+                item(key = "key") { Column(gap, verticalArrangement = Arrangement.spacedBy(12.dp)) { KeySection(s, vm) } }
+                providerModelGroup(
+                    models, modelsOpen, { modelsOpen = !modelsOpen }, s.refreshing, vm::refresh, { adding = true },
+                    { m -> onModel(m.endpointId, m.modelId) }, { m -> vm.setHidden(m, !m.hidden) },
+                )
+                item(key = "conn") {
+                    Column(gap, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.ui_connection), style = LcTheme.text.label, color = LcTheme.colors.textTertiary, modifier = pad.padding(start = 4.dp, top = 4.dp))
+                        SettingsGroup {
+                            SettingsRow(stringResource(R.string.ui_max_retries), subtitle = stringResource(R.string.ui_max_retries_sub)) {
+                                Stepper(s.maxRetries.toString(), if (s.maxRetries > 0) ({ vm.retries(-1) }) else null, if (s.maxRetries < 10) ({ vm.retries(1) }) else null)
+                            }
+                            SettingsRow(stringResource(R.string.ui_enabled), divider = true) { LcSwitch(s.enabled, vm::setEnabled) }
+                        }
+                        LcButton(stringResource(R.string.ui_delete_provider), { deleting = true }, Modifier.align(Alignment.CenterHorizontally), variant = ButtonVariant.Text)
+                        Spacer(Modifier.height(16.dp))
+                    }
+                }
+            }
         }
         if (s.isNew) {
             LcButton(stringResource(R.string.ui_save), vm::save, Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), size = ButtonSize.Lg, enabled = s.canSave)
@@ -187,6 +195,43 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
             LcTextField(id, { id = it }, placeholder = "model-id")
         }
     }
+}
+
+/** Provider detail "모델 N" header (+ refresh/add) and, when [open], one lazy item per model. */
+internal fun LazyListScope.providerModelGroup(
+    models: List<ModelInfo>, open: Boolean, onToggle: () -> Unit, refreshing: Boolean, onRefresh: () -> Unit, onAdd: () -> Unit,
+    onOpen: (ModelInfo) -> Unit, onToggleHidden: (ModelInfo) -> Unit,
+) {
+    item(key = "models") {
+        Row(Modifier.padding(end = 16.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            EndpointGroupHeader(stringResource(R.string.ui_models), null, models.size, Modifier.weight(1f), expanded = open, onToggle = onToggle)
+            LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_refresh_models), onRefresh, size = IconButtonSize.Sm, enabled = !refreshing)
+            LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_add_model), onAdd, size = IconButtonSize.Sm)
+        }
+    }
+    if (!open) return
+    if (models.isEmpty()) item(key = "empty") {
+        Text(stringResource(R.string.fb_e3_group_empty), Modifier.groupSlice(first = true, last = true).padding(16.dp), style = LcTheme.text.caption, color = LcTheme.colors.textTertiary)
+    }
+    itemsIndexed(models, key = { _, m -> m.modelId }) { i, m ->
+        ModelLine(m, i > 0, { onOpen(m) }, { onToggleHidden(m) }, Modifier.groupSlice(i == 0, i == models.lastIndex))
+    }
+}
+
+/**
+ * One lazy item drawn as a slice of a [SettingsGroup] (16dp inset, 1dp border, 16dp corners on the ends),
+ * so a long group can live in a LazyColumn.
+ */
+@Composable
+private fun Modifier.groupSlice(first: Boolean, last: Boolean): Modifier {
+    val c = LcTheme.colors
+    val r = 16.dp
+    val outer = RoundedCornerShape(topStart = if (first) r else 0.dp, topEnd = if (first) r else 0.dp, bottomStart = if (last) r else 0.dp, bottomEnd = if (last) r else 0.dp)
+    val ri = r - 1.dp
+    val inner = RoundedCornerShape(topStart = if (first) ri else 0.dp, topEnd = if (first) ri else 0.dp, bottomStart = if (last) ri else 0.dp, bottomEnd = if (last) ri else 0.dp)
+    return padding(horizontal = 16.dp).fillMaxWidth().clip(outer).background(c.border)
+        .padding(start = 1.dp, end = 1.dp, top = if (first) 1.dp else 0.dp, bottom = if (last) 1.dp else 0.dp)
+        .clip(inner).background(c.surfaceRaised)
 }
 
 /** SEC-2 / SE 27: no screenshots or recents preview while an API key can be on screen. */
@@ -243,7 +288,7 @@ private fun KeySection(s: EndpointUiState, vm: EndpointEditViewModel) {
 }
 
 @Composable
-private fun ModelLine(m: ModelInfo, divider: Boolean, onOpen: () -> Unit, onToggleHidden: () -> Unit) {
+private fun ModelLine(m: ModelInfo, divider: Boolean, onOpen: () -> Unit, onToggleHidden: () -> Unit, modifier: Modifier = Modifier) {
     val caps = buildList {
         if (m.caps.toolCalling.value) add(stringResource(R.string.ui_cap_tools))
         if (m.caps.imageInput.value) add(stringResource(R.string.ui_cap_image))
@@ -251,7 +296,7 @@ private fun ModelLine(m: ModelInfo, divider: Boolean, onOpen: () -> Unit, onTogg
         m.caps.contextWindow.value?.let { add(com.ouor.localchat.ui.chat.compact(it)) }
     }.joinToString(" · ")
     SettingsRow(
-        m.displayName, subtitle = if (m.hidden) stringResource(R.string.ui_hidden) else caps, divider = divider, enabled = !m.hidden,
+        m.displayName, modifier, subtitle = if (m.hidden) stringResource(R.string.ui_hidden) else caps, divider = divider, enabled = !m.hidden,
         onClick = if (m.hidden) null else onOpen,
     ) {
         if (!m.inServerList) LcBadge(stringResource(R.string.ui_not_listed), variant = BadgeVariant.Warn)

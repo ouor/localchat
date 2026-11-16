@@ -16,6 +16,11 @@ import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.testing.ScreenOnRule
+import com.ouor.localchat.ui.providers.providerModelGroup
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Rule
 import org.junit.Test
@@ -86,6 +91,36 @@ class ModelPickerSheetTest {
         header("Beta").performClick()
         rule.waitForIdle()
         com.ouor.localchat.ui.Shots.save("fb1-e3-model-sheet-expanded")
+    }
+
+    @Test fun disabledProviderIsNotAGroup() {
+        fun ep(id: String, enabled: Boolean) = com.ouor.localchat.core.model.Endpoint(id, names.getValue(id), "https://$id", null, enabled, allowHttp = false, hasKey = true)
+        // Same rule the chat (ComposerViewModel) and settings (SettingsViewModel) sheets use.
+        val ids = pickerEndpoints(listOf(ep("a", true), ep("b", false), ep("z", true))).map { it.id }
+        rule.setContent { LocalchatTheme(false) { ModelPickerList(listOf(model("a", "alpha-m0")), null, { names[it].orEmpty() }, false, ids, {}) } }
+        header("Alpha").assertExists()
+        header("Zero").assertExists()
+        header("Beta").assertDoesNotExist()
+    }
+
+    @Test fun providerScreenModelListIsLazy() {
+        val many = List(308) { model("b", "beta-m$it") }
+        var open by androidx.compose.runtime.mutableStateOf(false)
+        rule.setContent {
+            LocalchatTheme(false) {
+                androidx.compose.foundation.lazy.LazyColumn(androidx.compose.ui.Modifier.height(600.dp)) {
+                    providerModelGroup(many, open, { open = !open }, false, {}, {}, {}, {})
+                }
+            }
+        }
+        rows("beta-m").assertCountEquals(0)
+        header(ctx.getString(R.string.ui_models)).performClick()
+        rule.onNodeWithText("beta-m0", useUnmergedTree = true).assertExists()
+        // Only the rows on screen are composed, not all 308.
+        val composed = rows("beta-m").fetchSemanticsNodes().size
+        org.junit.Assert.assertTrue("composed $composed rows", composed in 1..30)
+        header(ctx.getString(R.string.ui_models)).performClick()
+        rows("beta-m").assertCountEquals(0)
     }
 
     @Test fun noRecentSectionWithoutHistory() {
