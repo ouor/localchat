@@ -5,6 +5,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.MainActivity
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.core.model.SearchEngine
@@ -22,6 +23,7 @@ import org.junit.runner.RunWith
 /**
  * search.js against the live engines in this WebView (R8). Needs network; a CAPTCHA/consent page skips.
  * Results are logged under tag SearchLive so markup changes can be diagnosed from logcat.
+ * Skipped unless run with instrumentation argument `liveWeb=true` (track-c.md 7, QA command).
  */
 @RunWith(AndroidJUnit4::class)
 class SearchEnginesLiveTest {
@@ -31,6 +33,7 @@ class SearchEnginesLiveTest {
 
     @Before
     fun setUp() {
+        assumeTrue("live web tests: pass liveWeb=true", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
         scenario = ActivityScenario.launch(MainActivity::class.java)
         scenario.onActivity { a ->
             val host = FrameLayout(a)
@@ -43,6 +46,7 @@ class SearchEnginesLiveTest {
 
     @After
     fun tearDown() {
+        if (!::scenario.isInitialized) return
         scenario.onActivity { tab.webView.destroy() }
         scenario.close()
     }
