@@ -4,6 +4,11 @@ package com.ouor.localchat.ui.components
 
 enum class GaugeLevel { Normal, Warn, High }
 
+/** A-07 percent of [window] used, rounded up: with 1M-token windows a real chat is well under 1% and must not read 0%. */
+fun gaugePercent(usedTokens: Int?, window: Int?): Int? =
+    if (usedTokens == null || window == null || window <= 0) null
+    else ((usedTokens * 100L + window - 1) / window).toInt().coerceIn(0, 100)
+
 /** A-07: <60 normal, 60–80 warn, >80 high. */
 fun gaugeLevel(percent: Int?): GaugeLevel = when {
     percent == null || percent < 60 -> GaugeLevel.Normal

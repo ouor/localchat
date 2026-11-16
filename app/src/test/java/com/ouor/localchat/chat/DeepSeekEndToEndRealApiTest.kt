@@ -332,6 +332,16 @@ class DeepSeekEndToEndRealApiTest {
     }
 
     @Test
+    fun `A-07 usage from the finish chunk is stored on the reply for the gauge`() = rig {
+        val ep = endpoint("DeepSeek")
+        val sid = send(null, "Say hi in one word.", ref(ep, "deepseek-flash"))
+        val usage = reply(sid).usage
+        assertNotNull(usage)
+        assertTrue("$usage", usage!!.promptTokens > 0 && usage.completionTokens > 0)
+        assertEquals(true, llm.requests.last().streamOptions?.includeUsage)
+    }
+
+    @Test
     fun `E-01 wrong key is AUTH without retry`() = rig {
         val ep = endpoint("Bad key", apiKey = "sk-invalid-for-test")
         val sid = send(null, "hi", ref(ep, "deepseek-flash"))

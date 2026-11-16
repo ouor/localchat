@@ -16,6 +16,15 @@ class ComponentRulesTest {
         assertEquals(GaugeLevel.High, gaugeLevel(81))
     }
 
+    @Test fun `gauge percent rounds up so a small share of a 1M window is not 0`() {
+        assertEquals(1, gaugePercent(405, 1_048_576))
+        assertEquals(0, gaugePercent(0, 1_048_576))
+        assertEquals(50, gaugePercent(500, 1000))
+        assertEquals(100, gaugePercent(5000, 1000))
+        assertEquals(null, gaugePercent(405, null))
+        assertEquals(null, gaugePercent(null, 1000))
+    }
+
     @Test fun `gauge text`() {
         assertEquals("12%", gaugeText(12, false, null))
         assertEquals("~18%", gaugeText(18, true, null))

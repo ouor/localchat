@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.backup.RoomBackupStore
+import com.ouor.localchat.chat.SessionRepository
+import com.ouor.localchat.core.Clock
 import com.ouor.localchat.backup.format.ProvidersFile
 import com.ouor.localchat.backup.format.SessionFile
 import com.ouor.localchat.core.model.Attachment
@@ -19,6 +21,7 @@ import com.ouor.localchat.core.model.Role
 import com.ouor.localchat.core.model.Session
 import com.ouor.localchat.core.model.Summary
 import com.ouor.localchat.core.model.TitleSource
+import com.ouor.localchat.storage.AttachmentFiles
 import com.ouor.localchat.storage.SecretEntries
 import com.ouor.localchat.storage.SecretStore
 import com.ouor.localchat.storage.db.entities.DraftEntity
@@ -129,6 +132,19 @@ class RoomDaoTest {
         assertNull(chat.draft(Draft.NEW_CHAT))
         assertEquals(listOf("x"), attachments.orphans(1))
         assertNotNull(providers.endpoint("e"))
+    }
+
+    @Test
+    fun observeAttachmentsKeepsIdOrderAndSkipsMissingRows() = runBlocking {
+        val repo = SessionRepository(db, chat, attachments, AttachmentFiles(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir), Clock.System)
+        attachments.upsert(attachment("b").toEntity())
+        attachments.upsert(attachment("a").toEntity())
+        assertEquals(listOf("b", "a"), repo.observeAttachments(listOf("b", "gone", "a", "b")).first().map { it.id })
+        assertEquals(emptyList<Any>(), repo.observeAttachments(emptyList()).first())
+        // Rows that arrive later (ingest finishing) show up in the same Flow.
+        val later = repo.observeAttachments(listOf("c"))
+        attachments.upsert(attachment("c").toEntity())
+        assertEquals(listOf("c"), later.first { it.isNotEmpty() }.map { it.id })
     }
 
     private fun endpoint(id: String, name: String = id) = EndpointEntity(id, name, "https://h/v1", null, true, 5, false, 0, 0)

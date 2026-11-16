@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.chat
 
+import com.ouor.localchat.ui.components.gaugePercent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ouor.localchat.chat.ChatEngine
@@ -120,7 +121,7 @@ class ChatViewModel @AssistedInject constructor(
                 step = run?.step ?: 0,
                 maxSteps = run?.maxSteps ?: 0,
                 saveFailing = health == SaveHealth.FAILING,
-                gaugePercent = if (usage != null && window != null && window > 0) (usage * 100L / window).toInt().coerceIn(0, 100) else null,
+                gaugePercent = gaugePercent(usage, window),
                 usageTokens = usage,
                 contextWindow = window,
                 lastModel = s?.lastModel,

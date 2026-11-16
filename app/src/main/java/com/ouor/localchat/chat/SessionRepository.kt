@@ -3,6 +3,7 @@ package com.ouor.localchat.chat
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.MessageTree
 import com.ouor.localchat.core.Selection
+import com.ouor.localchat.core.model.Attachment
 import com.ouor.localchat.core.model.MessageNode
 import com.ouor.localchat.core.model.Session
 import com.ouor.localchat.core.model.Summary
@@ -20,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,6 +51,17 @@ class SessionRepository @Inject constructor(
 
     fun observeSummaries(sessionId: String): Flow<List<Summary>> =
         dao.observeSummaries(sessionId).map { list -> list.map { it.toModel() } }
+
+    /**
+     * Attachment rows for a draft's or message's ids, in [ids] order; ids without a row (GC'd, still being
+     * copied in) are left out, so the UI shows a placeholder for them.
+     */
+    fun observeAttachments(ids: List<String>): Flow<List<Attachment>> =
+        if (ids.isEmpty()) flowOf(emptyList())
+        else attachments.observe(ids.distinct()).map { rows ->
+            val byId = rows.associateBy { it.id }
+            ids.distinct().mapNotNull { byId[it]?.toModel() }
+        }
 
     /** C-03; also sets TitleSource.USER. */
     suspend fun rename(sessionId: String, title: String) {
