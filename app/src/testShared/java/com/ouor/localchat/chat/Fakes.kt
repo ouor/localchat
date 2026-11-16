@@ -245,7 +245,7 @@ fun wireEngine(
     val compactor = Compactor(store, llm, clock)
     val runner = TurnRunner(
         store, llm, models, tools, attachments, browser, browserEngine, settings, compactor,
-        TitleGenerator(store, llm), LinkPrefetcher(tools, browser, attachments), clock, scope,
+        TitleGenerator(store, llm, settings), LinkPrefetcher(tools, browser, attachments), clock, scope,
     )
     val recovery = StartupRecovery(store, clock)
     return Wired(ChatEngine(store, registry, runner, recovery, models, tools, compactor, settings, clock), registry, recovery)

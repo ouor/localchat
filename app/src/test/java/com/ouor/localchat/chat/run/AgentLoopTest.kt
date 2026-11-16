@@ -26,6 +26,7 @@ import com.ouor.localchat.core.model.Usage
 import com.ouor.localchat.llm.LlmError
 import com.ouor.localchat.llm.LlmEvent
 import com.ouor.localchat.llm.LlmResult
+import com.ouor.localchat.chat.TitleGenerator
 import com.ouor.localchat.llm.ToolCallRequest
 import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.HandoffRequest
@@ -82,6 +83,39 @@ class AgentLoopTest {
         assertEquals(listOf(TEST_MODEL), h.models.used)
         // DeepSeek reasoning off by default: must be explicit.
         assertEquals("disabled", h.llm.requests.single().thinking?.type)
+    }
+
+    @Test
+    fun `the title is generated once - regenerate and editing the first question keep it`() = runTest {
+        // BUG-02: every new first-question reply used to retitle the chat.
+        val h = Harness(this)
+        h.llm.text("a")
+        val sid = h.sendNew("List facts about the Moon")
+        advanceUntilIdle()
+        assertEquals("Title", h.store.sessions.getValue(sid).title)
+        assertEquals(1, h.llm.completeRequests.size)
+        assertTrue(h.llm.completeRequests.single().messages.last().toString().contains("Write the title in the language of the question."))
+
+        h.llm.results.addLast(LlmResult.Ok("关于月球的事实", "stop", null))
+        h.llm.text("b")
+        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL)
+        advanceUntilIdle()
+        val question = h.store.messages.values.first { it.body is MessageBody.User }
+        h.llm.text("c")
+        h.engine.editAndResend(question.id, "Facts about Venus", emptyList(), TEST_MODEL)
+        advanceUntilIdle()
+
+        assertEquals(1, h.llm.completeRequests.size)
+        assertEquals("Title", h.store.sessions.getValue(sid).title)
+    }
+
+    @Test
+    fun `title language follows the question's script, else the app language`() {
+        assertEquals("Korean", TitleGenerator.titleLanguage("달에 대해 알려줘", "en"))
+        assertEquals("Japanese", TitleGenerator.titleLanguage("月について教えて", "en"))
+        assertEquals("Chinese", TitleGenerator.titleLanguage("关于月球", "en"))
+        assertEquals("the language of the question", TitleGenerator.titleLanguage("Tell me about https://例え.jp the Moon", "ko"))
+        assertEquals("Korean", TitleGenerator.titleLanguage("https://example.com/月 42", "ko"))
     }
 
     @Test
