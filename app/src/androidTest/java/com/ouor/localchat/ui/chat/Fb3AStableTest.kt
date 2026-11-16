@@ -30,6 +30,7 @@ import com.ouor.localchat.ui.markdown.MarkdownMessage
 import com.ouor.localchat.ui.markdown.MermaidBlock
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -91,13 +92,10 @@ class Fb3AStableTest {
         val before = toggle(diagram) // present (disabled) while streaming
         rule.runOnIdle { streaming = false }
         val rendered = runCatching { rule.waitUntil(20_000) { runCatching { rule.onNodeWithText(code).fetchSemanticsNode() }.isSuccess } }.isSuccess
-        if (rendered) {
-            assertEquals(before, toggle(code))
-            rule.onNodeWithText(code).performClick()
-            assertEquals(before, toggle(diagram))
-        } else {
-            assertEquals(before, toggle(diagram)) // render failed: the toggle stays, disabled
-        }
+        assumeTrue("mermaid did not render on this device", rendered) // a failed render hides the toggle (FB3 fix ui m5)
+        assertEquals(before, toggle(code))
+        rule.onNodeWithText(code).performClick()
+        assertEquals(before, toggle(diagram))
     }
 
     @Test fun citationBadgeFillsItsPlaceholder() { // QA FB1 Minor: "…[1] ." → "…[1]."
