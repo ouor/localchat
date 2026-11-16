@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SEC-5: user-registered endpoints are arbitrary hosts (LAN IPs, localhost), so cleartext cannot be
+  allow-listed statically. The platform permits it; the app enforces HTTPS in code and allows http
+  only for an endpoint saved with allowHttp = true (Endpoint.allowHttp -> LlmTarget.allowHttp).
+  User-installed CAs are not trusted.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
