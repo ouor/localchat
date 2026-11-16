@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -57,6 +58,7 @@ import com.ouor.localchat.ui.components.LcCheckbox
 import com.ouor.localchat.ui.components.LcDialog
 import com.ouor.localchat.ui.components.LcIconButton
 import com.ouor.localchat.ui.components.LcSelectMenu
+import com.ouor.localchat.ui.components.LcSwitch
 import com.ouor.localchat.ui.components.LcTextField
 import com.ouor.localchat.ui.components.LcTopBar
 import com.ouor.localchat.ui.components.MenuOption
@@ -97,6 +99,7 @@ class SettingsViewModel @Inject constructor(
     fun voice(name: String?, rate: Float) { update { copy(ttsVoice = name, ttsRate = rate) }; readAloud.setVoice(name, rate) }
     fun preview(name: String?, rate: Float) = readAloud.preview(name, rate)
     fun clearBrowserData(cookies: Boolean, cache: Boolean, storage: Boolean) = browser.clearData(cookies, cache, storage)
+    val builtInSensitiveCount: Int get() = browser.builtInSensitiveCount
 }
 
 @Composable
@@ -192,6 +195,20 @@ fun SettingsHomeRoute(vm: SettingsViewModel, onBack: () -> Unit, onProviders: ()
     }
 }
 
+/** FB2-2: built-in list switch. Turning it off asks once; turning it on does not. */
+@Composable
+internal fun BuiltInSensitiveRow(enabled: Boolean, count: Int, onChange: (Boolean) -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    SettingsRow(
+        stringResource(R.string.ui_sensitive_builtin), leadingIcon = Icons.Outlined.Lock,
+        subtitle = if (enabled) pluralStringResource(R.plurals.fb2_s_builtin_on, count, count) else stringResource(R.string.fb2_s_builtin_off),
+    ) { LcSwitch(enabled, { on -> if (on) onChange(true) else confirming = true }) }
+    if (confirming) LcDialog(
+        stringResource(R.string.fb2_s_off_title), { confirming = false }, stringResource(R.string.fb2_s_off_confirm),
+        { onChange(false); confirming = false }, text = stringResource(R.string.fb2_s_off_body), kind = DialogKind.Destructive,
+    )
+}
+
 /** SC-16. */
 @Composable
 fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
@@ -224,7 +241,7 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
         }
         SectionLabel(stringResource(R.string.ui_sensitive_sites))
         SettingsGroup {
-            SettingsRow(stringResource(R.string.ui_sensitive_builtin), subtitle = stringResource(R.string.ui_sensitive_builtin_sub), leadingIcon = Icons.Outlined.Lock)
+            BuiltInSensitiveRow(set.builtInSensitiveEnabled, vm.builtInSensitiveCount) { on -> vm.update { copy(builtInSensitiveEnabled = on) } }
             set.userSensitiveDomains.forEach { d ->
                 SettingsRow(d, divider = true) {
                     LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_delete), { vm.update { copy(userSensitiveDomains = userSensitiveDomains - d) } }, size = IconButtonSize.Sm)

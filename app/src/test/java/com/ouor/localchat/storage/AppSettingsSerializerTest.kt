@@ -26,6 +26,14 @@ class AppSettingsSerializerTest {
         assertEquals(30, old.maxSteps)
     }
 
+    @Test
+    fun `built-in sensitive list defaults on and an off value round-trips (FB2-2)`() = runTest {
+        assertEquals(true, AppSettingsSerializer.readFrom(ByteArrayInputStream("{}".toByteArray())).builtInSensitiveEnabled)
+        val out = ByteArrayOutputStream()
+        AppSettingsSerializer.writeTo(AppSettings(builtInSensitiveEnabled = false), out)
+        assertEquals(false, AppSettingsSerializer.readFrom(ByteArrayInputStream(out.toByteArray())).builtInSensitiveEnabled)
+    }
+
     @Test(expected = CorruptionException::class)
     fun `garbage is reported as corruption`() = runTest {
         AppSettingsSerializer.readFrom(ByteArrayInputStream("{not json".toByteArray()))

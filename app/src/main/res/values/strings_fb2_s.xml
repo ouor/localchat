@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="fb2_s_builtin_on">
+        <item quantity="one">Banks, payments, government and more · %1$d site</item>
+        <item quantity="other">Banks, payments, government and more · %1$d sites</item>
+    </plurals>
+    <string name="fb2_s_builtin_off">Off · AI can read and operate these sites too</string>
+    <string name="fb2_s_off_title">Turn off the built-in block list?</string>
+    <string name="fb2_s_off_body">AI will be able to read and operate pages on bank, payment and government sites too. It still can\'t type passwords or card details, and still asks before submitting or paying.</string>
+    <string name="fb2_s_off_confirm">Turn off</string>
+</resources>
