@@ -29,6 +29,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
@@ -232,11 +235,14 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                         { HandoffBanner(h.reason, stringResource(R.string.ui_handoff_body), actions::stopRun, { actions.giveBack(t.id) }) }
                     },
                 ) {
-                    Column(Modifier.fillMaxSize()) {
-                        if (t.id in s.sensitive) com.ouor.localchat.ui.components.Banner(
+                    // P-STABLE M6: the sensitive notice floats over the page top (closable) instead of pushing the page down.
+                    Box(Modifier.fillMaxSize()) {
+                        BrowserSurface(t.id, s.highlight, actions)
+                        var closed by remember(t.id, t.url) { mutableStateOf(false) }
+                        if (t.id in s.sensitive && !closed) com.ouor.localchat.ui.components.Banner(
                             stringResource(R.string.ui_sensitive_site), com.ouor.localchat.ui.components.BannerVariant.Info, Modifier.padding(8.dp),
+                            actions = listOf(com.ouor.localchat.ui.components.BannerAction(stringResource(R.string.ui_close)) { closed = true }),
                         )
-                        Box(Modifier.weight(1f)) { BrowserSurface(t.id, s.highlight, actions) }
                     }
                 }
             }
@@ -282,10 +288,13 @@ private fun PanelHandle(panel: PanelState, drag: MutableInteractionSource, actio
     ) { Box(Modifier.size(w, 4.dp).background(color, com.ouor.localchat.ui.theme.LcRadius.full)) }
 }
 
+/** Test tag of the page area (P-STABLE bounds tests). */
+internal const val PAGE_TAG = "browser-page"
+
 /** Engine-owned WebView + highlight overlay (api-spec ui.browser.BrowserSurface). */
 @Composable
 fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
         androidx.compose.runtime.key(tabId) {
             val view = remember(tabId) { actions.webView(tabId) }
             if (view != null) AndroidView(factory = { view }, Modifier.fillMaxSize(), onRelease = { actions.park(tabId) })
@@ -307,8 +316,13 @@ private fun TabsSheet(s: BrowserUiState, actions: BrowserActions) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterEnd) {
             LcIconButton(Icons.Rounded.Add, stringResource(R.string.ui_new_tab), { actions.newTab(null) })
         }
-        TabGrid(s.tabs, Modifier.fillMaxWidth().height(600.dp)) { t ->
-            TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
+        // P-STABLE L8: a closed tab keeps an empty slot while the sheet is open, so the next card's X never slides under the finger.
+        val seen = remember { LinkedHashMap<Int, TabInfo>() }
+        s.tabs.forEach { seen[it.id] = it }
+        val live = s.tabs.mapTo(HashSet()) { it.id }
+        TabGrid(seen.values.toList(), Modifier.fillMaxWidth().height(600.dp)) { t ->
+            if (t.id in live) TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
+            else Box(Modifier.alpha(0f).clearAndSetSemantics {}) { TabCard(t.title, t.shortUrl(), t.tabOwner(s), {}) }
         }
     }
 }
