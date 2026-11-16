@@ -153,7 +153,7 @@ internal fun ChipSurface(
 ) {
     val row: @Composable () -> Unit = {
         Row(
-            Modifier.height(height).padding(horizontalPadding),
+            Modifier.heightIn(min = height).padding(horizontalPadding), // grows with large fonts (FB-2)
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             content = body,

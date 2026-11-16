@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -192,18 +193,28 @@ fun Banner(
         BannerVariant.Agent -> Icons.Rounded.AutoAwesome
         BannerVariant.Success -> Icons.Rounded.CheckCircleOutline
     }
-    Column(modifier.fillMaxWidth().background(bg, LcRadius.md).padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(ic, null, Modifier.size(20.dp), tint = fg)
-            Spacer(Modifier.width(10.dp))
-            Text(text, style = LcTheme.text.body, color = fg, modifier = Modifier.weight(1f))
-            if (!stackedActions) actions.forEach { a -> BannerButton(a, fg) }
-        }
-        if (stackedActions && actions.isNotEmpty()) {
-            Row(Modifier.padding(start = 24.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                actions.forEachIndexed { i, a ->
-                    if (i == 0) LcButton(a.label, a.onClick, variant = ButtonVariant.Outline, size = ButtonSize.Sm)
-                    else BannerButton(a, fg)
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val buttonStyle = LcTheme.text.bodyStrong
+    BoxWithConstraints(modifier.fillMaxWidth().background(bg, LcRadius.md).padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp)) {
+        // FB-2: buttons sit beside the text only while they take ≤ 40% of the row; otherwise they drop below, right-aligned.
+        val buttonsPx = actions.sumOf { measurer.measure(it.label, buttonStyle).size.width } + with(androidx.compose.ui.platform.LocalDensity.current) { 24.dp.roundToPx() } * actions.size
+        val inline = !stackedActions && buttonsPx <= constraints.maxWidth * 0.4f
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(ic, null, Modifier.size(20.dp), tint = fg)
+                Spacer(Modifier.width(10.dp))
+                Text(text, style = LcTheme.text.body, color = fg, modifier = Modifier.weight(1f))
+                if (inline) actions.forEach { a -> BannerButton(a, fg) }
+            }
+            if (!inline && !stackedActions && actions.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { actions.forEach { a -> BannerButton(a, fg) } }
+            }
+            if (stackedActions && actions.isNotEmpty()) {
+                Row(Modifier.padding(start = 24.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    actions.forEachIndexed { i, a ->
+                        if (i == 0) LcButton(a.label, a.onClick, variant = ButtonVariant.Outline, size = ButtonSize.Sm)
+                        else BannerButton(a, fg)
+                    }
                 }
             }
         }
