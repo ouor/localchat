@@ -22,25 +22,35 @@ class SecretsCipherTest {
 
     @Test
     fun `fresh salt and iv every time`() {
-        val a = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 1000)
-        val b = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 1000)
+        val a = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 100_000)
+        val b = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 100_000)
         assertNotEquals(a.salt, b.salt)
         assertNotEquals(a.iv, b.iv)
     }
 
     @Test
     fun `wrong password and tampering are WRONG_PASSWORD`() {
-        val e = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 1000)
+        val e = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 100_000)
         expectWrong { SecretsCipher.decrypt(e, "other".toCharArray()) }
-        expectWrong { SecretsCipher.decrypt(e.copy(aad = "other-aad"), "pw".toCharArray()) }
+        expectWrong { SecretsCipher.decrypt(e.copy(ciphertext = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 100_000).ciphertext), "pw".toCharArray()) }
     }
 
-    private fun expectWrong(block: () -> Unit) {
+    @Test
+    fun `file-chosen AAD and round counts are rejected`() {
+        val e = SecretsCipher.encrypt(secret, "pw".toCharArray(), iterations = 100_000)
+        expect(BackupError.UNRECOGNIZED) { SecretsCipher.decrypt(e.copy(aad = "other-aad"), "pw".toCharArray()) }
+        expect(BackupError.UNRECOGNIZED) { SecretsCipher.decrypt(e.copy(iterations = 99_999), "pw".toCharArray()) }
+        expect(BackupError.UNRECOGNIZED) { SecretsCipher.decrypt(e.copy(iterations = 2_000_001), "pw".toCharArray()) }
+    }
+
+    private fun expectWrong(block: () -> Unit) = expect(BackupError.WRONG_PASSWORD, block)
+
+    private fun expect(error: BackupError, block: () -> Unit) {
         try {
             block()
             fail()
         } catch (x: BackupException) {
-            assertEquals(BackupError.WRONG_PASSWORD, x.error)
+            assertEquals(error, x.error)
         }
     }
 }
