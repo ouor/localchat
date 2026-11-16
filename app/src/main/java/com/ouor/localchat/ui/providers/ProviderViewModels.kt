@@ -3,6 +3,8 @@ package com.ouor.localchat.ui.providers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ouor.localchat.core.model.ApiKey
+import com.ouor.localchat.core.model.CapSource
+import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.core.model.ChatError
 import com.ouor.localchat.core.model.Endpoint
 import com.ouor.localchat.core.model.ModelInfo
@@ -194,7 +196,43 @@ class EndpointEditViewModel @AssistedInject constructor(
     }
 }
 
-data class ModelDetailUiState(val model: ModelInfo? = null, val overrides: ModelOverrides = ModelOverrides(), val endpointName: String = "")
+/** [autoContext]/[autoOutput]: the value the limit falls back to without a user override ("자동"). */
+data class ModelDetailUiState(
+    val model: ModelInfo? = null,
+    val overrides: ModelOverrides = ModelOverrides(),
+    val endpointName: String = "",
+    val autoContext: Sourced<Int?> = Sourced(null, CapSource.UNKNOWN),
+    val autoOutput: Sourced<Int?> = Sourced(null, CapSource.UNKNOWN),
+)
+
+// FB-6 limit menu: K = 1024, 1M = 1,048,576.
+val CONTEXT_PRESETS = listOf(4, 8, 16, 32, 64, 128, 200, 256).map { it * 1024 } + 1_048_576
+val OUTPUT_PRESETS = listOf(1, 2, 4, 8, 16, 32, 64, 128).map { it * 1024 }
+val CONTEXT_RANGE = 1_024..10_000_000
+val OUTPUT_RANGE = 256..1_000_000
+
+sealed interface LimitInput {
+    data object Empty : LimitInput
+    data object NotNumber : LimitInput
+    data object OutOfRange : LimitInput
+    data class Ok(val value: Int) : LimitInput
+}
+
+/** Custom limit text: commas allowed and dropped, whole numbers only, inside [range]. */
+fun parseLimit(text: String, range: IntRange): LimitInput {
+    val t = text.replace(",", "").trim()
+    if (t.isEmpty()) return LimitInput.Empty
+    if (!t.all { it.isDigit() }) return LimitInput.NotNumber
+    val n = t.toLongOrNull() ?: return LimitInput.OutOfRange
+    return if (n in range.first..range.last) LimitInput.Ok(n.toInt()) else LimitInput.OutOfRange
+}
+
+/** Preset values read as "128K" / "1M"; anything else as the exact number "128,000". */
+fun limitLabel(n: Int, presets: List<Int>): String = when {
+    n !in presets -> "%,d".format(n)
+    n % 1_048_576 == 0 -> "${n / 1_048_576}M"
+    else -> "${n / 1024}K"
+}
 
 /** SC-02a: values with their source badges; edits replace the whole override set. */
 @HiltViewModel(assistedFactory = ModelDetailViewModel.Factory::class)
@@ -214,7 +252,18 @@ class ModelDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val name = providers.endpoints.first().firstOrNull { it.id == endpointId }?.name.orEmpty()
             _state.update { it.copy(overrides = providers.overrides(endpointId, modelId), endpointName = name) }
-            providers.models(endpointId).collect { list -> _state.update { s -> s.copy(model = list.firstOrNull { it.modelId == modelId }) } }
+            providers.models(endpointId).collect { list ->
+                val m = list.firstOrNull { it.modelId == modelId }
+                // Re-read on every model change: a refresh can bring a new server value.
+                val auto = providers.autoCaps(endpointId, modelId)
+                _state.update { s ->
+                    s.copy(
+                        model = m,
+                        autoContext = auto?.contextWindow ?: Sourced(null, CapSource.UNKNOWN),
+                        autoOutput = auto?.maxOutputTokens ?: Sourced(null, CapSource.UNKNOWN),
+                    )
+                }
+            }
         }
     }
 

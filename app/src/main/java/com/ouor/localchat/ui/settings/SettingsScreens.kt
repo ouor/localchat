@@ -65,7 +65,6 @@ import com.ouor.localchat.ui.components.SegmentedControl
 import com.ouor.localchat.ui.components.SettingsChevron
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.components.SettingsRow
-import com.ouor.localchat.ui.components.SettingsValue
 import com.ouor.localchat.ui.components.Stepper
 import com.ouor.localchat.ui.components.TextFieldKind
 import com.ouor.localchat.ui.theme.LcTheme
@@ -112,7 +111,7 @@ private fun Page(title: String, onBack: () -> Unit, content: @Composable () -> U
 private fun SelectRow(title: String, value: String, options: List<MenuOption>, selected: Int, divider: Boolean = false, subtitle: String? = null, onSelect: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        SettingsRow(title, subtitle = subtitle, divider = divider, onClick = { open = true }) { SettingsValue(value) }
+        SettingsRow(title, subtitle = subtitle, value = value, divider = divider, onClick = { open = true })
         LcSelectMenu(open, { open = false }, options, selected, { open = false; onSelect(it) })
     }
 }
@@ -132,8 +131,8 @@ fun SettingsHomeRoute(vm: SettingsViewModel, onBack: () -> Unit, onProviders: ()
         SettingsGroup {
             SettingsRow(stringResource(R.string.ui_providers), subtitle = endpoints.joinToString { it.name }.ifEmpty { null }, onClick = onProviders) { SettingsChevron() }
             val def = models.firstOrNull { it.ref == set.defaultModel }
-            SettingsRow(stringResource(R.string.ui_default_model), divider = true, onClick = { picker = true }) {
-                SettingsValue(def?.displayName ?: stringResource(R.string.ui_choose_model)); SettingsChevron()
+            SettingsRow(stringResource(R.string.ui_default_model), value = def?.displayName ?: stringResource(R.string.ui_choose_model), divider = true, onClick = { picker = true }) {
+                SettingsChevron()
             }
         }
         SectionLabel(stringResource(R.string.ui_general))
@@ -177,10 +176,13 @@ fun SettingsHomeRoute(vm: SettingsViewModel, onBack: () -> Unit, onProviders: ()
         SettingsGroup {
             SettingsRow(stringResource(R.string.ui_agent_browser), onClick = onAgent) { SettingsChevron() }
             SettingsRow(stringResource(R.string.ui_data), divider = true, onClick = onData) { SettingsChevron() }
-            SettingsRow(stringResource(R.string.ui_about), divider = true, onClick = onAbout) { SettingsValue(appVersion()); SettingsChevron() }
+            SettingsRow(stringResource(R.string.ui_about), value = appVersion(), divider = true, onClick = onAbout) { SettingsChevron() }
         }
     }
-    if (picker) ModelPickerSheet(models, set.defaultModel, { id -> endpoints.firstOrNull { it.id == id }?.name.orEmpty() }, { picker = false }) {
+    if (picker) ModelPickerSheet(
+        models, set.defaultModel, { id -> endpoints.firstOrNull { it.id == id }?.name.orEmpty() }, { picker = false },
+        showRecent = false, endpointIds = endpoints.filter { it.enabled }.map { it.id },
+    ) {
         vm.update { copy(defaultModel = it) }; picker = false
     }
 }
