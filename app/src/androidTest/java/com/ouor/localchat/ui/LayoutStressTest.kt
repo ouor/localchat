@@ -18,7 +18,6 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -59,6 +58,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+private const val BOX = "stress-box"
+
 /** FB-2: extreme strings at 200% font and 360dp keep labels on one line and trailing icons on screen. */
 @RunWith(AndroidJUnit4::class)
 class LayoutStressTest {
@@ -73,7 +74,7 @@ class LayoutStressTest {
 
     private fun stress(content: @Composable () -> Unit) = rule.setContent {
         DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f) then DeviceConfigurationOverride.ForcedSize(DpSize(360.dp, 780.dp))) {
-            LocalchatTheme(darkTheme = false) { Column(Modifier.fillMaxWidth()) { content() } }
+            LocalchatTheme(darkTheme = false) { Column(Modifier.fillMaxWidth().testTag(BOX)) { content() } }
         }
     }
 
@@ -83,8 +84,9 @@ class LayoutStressTest {
         return out.first().lineCount
     }
 
+    /** On screen = inside the forced 360dp box, not the window: the device may be narrower or wider (QA FB1 Minor-T1). */
     private fun assertOnScreen(n: SemanticsNodeInteraction) {
-        val root = rule.onRoot().getBoundsInRoot()
+        val root = rule.onNodeWithTag(BOX).getBoundsInRoot()
         val b = n.getBoundsInRoot()
         assertTrue("$b outside $root", b.left >= root.left && b.right <= root.right && b.right > b.left)
     }
