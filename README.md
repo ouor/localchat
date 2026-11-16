@@ -9,7 +9,7 @@
 <table>
   <tr>
     <td><img src="docs/readme/search.jpg" width="200" alt="웹 검색 답변과 출처 칩, 인용 번호"></td>
-    <td><img src="docs/readme/browser.jpg" width="200" alt="채팅 아래 절반 높이로 열린 브라우저 패널과 직접 조작 버튼"></td>
+    <td><img src="docs/readme/browser.jpg" width="200" alt="AI가 조작 중인 브라우저 패널과 직접 조작 버튼"></td>
     <td><img src="docs/readme/approval.jpg" width="200" alt="스크립트 실행 허용 확인 시트"></td>
     <td><img src="docs/readme/model-limits.jpg" width="200" alt="모델 상세의 컨텍스트 창 한도 선택 메뉴"></td>
     <td><img src="docs/readme/safety.jpg" width="200" alt="에이전트·브라우저 설정의 민감 사이트 차단"></td>
@@ -60,7 +60,7 @@
 - 답변 본문에 번호 배지로 인용이 붙고, 답변 아래 **출처** 칩을 누르면 출처 목록이 열립니다.
 
 ### 긴 대화 자동 요약
-- 화면 위 게이지가 컨텍스트 사용량을 보여 줍니다. 80%를 넘으면 다음 전송 때 오래된 기록을 자동으로 요약하고
+- 입력창 위 옵션을 열면 모델 줄 끝의 게이지가 컨텍스트 사용량을 보여 줍니다. 80%를 넘으면 다음 전송 때 오래된 기록을 자동으로 요약하고
   (최근 질문 두 개는 그대로 둡니다), 서버가 길이 초과로 거절해도 한 번 요약한 뒤 다시 보냅니다. **지금 요약**으로 직접 할 수도 있습니다.
 
 ### 문서 첨부
