@@ -51,6 +51,12 @@ class ProviderRepository @Inject constructor(
 
     suspend fun updateModel(endpointId: String, modelId: String, overrides: ModelOverrides): Unit = TODO("track A")
 
+    /** P-03 hide/show in the model picker (not part of [ModelOverrides]; kept by refresh and reset). */
+    suspend fun setHidden(endpointId: String, modelId: String, hidden: Boolean): Unit = TODO("track A")
+
+    /** P-06 "recent": chat calls this when a request is sent with the model. */
+    suspend fun markUsed(endpointId: String, modelId: String): Unit = TODO("track A")
+
     /** "Reset to defaults": drops all user overrides of the model. */
     suspend fun resetModel(endpointId: String, modelId: String): Unit = TODO("track A")
 }
