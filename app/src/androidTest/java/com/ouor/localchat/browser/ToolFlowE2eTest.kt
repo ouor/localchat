@@ -169,21 +169,16 @@ class ToolFlowE2eTest {
         return store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }.body as MessageBody.Assistant
     }
 
-    private var callN = 0
-
-    /** Unique call ids per step, like real providers (Scenario.toolCall restarts at call_0). */
-    private fun tool(name: String, args: String) = Scenario.text("").toolCall(name, args, id = "call_${callN++}")
-
     private fun MessageBody.Assistant.calls() = blocks.filterIsInstance<ToolCallBlock>()
     private fun MessageBody.Assistant.results() = blocks.filterIsInstance<ToolResultBlock>()
 
     @Test
     fun openSnapshotClickReadMultiStep() {
         llm.enqueue(
-            tool("open_tab", """{"url":"${url("/start")}"}"""),
-            tool("snapshot", "{}"),
-            tool("click", """{"target":"#go"}"""),
-            tool("page_text", "{}"),
+            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("snapshot", "{}"),
+            Scenario.toolCall("click", """{"target":"#go"}"""),
+            Scenario.toolCall("page_text", "{}"),
             Scenario.text("done"),
         )
         val sid = send("go")
@@ -207,9 +202,9 @@ class ToolFlowE2eTest {
     @Test
     fun cookieValuesAreMaskedInResults() {
         llm.enqueue(
-            tool("open_tab", """{"url":"${url("/start")}"}"""),
-            tool("execute", """{"code":"document.cookie"}"""),
-            tool("page_text", "{}"),
+            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("execute", """{"code":"document.cookie"}"""),
+            Scenario.toolCall("page_text", "{}"),
             Scenario.text("done"),
         )
         val sid = send("cookies")
@@ -227,12 +222,12 @@ class ToolFlowE2eTest {
     @Test
     fun conditionalAndAlwaysApprovals() {
         llm.enqueue(
-            tool("open_tab", """{"url":"${url("/form")}"}"""),
-            tool("click", """{"target":"#plain"}"""), // harmless button: no approval
-            tool("type", """{"target":"#q","text":"hello"}"""), // http page: approval every time
-            tool("click", """{"target":"#send"}"""), // POST submit: denied
-            tool("click", """{"target":"#del"}"""), // risky keyword: allowed
-            tool("execute", """{"code":"document.getElementById('q').value"}"""), // always
+            Scenario.toolCall("open_tab", """{"url":"${url("/form")}"}"""),
+            Scenario.toolCall("click", """{"target":"#plain"}"""), // harmless button: no approval
+            Scenario.toolCall("type", """{"target":"#q","text":"hello"}"""), // http page: approval every time
+            Scenario.toolCall("click", """{"target":"#send"}"""), // POST submit: denied
+            Scenario.toolCall("click", """{"target":"#del"}"""), // risky keyword: allowed
+            Scenario.toolCall("execute", """{"code":"document.getElementById('q').value"}"""), // always
             Scenario.text("done"),
         )
         val sid = send("form")
@@ -263,8 +258,8 @@ class ToolFlowE2eTest {
     @Test
     fun handoffRoundTrip() {
         llm.enqueue(
-            tool("open_tab", """{"url":"${url("/start")}"}"""),
-            tool("request_handoff", """{"reason":"Please sign in"}"""),
+            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("request_handoff", """{"reason":"Please sign in"}"""),
             Scenario.text("done"),
         )
         val sid = send("handoff")
@@ -281,8 +276,8 @@ class ToolFlowE2eTest {
     @Test
     fun waitsWhileUserControlsTheTab() {
         llm.enqueue(
-            tool("open_tab", """{"url":"${url("/start")}"}"""),
-            tool("execute", """{"code":"location.pathname"}"""),
+            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("execute", """{"code":"location.pathname"}"""),
             Scenario.text("done"),
         )
         val sid = send("control")
