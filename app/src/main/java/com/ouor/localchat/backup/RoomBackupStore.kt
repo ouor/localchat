@@ -5,10 +5,9 @@ import com.ouor.localchat.backup.format.ProvidersFile
 import com.ouor.localchat.backup.format.SessionFile
 import com.ouor.localchat.core.model.ApiKey
 import com.ouor.localchat.core.model.Attachment
-import com.ouor.localchat.core.model.Endpoint
 import com.ouor.localchat.core.model.ModelOverrides
-import com.ouor.localchat.core.model.PresetId
 import com.ouor.localchat.provider.toEntity
+import com.ouor.localchat.provider.toModel
 import com.ouor.localchat.provider.toRecord
 import com.ouor.localchat.storage.SecretStore
 import com.ouor.localchat.storage.db.AppDatabase
@@ -16,7 +15,6 @@ import com.ouor.localchat.storage.db.attachmentIds
 import com.ouor.localchat.storage.db.dao.BackupDao
 import com.ouor.localchat.storage.db.dao.ChatDao
 import com.ouor.localchat.storage.db.entities.AttachmentRefEntity
-import com.ouor.localchat.storage.db.entities.EndpointEntity
 import com.ouor.localchat.storage.db.entities.ModelEntity
 import com.ouor.localchat.storage.db.toEntity
 import com.ouor.localchat.storage.db.toModel
@@ -67,7 +65,8 @@ class RoomBackupStore @Inject constructor(
             dao.deleteAllDrafts()
             dao.deleteAllSessions()
             dao.deleteAllEndpoints()
-            dao.insertEndpoints(providers.endpoints.mapIndexed { i, e -> e.toEntity(i) })
+            // The file order is the sort order; the original creation times are not in the format.
+            dao.insertEndpoints(providers.endpoints.mapIndexed { i, e -> e.toEntity(sortOrder = i, createdAt = i.toLong()) })
             dao.insertModels(providers.models.map { it.toRow() })
             dao.upsertAttachments(attachments.map { it.toEntity() })
             sessions(::insert)
@@ -108,18 +107,6 @@ class RoomBackupStore @Inject constructor(
         const val SQL_CHUNK = 500
     }
 }
-
-private fun EndpointEntity.toModel(hasKey: Boolean) = Endpoint(
-    id = id, name = name, baseUrl = baseUrl,
-    preset = preset?.let { p -> PresetId.entries.firstOrNull { it.name == p } },
-    enabled = enabled, maxRetries = maxRetries, allowHttp = allowHttp, hasKey = hasKey,
-)
-
-/** [index] keeps the backup's order; the original creation times are not in the format. */
-private fun Endpoint.toEntity(index: Int) = EndpointEntity(
-    id = id, name = name, baseUrl = baseUrl, preset = preset?.name, enabled = enabled,
-    maxRetries = maxRetries, allowHttp = allowHttp, sortOrder = index, createdAt = index.toLong(),
-)
 
 /** Rows go through provider's own mapping; only the backup DTO shape is converted here (AR F-05). */
 internal fun ModelEntity.toBackup(): ModelRecord = toRecord().let { r ->
