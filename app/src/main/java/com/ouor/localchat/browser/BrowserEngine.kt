@@ -347,7 +347,7 @@ class BrowserEngine @Inject constructor(
         val tab = byId[id] ?: throw PageError("Tab $id does not exist. Use get_tabs.")
         if (tab.owner != Owner.Ai(sessionId)) throw PageError(NOT_YOURS.format(id))
         if (sensitiveUrls.isSensitive(tab.url)) {
-            throw PageError("Tab $id shows a sensitive site (${SensitiveUrls.hostOf(tab.url)}). The AI may not read or operate it; ask the user to do this part.")
+            throw PageError("Tab $id: ${SensitiveUrls.hostOf(tab.url)} ${SensitiveUrls.REFUSAL}. The AI may not read or operate it; ask the user to do this part.")
         }
         return tab
     }

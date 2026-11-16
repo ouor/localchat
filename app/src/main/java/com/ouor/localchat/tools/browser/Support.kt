@@ -56,7 +56,7 @@ internal fun ToolContext.checkedUrl(raw: String): String {
 }
 
 internal fun sensitiveMessage(host: String) =
-    "$host is a sensitive site (banking, payment, email, sign-in, government ...). The AI may not open or read it; ask the user to do this part."
+    "$host ${SensitiveUrls.REFUSAL} (banking, payment, email, sign-in, government ...). The AI may not open or read it; ask the user to do this part."
 
 /** B-S1 for every input tool (SE 15): never into password/OTP/card fields or opaque frames. */
 internal fun guardInput(target: ElementInfo?, scriptSensitive: Boolean) {

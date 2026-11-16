@@ -27,6 +27,7 @@ import com.ouor.localchat.llm.LlmError
 import com.ouor.localchat.llm.LlmEvent
 import com.ouor.localchat.llm.LlmResult
 import com.ouor.localchat.chat.TitleGenerator
+import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.llm.ToolCallRequest
 import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.HandoffRequest
@@ -793,8 +794,11 @@ class AgentLoopTest {
         assertNull(h.engine.toolStep(block("navigate"), result("x", "42"))!!.countRes) // a page title, not a count
         assertNull(snap.failureRes)
         // BUG-10: a failed step says why.
-        val blocked = result(Untrusted.wrap("Tab 3 shows a sensitive site (paypal.com). The AI may not read it."), error = true)
+        val blocked = result(Untrusted.wrap("Tab 3: paypal.com ${SensitiveUrls.REFUSAL}. The AI may not read it."), error = true)
         assertEquals(R.string.chat_step_fail_sensitive, h.engine.toolStep(block("navigate", ToolCallState.FAILED), blocked)!!.failureRes)
+        // QA 11: navigate/open_tab refuse in tools before any tab is touched; that text must map too.
+        val refused = h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(com.ouor.localchat.tools.browser.sensitiveMessage("paypal.com"), error = true))
+        assertEquals(R.string.chat_step_fail_sensitive, refused!!.failureRes)
         assertEquals(R.string.chat_step_fail_interrupted, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(SystemPrompt.INTERRUPTED, error = true))!!.failureRes)
         assertEquals(R.string.chat_step_fail_error, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result("boom", error = true))!!.failureRes)
         assertNull(h.engine.toolStep(block("navigate", ToolCallState.DENIED), result(SystemPrompt.DENIED, error = true))!!.failureRes)

@@ -1,6 +1,7 @@
 package com.ouor.localchat.chat
 
 import com.ouor.localchat.R
+import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
@@ -204,8 +205,8 @@ class ChatEngine @Inject constructor(
         if (result?.isError != true && block.state != ToolCallState.FAILED) return null
         val content = result?.content.orEmpty()
         return when {
-            // Ours after the call, or the engine's refusal before it (browser.BrowserEngine.aiTabFor).
-            content.contains(ToolExecutor.SENSITIVE) || content.contains("shows a sensitive site") -> R.string.chat_step_fail_sensitive
+            // Ours after the call, or a browser/tools refusal before it (one shared phrase).
+            content.contains(ToolExecutor.SENSITIVE) || content.contains(SensitiveUrls.REFUSAL) -> R.string.chat_step_fail_sensitive
             content == SystemPrompt.INTERRUPTED || content == SystemPrompt.ABORTED -> R.string.chat_step_fail_interrupted
             else -> R.string.chat_step_fail_error
         }

@@ -22,6 +22,9 @@ class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = empt
     fun withUser(user: Collection<String>): SensitiveUrls = SensitiveUrls(domains, user)
 
     companion object {
+        /** In every refusal for a sensitive site; chat's step reason looks for it (BUG-10). */
+        const val REFUSAL = "is a sensitive site"
+
         /** Lines of sensitive_domains.txt; `#` starts a comment. */
         fun parseList(text: String): List<String> =
             text.lineSequence().map { it.substringBefore('#').trim() }.filter { it.isNotEmpty() }.toList()
