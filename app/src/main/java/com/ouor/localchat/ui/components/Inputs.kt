@@ -174,7 +174,7 @@ fun ModelChip(
 
 // ---------------- LcTextField (.tf) ----------------
 
-enum class TextFieldKind { Text, Url, Secret, Password, Multiline }
+enum class TextFieldKind { Text, Url, Secret, Password, Multiline, Number }
 enum class HelperTone { Normal, Error, Warn }
 
 /**
@@ -192,10 +192,10 @@ fun LcTextField(
     kind: TextFieldKind = TextFieldKind.Text,
     enabled: Boolean = true,
     onPaste: (() -> Unit)? = null,
-    /** Overrides the keyboard [kind] picks (e.g. KeyboardType.Number for counts). */
-    keyboardOptions: KeyboardOptions? = null,
     /** Unit shown after the text, e.g. "토큰". */
     suffix: String? = null,
+    /** P-STABLE: lines the helper always takes, so a longer message does not move what is below (or a dialog's buttons). */
+    helperMinLines: Int = 1,
 ) {
     val c = LcTheme.colors
     var focused by remember { mutableStateOf(false) }
@@ -213,10 +213,11 @@ fun LcTextField(
             textStyle = LcTheme.text.bodyLarge.copy(color = if (enabled) c.textPrimary else c.textDisabled),
             cursorBrush = SolidColor(c.accent),
             visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = keyboardOptions ?: KeyboardOptions(
+            keyboardOptions = KeyboardOptions(
                 keyboardType = when (kind) {
                     TextFieldKind.Url -> KeyboardType.Uri
                     TextFieldKind.Secret, TextFieldKind.Password -> KeyboardType.Password
+                    TextFieldKind.Number -> KeyboardType.Number
                     else -> KeyboardType.Text
                 },
                 autoCorrectEnabled = kind == TextFieldKind.Text || kind == TextFieldKind.Multiline,
@@ -259,7 +260,7 @@ fun LcTextField(
         )
         if (helper != null) {
             Text(
-                helper, style = LcTheme.text.caption,
+                helper, style = LcTheme.text.caption, minLines = helperMinLines,
                 color = when (helperTone) {
                     HelperTone.Normal -> c.textTertiary
                     HelperTone.Error -> c.dangerText

@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.markdown
 
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
@@ -89,6 +90,18 @@ class MarkdownTableTest {
         md = "| x | y |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
         shows("4")
         assertEquals(before, rule.onNodeWithText("y", substring = true, useUnmergedTree = true).getBoundsInRoot().left)
+    }
+
+    @Test fun tableAnswersIntrinsicSizes() {
+        // FB1 deferred: WrapTable was BoxWithConstraints (SubcomposeLayout), which throws when a parent asks intrinsics.
+        rule.setContent {
+            LocalchatTheme(darkTheme = false) {
+                androidx.compose.foundation.layout.Row(Modifier.width(360.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+                    MarkdownMessage("| x | y |\n|---|---|\n| 1 | 2 |", emptyList(), streaming = false, onLinkClick = {}, onCitationClick = {}, modifier = Modifier.width(360.dp))
+                }
+            }
+        }
+        shows("y")
     }
 
     /** The markdown is parsed off the main thread; wait until [text] is laid out. */

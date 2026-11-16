@@ -80,6 +80,7 @@ class BackupService @Inject constructor(
             containsSecrets = c.secrets != null,
             secretsUnlocked = inspection.keys != null,
             conflicts = inspection.conflicts,
+            turnsOffBuiltInSensitive = c.turnsOffBuiltInSensitive,
         ).also { pending = it to inspection }
     }
 
@@ -143,6 +144,8 @@ data class RestorePlan(
     val secretsUnlocked: Boolean,
     /** Session ids that already exist (session backups, K-05). */
     val conflicts: List<String>,
+    /** FB2: the backup's settings, applied by a full restore, have the built-in sensitive-site list off. */
+    val turnsOffBuiltInSensitive: Boolean = false,
 ) {
     enum class Kind { FULL, SESSION, DEEPSEEK }
 }

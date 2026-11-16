@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb3_c_url_hint">예: https://api.example.com/v1</string>
+    <string name="fb3_c_password_again_hint">같은 비밀번호를 한 번 더 입력하세요</string>
+    <string name="fb3_c_undo">되돌리기</string>
+    <string name="fb3_c_restore_builtin_off">이 백업은 기본 민감 사이트 목록이 꺼져 있어요. 복원하면 이 기기에서도 꺼져요. 설정 › 에이전트·브라우저에서 다시 켤 수 있어요.</string>
+</resources>

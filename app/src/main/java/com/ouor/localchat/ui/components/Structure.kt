@@ -47,10 +47,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -268,21 +270,29 @@ fun SettingsRow(
     }
 }
 
-/** Title line first; value beside it if ≥ 96dp remains, else below it; subtitle last. */
+/**
+ * Title line first; value beside it if ≥ 96dp remains, else below it; subtitle last. The value is one line
+ * (ellipsis) either way, so the row height never depends on the value (P-STABLE L7). A plain [Layout], so
+ * parents may ask for intrinsic sizes (SubcomposeLayout throws there).
+ */
 @Composable
 private fun TitleValue(title: String, titleColor: Color, value: String?, subtitle: String?, modifier: Modifier) {
     val c = LcTheme.colors
-    SubcomposeLayout(modifier) { cs ->
+    Layout(
+        content = {
+            Text(title, style = LcTheme.text.bodyStrong, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (value != null) Text(value, Modifier.layoutId("v"), style = LcTheme.text.body, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, Modifier.layoutId("s").padding(top = 2.dp), style = LcTheme.text.caption, color = c.textTertiary)
+        },
+        modifier = modifier,
+    ) { ms, cs ->
         val loose = cs.copy(minWidth = 0, minHeight = 0)
-        val t = subcompose("t") { Text(title, style = LcTheme.text.bodyStrong, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis) }[0].measure(loose)
-        val room = cs.maxWidth - t.width - 12.dp.roundToPx()
+        val t = ms[0].measure(loose)
+        // Unbounded (intrinsic max width): everything fits on one line.
+        val room = if (cs.hasBoundedWidth) cs.maxWidth - t.width - 12.dp.roundToPx() else Constraints.Infinity
         val inline = room >= 96.dp.roundToPx()
-        val v = value?.let {
-            subcompose("v") {
-                Text(it, style = LcTheme.text.body, color = c.textSecondary, maxLines = if (inline) 1 else 2, overflow = TextOverflow.Ellipsis)
-            }[0].measure(if (inline) loose.copy(maxWidth = room) else loose)
-        }
-        val s = subtitle?.let { subcompose("s") { Text(it, style = LcTheme.text.caption, color = c.textTertiary, modifier = Modifier.padding(top = 2.dp)) }[0].measure(loose) }
+        val v = ms.firstOrNull { it.layoutId == "v" }?.measure(if (inline) loose.copy(maxWidth = room) else loose)
+        val s = ms.firstOrNull { it.layoutId == "s" }?.measure(loose)
         val line1 = if (inline && v != null) maxOf(t.height, v.height) else t.height
         val below = if (!inline && v != null) v.height else 0
         val w = if (cs.hasBoundedWidth) cs.maxWidth else maxOf(t.width, v?.width ?: 0, s?.width ?: 0)

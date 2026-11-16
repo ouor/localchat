@@ -78,4 +78,16 @@ class EndpointSaveTest {
         // The status line on a saved endpoint shows the stored count; it must be the same rows the header counts.
         assertEquals(2, repo.models(id).first().size)
     }
+
+    @Test
+    fun `cancelling the key dialog drops what was typed`() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val id = repo.add(EndpointDraft("x", server.baseUrl, ApiKey("k"), null, allowHttp = true))
+        val vm = EndpointEditViewModel(id, null, false, repo)
+        vm.editKey()
+        vm.onKey("sk-half-typed")
+        vm.cancelEditKey()
+        assertEquals(false, vm.state.value.editingKey)
+        assertEquals("", vm.state.value.key)
+    }
 }

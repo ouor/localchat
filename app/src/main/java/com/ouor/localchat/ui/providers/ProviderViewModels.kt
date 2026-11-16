@@ -73,6 +73,17 @@ sealed interface EndpointEffect {
     data object Deleted : EndpointEffect
 }
 
+/** What the URL, key and connection-check parts of SC-02 call ([EndpointEditViewModel]; fakes in layout tests). */
+interface EndpointFieldActions {
+    fun onUrl(v: String)
+    fun onAllowHttp(v: Boolean)
+    fun onKey(v: String)
+    fun check()
+    fun saveKey()
+    fun editKey()
+    fun cancelEditKey()
+}
+
 /** SC-02 add / detail (architecture 10.3). */
 @HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
 class EndpointEditViewModel @AssistedInject constructor(
@@ -80,7 +91,7 @@ class EndpointEditViewModel @AssistedInject constructor(
     @Assisted private val preset: PresetId?,
     @Assisted private val custom: Boolean,
     private val providers: ProviderRepository,
-) : ViewModel() {
+) : ViewModel(), EndpointFieldActions {
 
     @AssistedFactory
     interface Factory { fun create(endpointId: String?, preset: PresetId?, custom: Boolean): EndpointEditViewModel }
@@ -111,10 +122,11 @@ class EndpointEditViewModel @AssistedInject constructor(
 
     fun pickPreset(p: Preset) = _state.update { it.copy(name = p.name, baseUrl = p.baseUrl, preset = p.id, allowHttp = p.baseUrl.startsWith("http:"), check = null) }
     fun onName(v: String) = _state.update { it.copy(name = v) }
-    fun onUrl(v: String) = _state.update { it.copy(baseUrl = v, check = null) }
-    fun onKey(v: String) = _state.update { it.copy(key = v, check = null) }
-    fun onAllowHttp(v: Boolean) = _state.update { it.copy(allowHttp = v) }
-    fun editKey() = _state.update { it.copy(editingKey = true) }
+    override fun onUrl(v: String) = _state.update { it.copy(baseUrl = v, check = null) }
+    override fun onKey(v: String) = _state.update { it.copy(key = v, check = null) }
+    override fun onAllowHttp(v: Boolean) = _state.update { it.copy(allowHttp = v) }
+    override fun editKey() = _state.update { it.copy(editingKey = true) }
+    override fun cancelEditKey() = _state.update { it.copy(editingKey = false, key = "") }
 
     private fun draft(s: EndpointUiState) =
         EndpointDraft(s.name.trim(), s.baseUrl.trim(), s.key.trim().takeIf { it.isNotEmpty() }?.let(::ApiKey), s.preset, s.allowHttp, s.maxRetries)
@@ -138,7 +150,7 @@ class EndpointEditViewModel @AssistedInject constructor(
         if (send && retry != null) viewModelScope.launch { retry() }
     }
 
-    fun check() {
+    override fun check() {
         val s = _state.value
         _state.update { it.copy(check = CheckUi.Checking) }
         // A saved endpoint's check also stores the list: the "모델 N" header and the status line read the same rows (FB2 QA O1).
@@ -159,7 +171,7 @@ class EndpointEditViewModel @AssistedInject constructor(
     }
 
     /** Detail screen: key replaced in place (P-02 "키 교체"). */
-    fun saveKey() {
+    override fun saveKey() {
         val id = endpointId ?: return
         val k = _state.value.key.trim().takeIf { it.isNotEmpty() } ?: return
         viewModelScope.launch {
@@ -235,6 +247,23 @@ fun parseLimit(text: String, range: IntRange): LimitInput {
 // Space, NBSP and narrow NBSP (fr), apostrophe and its typographic form (ch).
 private const val GROUP_SEPARATORS = ",. '  ’"
 private val GROUPED = Regex("""[0-9]{1,3}([$GROUP_SEPARATORS])[0-9]{3}(?:\1[0-9]{3})*""")
+
+/** Why a user limit may not work as set (FB-6). Decided here, not in the row; the row only words it. */
+sealed interface LimitWarning {
+    data class AboveContext(val context: String) : LimitWarning
+    data class AboveServer(val server: String) : LimitWarning
+}
+
+/** [context] = (label, value) of the context window, given only for the max-output limit. */
+fun limitWarning(value: Int?, context: Pair<String, Int>?, auto: Sourced<Int?>, presets: List<Int>): LimitWarning? {
+    val server = auto.value?.takeIf { auto.source == CapSource.SERVER }
+    return when {
+        value == null -> null
+        context != null && value > context.second -> LimitWarning.AboveContext(context.first)
+        server != null && value > server -> LimitWarning.AboveServer(limitLabel(server, presets))
+        else -> null
+    }
+}
 
 /** Preset values read as "128K" / "1M"; anything else as the exact number "128,000". */
 fun limitLabel(n: Int, presets: List<Int>): String = when {

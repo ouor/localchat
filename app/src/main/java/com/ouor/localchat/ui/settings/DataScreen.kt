@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -90,8 +91,8 @@ sealed interface BackupStep {
     data class Export(val scope: BackupScope, val summary: BackupSummary?) : BackupStep
     data class Working(val done: Long, val total: Long, val restoring: Boolean) : BackupStep
     data object Inspecting : BackupStep
-    /** [passwordError]: a wrong password was given for a backup with keys. */
-    data class Plan(val plan: RestorePlan, val passwordError: Boolean = false) : BackupStep
+    /** [passwordError]: a wrong password was given for a backup with keys. [unlocking]: that password is being checked. */
+    data class Plan(val plan: RestorePlan, val passwordError: Boolean = false, val unlocking: Boolean = false) : BackupStep
     data class Failed(val error: BackupError) : BackupStep
 }
 
@@ -143,7 +144,9 @@ class DataViewModel @Inject constructor(
     fun inspect(uri: Uri, password: CharArray? = null) {
         restoreUri = uri
         job = viewModelScope.launch {
-            _step.value = BackupStep.Inspecting
+            // P-STABLE (M8): unlocking keys keeps the plan on screen (spinner in the button) instead of the progress step.
+            val shown = _step.value as? BackupStep.Plan
+            _step.value = shown?.copy(unlocking = true) ?: BackupStep.Inspecting
             _step.value = try { BackupStep.Plan(backup.inspect(uri, password)) } catch (e: BackupException) {
                 // Wrong password: inspect again without one so the user can still restore without keys (K-03).
                 if (e.error == BackupError.WRONG_PASSWORD) runCatching { BackupStep.Plan(backup.inspect(uri, null), passwordError = true) }.getOrElse { BackupStep.Failed(e.error) }
@@ -153,7 +156,6 @@ class DataViewModel @Inject constructor(
     }
 
     fun retryWithPassword(password: CharArray) { restoreUri?.let { inspect(it, password) } }
-
     fun restore(plan: RestorePlan, choice: RestoreChoice) {
         job = viewModelScope.launch {
             _step.value = BackupStep.Working(0, 0, restoring = true)
@@ -237,7 +239,7 @@ fun DataRoute(vm: DataViewModel, onBack: () -> Unit, onRestored: () -> Unit) {
 @Composable
 private fun BackupSheet(step: BackupStep, vm: DataViewModel, onPickAnother: () -> Unit) {
     val context = LocalContext.current
-    val working = step is BackupStep.Working || step is BackupStep.Inspecting
+    val working = step is BackupStep.Working || step is BackupStep.Inspecting || (step is BackupStep.Plan && step.unlocking)
     LcBottomSheet({ if (!working) vm.cancel() }, title = when (step) {
         is BackupStep.Export -> stringResource(if (step.scope is BackupScope.Full) R.string.ui_full_backup else R.string.ui_export_chat)
         is BackupStep.Working -> stringResource(if (step.restoring) R.string.ui_restoring else R.string.ui_backing_up)
@@ -249,7 +251,7 @@ private fun BackupSheet(step: BackupStep, vm: DataViewModel, onPickAnother: () -
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when (step) {
-                is BackupStep.Export -> ExportStep(step, vm)
+                is BackupStep.Export -> ExportStep(step, vm::cancel) { uri, name, pw -> vm.export(step.scope, uri, name, pw) }
                 is BackupStep.Working -> {
                     val f = if (step.total > 0) step.done.toFloat() / step.total else null
                     LcLinearProgress(f)
@@ -261,7 +263,7 @@ private fun BackupSheet(step: BackupStep, vm: DataViewModel, onPickAnother: () -
                     LcButton(stringResource(R.string.ui_cancel), vm::cancel, variant = ButtonVariant.Outline)
                 }
                 BackupStep.Inspecting -> { LcLinearProgress(null); Text(stringResource(R.string.ui_checking_file), style = LcTheme.text.body, color = LcTheme.colors.textSecondary) }
-                is BackupStep.Plan -> PlanStep(step, vm)
+                is BackupStep.Plan -> PlanStep(step, vm::retryWithPassword, vm::cancel, vm::restore)
                 is BackupStep.Failed -> ErrorCard(
                     stringResource(backupErrorText(step.error)), actionLabel = stringResource(R.string.ui_pick_another_file),
                     onAction = { vm.cancel(); onPickAnother() },
@@ -272,7 +274,7 @@ private fun BackupSheet(step: BackupStep, vm: DataViewModel, onPickAnother: () -
 }
 
 @Composable
-private fun ExportStep(step: BackupStep.Export, vm: DataViewModel) {
+internal fun ExportStep(step: BackupStep.Export, onCancel: () -> Unit, onExport: (Uri, String, CharArray?) -> Unit) {
     val context = LocalContext.current
     val full = step.scope is BackupScope.Full
     var withKeys by remember { mutableStateOf(false) }
@@ -280,7 +282,7 @@ private fun ExportStep(step: BackupStep.Export, vm: DataViewModel) {
     var pw2 by remember { mutableStateOf("") }
     val fileName = remember(step.scope) { backupFileName(step.scope) }
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        uri?.let { vm.export(step.scope, it, fileName, if (withKeys) pw.toCharArray() else null) }
+        uri?.let { onExport(it, fileName, if (withKeys) pw.toCharArray() else null) }
         pw = ""; pw2 = ""
     }
     step.summary?.let { s ->
@@ -298,22 +300,26 @@ private fun ExportStep(step: BackupStep.Export, vm: DataViewModel) {
             Text(stringResource(R.string.ui_include_keys), style = LcTheme.text.body, color = LcTheme.colors.textPrimary)
         }
         if (withKeys) {
+            // P-STABLE (M9): each helper line is always there (a hint until it turns into the error), so the field
+            // being typed in does not move when the error appears.
+            val short = pw.isNotEmpty() && pw.length < 8
+            val mismatch = pw2.isNotEmpty() && pw != pw2
             LcTextField(pw, { pw = it }, label = stringResource(R.string.ui_password), kind = TextFieldKind.Password,
-                helper = if (pw.isNotEmpty() && pw.length < 8) stringResource(R.string.ui_password_short) else null, helperTone = HelperTone.Error)
+                helper = stringResource(R.string.ui_password_short), helperTone = if (short) HelperTone.Error else HelperTone.Normal)
             LcTextField(pw2, { pw2 = it }, label = stringResource(R.string.ui_password_again), kind = TextFieldKind.Password,
-                helper = if (pw2.isNotEmpty() && pw != pw2) stringResource(R.string.ui_password_mismatch) else null, helperTone = HelperTone.Error)
+                helper = stringResource(if (mismatch) R.string.ui_password_mismatch else R.string.fb3_c_password_again_hint), helperTone = if (mismatch) HelperTone.Error else HelperTone.Normal)
             Banner(stringResource(R.string.ui_password_warning), BannerVariant.Warn)
         }
     }
     Text(fileName, style = LcTheme.text.caption, color = LcTheme.colors.textTertiary)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LcButton(stringResource(R.string.ui_cancel), vm::cancel, Modifier.weight(1f), variant = ButtonVariant.Outline)
+        LcButton(stringResource(R.string.ui_cancel), onCancel, Modifier.weight(1f), variant = ButtonVariant.Outline)
         LcButton(stringResource(R.string.ui_choose_location), { save.launch(fileName) }, Modifier.weight(1f), enabled = valid && step.summary != null)
     }
 }
 
 @Composable
-private fun PlanStep(step: BackupStep.Plan, vm: DataViewModel) {
+internal fun PlanStep(step: BackupStep.Plan, onUnlock: (CharArray) -> Unit, onCancel: () -> Unit, onRestore: (RestorePlan, RestoreChoice) -> Unit) {
     val p = step.plan
     LcBadge(stringResource(when (p.kind) { RestorePlan.Kind.FULL -> R.string.ui_kind_full; RestorePlan.Kind.SESSION -> R.string.ui_kind_session; RestorePlan.Kind.DEEPSEEK -> R.string.ui_kind_deepseek }))
     SummaryTiles(listOf(stringResource(R.string.ui_chats) to p.sessions.toString(), stringResource(R.string.ui_attachments) to p.attachments.toString()))
@@ -321,11 +327,15 @@ private fun PlanStep(step: BackupStep.Plan, vm: DataViewModel) {
     when (p.kind) {
         RestorePlan.Kind.FULL -> {
             Banner(stringResource(R.string.ui_restore_replace_warning), BannerVariant.Err)
+            // FB2: a backup made with the built-in sensitive-site list off turns it off here too; say so before restoring.
+            if (p.turnsOffBuiltInSensitive) Banner(stringResource(R.string.fb3_c_restore_builtin_off), BannerVariant.Warn)
             if (p.containsSecrets && !p.secretsUnlocked) {
                 var pw by remember { mutableStateOf("") }
-                LcTextField(pw, { pw = it }, label = stringResource(R.string.ui_password), kind = TextFieldKind.Password,
+                LcTextField(pw, { pw = it }, label = stringResource(R.string.ui_password), kind = TextFieldKind.Password, enabled = !step.unlocking,
                     helper = stringResource(if (step.passwordError) R.string.ui_password_wrong else R.string.ui_password_for_keys), helperTone = if (step.passwordError) HelperTone.Error else HelperTone.Normal)
-                LcButton(stringResource(R.string.ui_unlock_keys), { vm.retryWithPassword(pw.toCharArray()); pw = "" }, variant = ButtonVariant.Outline, enabled = pw.isNotEmpty())
+                // P-STABLE (M8): the check runs with a spinner in this button; the sheet and its buttons stay as they are.
+                LcButton(stringResource(R.string.ui_unlock_keys), { onUnlock(pw.toCharArray()); pw = "" }, Modifier.testTag("unlock"), variant = ButtonVariant.Outline,
+                    enabled = pw.isNotEmpty(), loading = step.unlocking)
             }
         }
         RestorePlan.Kind.SESSION -> if (p.conflicts.isNotEmpty()) {
@@ -345,11 +355,11 @@ private fun PlanStep(step: BackupStep.Plan, vm: DataViewModel) {
         RestorePlan.Kind.SESSION -> choice ?: RestoreChoice.ADD
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LcButton(stringResource(R.string.ui_cancel), vm::cancel, Modifier.weight(1f), variant = ButtonVariant.Outline)
+        LcButton(stringResource(R.string.ui_cancel), onCancel, Modifier.weight(1f).testTag("cancel"), variant = ButtonVariant.Outline, enabled = !step.unlocking)
         LcButton(
             stringResource(when { p.kind == RestorePlan.Kind.DEEPSEEK -> R.string.ui_import; p.containsSecrets && !p.secretsUnlocked -> R.string.ui_restore_without_keys; else -> R.string.ui_restore_action }),
-            { vm.restore(p, final) }, Modifier.weight(1f),
-            variant = if (p.kind == RestorePlan.Kind.FULL) ButtonVariant.Danger else ButtonVariant.Primary,
+            { onRestore(p, final) }, Modifier.weight(1f).testTag("restore"),
+            variant = if (p.kind == RestorePlan.Kind.FULL) ButtonVariant.Danger else ButtonVariant.Primary, enabled = !step.unlocking,
         )
     }
 }

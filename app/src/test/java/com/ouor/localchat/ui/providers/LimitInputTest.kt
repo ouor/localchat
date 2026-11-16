@@ -44,4 +44,17 @@ class LimitInputTest {
         assertEquals(9, CONTEXT_PRESETS.size)
         assertEquals(8, OUTPUT_PRESETS.size)
     }
+
+    @Test fun `limit warnings are decided outside the row`() {
+        val server = com.ouor.localchat.core.model.Sourced<Int?>(131_072, com.ouor.localchat.core.model.CapSource.SERVER)
+        val builtIn = com.ouor.localchat.core.model.Sourced<Int?>(131_072, com.ouor.localchat.core.model.CapSource.DEFAULT)
+        // No user value, or within limits: nothing to say.
+        assertEquals(null, limitWarning(null, "4K" to 4_096, server, OUTPUT_PRESETS))
+        assertEquals(null, limitWarning(65_536, null, server, CONTEXT_PRESETS))
+        // Above the context window wins over the server value.
+        assertEquals(LimitWarning.AboveContext("4K"), limitWarning(8_192, "4K" to 4_096, server, OUTPUT_PRESETS))
+        // Above the server's value; a built-in default is a guess, so no warning.
+        assertEquals(LimitWarning.AboveServer("128K"), limitWarning(204_800, null, server, CONTEXT_PRESETS))
+        assertEquals(null, limitWarning(204_800, null, builtIn, CONTEXT_PRESETS))
+    }
 }

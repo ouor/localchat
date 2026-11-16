@@ -344,7 +344,10 @@ internal fun ModelPickerList(
     val byEndpoint = models.groupBy { it.endpointId }
     val groups = (endpointIds + byEndpoint.keys).distinct()
     val open = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    LazyColumn(modifier) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LazyColumn(modifier, listState) {
+        // Item index of each group header, counted the way the items below are added.
+        var nextIndex = if (recent.isNotEmpty()) 1 + recent.size else 0
         @Composable fun Row(m: ModelInfo) = ModelRow(
             m.displayName, { onPick(m.ref) },
             subtitle = if (m.displayName != m.modelId) m.modelId else null,
@@ -357,11 +360,21 @@ internal fun ModelPickerList(
         groups.forEachIndexed { i, endpointId ->
             val list = byEndpoint[endpointId].orEmpty()
             val expanded = open[endpointId] == true
+            val at = nextIndex
+            nextIndex += 1 + if (expanded) maxOf(list.size, 1) else 0
+            val toggle = {
+                // P-STABLE (M10): collapsing a header stuck at the top (its rows scrolled under it) would drop the
+                // first visible row; keep the header where it is, at the top, instead of letting the list jump.
+                if (expanded && (listState.firstVisibleItemIndex > at || (listState.firstVisibleItemIndex == at && listState.firstVisibleItemScrollOffset > 0))) {
+                    listState.requestScrollToItem(at)
+                }
+                open[endpointId] = !expanded
+            }
             val header: @Composable () -> Unit = {
                 val n = endpointName(endpointId)
                 Box(Modifier.background(c.surfaceRaised)) {
                     EndpointGroupHeader(
-                        n, endpointDotColor(n), list.size, expanded = expanded, onToggle = { open[endpointId] = !expanded },
+                        n, endpointDotColor(n), list.size, expanded = expanded, onToggle = toggle,
                         hasSelected = current?.endpointId == endpointId && list.any { it.modelId == current.modelId },
                     )
                     if (i > 0 || recent.isNotEmpty()) androidx.compose.material3.HorizontalDivider(color = c.border)

@@ -130,11 +130,12 @@ class Fb2UTest {
             }
         }
         val row = rule.onNodeWithText("최대 출력 토큰").fetchSemanticsNode()
-        val warn = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_warn_gt_ctx, "4K")).fetchSemanticsNode()
+        // FB3 L6: the warning is no longer a caption under the row; it heads the menu, which opens right at the row.
         rule.onNodeWithText("최대 출력 토큰").performClick()
+        val warn = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_warn_gt_ctx, "4K")).fetchSemanticsNode()
         val first = rule.onNodeWithText(ctx.getString(R.string.fb_e3_limit_auto_unknown)).fetchSemanticsNode()
-        assertTrue("menu top ${first.top()} vs row bottom ${row.bottom()}", first.top() >= row.bottom() - 1)
-        assertTrue("menu top ${first.top()} must start above the warning bottom ${warn.bottom()}", first.top() < warn.bottom())
+        assertTrue("menu top ${warn.top()} vs row bottom ${row.bottom()}", warn.top() >= row.bottom() - 1)
+        assertTrue("warning ${warn.top()} heads the menu above ${first.top()}", warn.top() < first.top())
     }
 
     private val stack = mutableStateListOf("home")

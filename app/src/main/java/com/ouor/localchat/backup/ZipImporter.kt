@@ -34,7 +34,10 @@ internal data class BackupContents(
     /** Final metadata; for DeepSeek hasOriginal reflects which images were really in the zip. */
     val attachments: List<Attachment>,
     val sessionIds: List<String>,
-)
+) {
+    /** The restored settings would switch the built-in sensitive-site list off (said before restoring). */
+    val turnsOffBuiltInSensitive get() = settings?.builtInSensitiveEnabled == false
+}
 
 internal interface ImportSink {
     fun session(file: SessionFile) {}
