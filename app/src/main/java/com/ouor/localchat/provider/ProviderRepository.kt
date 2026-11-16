@@ -175,8 +175,7 @@ internal fun ModelEntity.toRecord(): ModelRecord {
         inServerList = inServerList,
         manual = manual,
         hidden = hidden,
-        // shortcut: displayNameUser duplicates overrides.displayName until track B drops the column.
-        overrides = if (overrides.displayName == null && displayNameUser != null) overrides.copy(displayName = displayNameUser) else overrides,
+        overrides = overrides,
         lastUsedAt = lastUsedAt,
     )
 }
@@ -187,7 +186,6 @@ internal fun ModelRecord.toEntity() = ModelEntity(
     serverJson = serverJson?.toString(),
     inServerList = inServerList,
     manual = manual,
-    displayNameUser = overrides.displayName,
     hidden = hidden,
     capsUserJson = overrides.takeIf { it != ModelOverrides() }?.let { AppJson.encodeToString(ModelOverrides.serializer(), it) },
     lastUsedAt = lastUsedAt,

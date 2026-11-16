@@ -173,11 +173,9 @@ class ProviderRepositoryTest {
     }
 
     @Test
-    fun `entity mapping round trip and legacy displayNameUser`() {
+    fun `entity mapping round trip`() {
         val record = ModelRecord("e", "m", AppJson.parseToJsonElement("""{"id":"m"}""") as kotlinx.serialization.json.JsonObject,
             inServerList = true, overrides = ModelOverrides(displayName = "N", imageInput = true), hidden = true, lastUsedAt = 3)
         assertEquals(record, record.toEntity().toRecord())
-        val legacy = record.toEntity().copy(capsUserJson = null, displayNameUser = "Old")
-        assertEquals(ModelOverrides(displayName = "Old"), legacy.toRecord().overrides)
     }
 }
