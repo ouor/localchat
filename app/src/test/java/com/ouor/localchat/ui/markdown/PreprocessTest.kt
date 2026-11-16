@@ -1,0 +1,98 @@
+package com.ouor.localchat.ui.markdown
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PreprocessTest {
+
+    private fun md(vararg s: String) = s.map { MdSegment.Markdown(it) }
+
+    @Test fun `paragraphs split at blank lines`() {
+        assertEquals(md("a", "b"), splitSegments("a\n\nb"))
+    }
+
+    @Test fun `closed blocks stay identical while the tail streams`() {
+        val first = splitSegments("Intro text.\n\n- one\n- tw")
+        val later = splitSegments("Intro text.\n\n- one\n- two\n\nMore")
+        assertEquals(first[0], later[0])
+        assertEquals(3, later.size)
+    }
+
+    @Test fun `loose list items stay in one block`() {
+        assertEquals(md("1. a\n\n2. b"), splitSegments("1. a\n\n2. b"))
+    }
+
+    @Test fun `indented continuation stays in the block`() {
+        assertEquals(1, splitSegments("- item\n\n  continued").size)
+    }
+
+    @Test fun `blank lines inside a fence do not split`() {
+        val text = "```kotlin\nval a = 1\n\nval b = 2\n```\n\nafter"
+        assertEquals(md("```kotlin\nval a = 1\n\nval b = 2\n```", "after"), splitSegments(text))
+    }
+
+    @Test fun `unclosed fence keeps everything raw`() {
+        assertEquals(1, splitSegments("```\ncode\n\n\$\$x\$\$").size)
+    }
+
+    @Test fun `display math becomes its own segment`() {
+        assertEquals(
+            listOf(MdSegment.Markdown("before"), MdSegment.Math("x^2"), MdSegment.Markdown("after")),
+            splitSegments("before\n\$\$x^2\$\$\nafter"),
+        )
+        assertEquals(listOf(MdSegment.Math("a\n+b")), splitSegments("\\[a\n+b\\]"))
+    }
+
+    @Test fun `unclosed display math stays raw while streaming`() {
+        assertEquals(md("$$\\frac{a}{b}"), splitSegments("$$\\frac{a}{b}"))
+    }
+
+    @Test fun `inline math becomes tokens`() {
+        val p = tokenizeInline("Energy \$E=mc^2\$ and \\(a+b\\).", emptySet())
+        assertEquals("Energy ⦃m0⦄ and ⦃m1⦄.", p.text)
+        assertEquals(listOf("E=mc^2", "a+b"), p.math)
+    }
+
+    @Test fun `currency is not math`() {
+        val p = tokenizeInline("It costs \$5 and \$10 today, or $ 3 $.", emptySet())
+        assertTrue(p.math.isEmpty())
+    }
+
+    @Test fun `unclosed inline math stays raw`() {
+        assertEquals("so \$x^2 + ", tokenizeInline("so \$x^2 + ", emptySet()).text)
+    }
+
+    @Test fun `citations only for known sources`() {
+        val p = tokenizeInline("Prices rose [1][2] but [9] and [link](u) and [x][1] stay.", setOf(1, 2))
+        assertEquals("Prices rose ⦃c1⦄⦃c2⦄ but [9] and [link](u) and [x]⦃c1⦄ stay.", p.text)
+    }
+
+    @Test fun `code spans and fences are untouched`() {
+        val text = "use `\$a\$ [1]` here\n```\n\$b\$ [1]\n```\nand \$c\$ [1]"
+        val p = tokenizeInline(text, setOf(1))
+        assertEquals("use `\$a\$ [1]` here\n```\n\$b\$ [1]\n```\nand ⦃m0⦄ ⦃c1⦄", p.text)
+        assertEquals(listOf("c"), p.math)
+    }
+
+    @Test fun `rule 1 inline is textstyle`() {
+        assertEquals("\\textstyle \\sum_i i", MathRules.inline("\\sum_i i"))
+    }
+
+    @Test fun `rule 2 cases becomes array`() {
+        val expected = "f=\\left\\{\\begin{array}{ll} a & b \\\\ c & d \\end{array}\\right."
+        assertEquals(expected, MathRules.display("f=\\begin{cases} a & b \\\\ c & d \\end{cases}"))
+        assertEquals(expected, MathRules.display("f=\\begin{dcases} a & b \\\\ c & d \\end{dcases}"))
+    }
+
+    @Test fun `rule 3 detects malformed tex`() {
+        assertTrue(MathRules.isWellFormed("\\frac{a}{b} + \\left( x \\right) + \\{1\\}"))
+        assertTrue(MathRules.isWellFormed("\\begin{pmatrix} a & b \\end{pmatrix}"))
+        assertFalse(MathRules.isWellFormed("\\frac{a}{"))
+        assertFalse(MathRules.isWellFormed("\\left( x"))
+        assertFalse(MathRules.isWellFormed("\\begin{matrix} a & b"))
+        assertFalse(MathRules.isWellFormed("\\begin{matrix} a \\end{pmatrix}"))
+        assertFalse(MathRules.isWellFormed("a}"))
+    }
+}
