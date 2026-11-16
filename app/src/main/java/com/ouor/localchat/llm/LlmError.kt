@@ -36,3 +36,6 @@ fun LlmError.toChatError(): ChatError {
     }
     return ChatError(kind, httpStatus, serverMessage)
 }
+
+/** Thrown by the non-streaming calls ([ChatCompletionsClient.listModels]). */
+class LlmException(val error: LlmError) : Exception(error.toString())

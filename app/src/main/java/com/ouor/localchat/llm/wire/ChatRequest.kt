@@ -1,5 +1,6 @@
 package com.ouor.localchat.llm.wire
 
+import com.ouor.localchat.core.model.ReasoningWire
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -60,3 +61,13 @@ data class Thinking(val type: String) {
 
 @Serializable
 data class StreamOptions(@SerialName("include_usage") val includeUsage: Boolean)
+
+/** Architecture 4.3, request direction. [wire] null = no reasoning switch for this model: nothing is sent. */
+fun ChatRequest.withReasoning(wire: ReasoningWire?, on: Boolean, effort: String?): ChatRequest = when (wire) {
+    null, ReasoningWire.ALWAYS_ON -> copy(reasoningEffort = null, thinking = null)
+    ReasoningWire.EFFORT -> copy(reasoningEffort = if (on) effort else null, thinking = null)
+    // Omitting 	hinking means ON on DeepSeek (architecture 0), so "off" must be explicit.
+    ReasoningWire.DEEPSEEK_THINKING ->
+        if (on) copy(thinking = Thinking.ENABLED, reasoningEffort = effort)
+        else copy(thinking = Thinking.DISABLED, reasoningEffort = null)
+}
