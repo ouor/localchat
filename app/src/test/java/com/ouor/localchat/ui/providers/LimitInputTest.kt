@@ -25,6 +25,16 @@ class LimitInputTest {
         assertEquals(LimitInput.OutOfRange, parseLimit("99999999999999999999", OUTPUT_RANGE))
     }
 
+    @Test fun `m-3 m-4 any locale's thousands grouping is accepted, ASCII digits only`() {
+        assertEquals(LimitInput.Ok(1_024), parseLimit("1.024", CONTEXT_RANGE)) // de
+        assertEquals(LimitInput.Ok(1_048_576), parseLimit("1 048 576", CONTEXT_RANGE)) // fr, plain space
+        assertEquals(LimitInput.Ok(1_048_576), parseLimit("1 048 576", CONTEXT_RANGE)) // fr, narrow NBSP as printed
+        assertEquals(LimitInput.Ok(1_024), parseLimit("1'024", CONTEXT_RANGE)) // ch
+        assertEquals(LimitInput.NotNumber, parseLimit("１２８０", CONTEXT_RANGE)) // full-width digits
+        assertEquals(LimitInput.NotNumber, parseLimit("1.0245", CONTEXT_RANGE))
+        assertEquals(LimitInput.NotNumber, parseLimit("1,024.000", CONTEXT_RANGE))
+    }
+
     @Test fun `presets use K = 1024 and other numbers are exact`() {
         assertEquals("128K", limitLabel(131_072, CONTEXT_PRESETS))
         assertEquals("200K", limitLabel(204_800, CONTEXT_PRESETS))
