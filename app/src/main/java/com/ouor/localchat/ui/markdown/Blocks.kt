@@ -204,10 +204,10 @@ fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = M
     CodeFrame(
         stringResource(R.string.ui_diagram), source, modifier,
         headerExtra = {
-            if (engine != null && renderNow && !empty) {
+            if (engine != null && renderNow && !empty && state !is DiagramState.Failed) {
                 LcButton(
                     stringResource(if (codeMode) R.string.ui_show_diagram else R.string.ui_show_code), { showCode = !codeMode },
-                    variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = state !is DiagramState.Failed,
+                    variant = ButtonVariant.Text, size = ButtonSize.Sm,
                 )
             }
         },

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -294,6 +295,7 @@ fun VoiceRecorderRow(elapsed: String, levels: List<Float>, status: String, onCan
             TextButton(onCancel) { Text(stringResource(R.string.ui_cancel), style = LcTheme.text.body, color = c.textSecondary) }
             Box(Modifier.weight(1f))
             Text(error ?: status, style = LcTheme.text.caption, color = if (error != null) c.dangerText else c.textTertiary)
+            Spacer(Modifier.width(8.dp))
             LcIconButton(Icons.Rounded.Check, stringResource(R.string.ui_done), onDone, variant = IconButtonVariant.Filled, size = IconButtonSize.Sm)
         }
     }

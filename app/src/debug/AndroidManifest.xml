@@ -8,5 +8,10 @@
         <activity
             android:name=".spike.WebViewSpikeActivity"
             android:exported="true" />
+        <!-- Track E design system gallery. -->
+        <activity
+            android:name=".ui.gallery.GalleryActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
     </application>
 </manifest>

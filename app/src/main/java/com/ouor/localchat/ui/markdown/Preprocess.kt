@@ -195,7 +195,8 @@ object MathRules {
         val rights = Regex("""\\right(?![a-zA-Z])""").findAll(tex).count()
         if (lefts != rights) return false
         val stack = ArrayDeque<String>()
-        Regex("""\\(begin|end)\{([^}]*)}""").findAll(tex).forEach { m ->
+        // `}` escaped: Android's ICU regex rejects a bare one (JVM accepts it, so unit tests could not catch this).
+        Regex("""\\(begin|end)\{([^\}]*)\}""").findAll(tex).forEach { m ->
             if (m.groupValues[1] == "begin") stack.addLast(m.groupValues[2])
             else if (stack.removeLastOrNull() != m.groupValues[2]) return false
         }

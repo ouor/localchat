@@ -18,6 +18,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,18 +63,19 @@ fun LcIconButton(
     }
     val filledLike = variant == IconButtonVariant.Filled || variant == IconButtonVariant.Inverse
     Box(modifier, contentAlignment = Alignment.Center) {
-        IconButton(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier.size(size.visual)
-                .then(if (variant == IconButtonVariant.Raised) Modifier.border(1.dp, c.border, CircleShape) else Modifier),
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = container,
-                contentColor = content,
-                disabledContainerColor = if (filledLike || variant == IconButtonVariant.Tonal) c.surfaceSunken else Color.Transparent,
-                disabledContentColor = c.textDisabled,
-            ),
-        ) { Icon(icon, contentDescription, Modifier.size(size.icon)) }
+        val colors = IconButtonDefaults.iconButtonColors(
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = if (filledLike || variant == IconButtonVariant.Tonal) c.surfaceSunken else Color.Transparent,
+            disabledContentColor = c.textDisabled,
+        )
+        val glyph: @Composable () -> Unit = { Icon(icon, contentDescription, Modifier.size(size.icon)) }
+        // OutlinedIconButton draws the border on the visual circle, not on the 48dp touch area.
+        if (variant == IconButtonVariant.Raised) {
+            OutlinedIconButton(onClick, Modifier.size(size.visual), enabled, colors = colors, border = BorderStroke(1.dp, c.border), content = glyph)
+        } else {
+            IconButton(onClick, Modifier.size(size.visual), enabled, colors = colors, content = glyph)
+        }
         if (badge) {
             Box(
                 Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp).size(10.dp)

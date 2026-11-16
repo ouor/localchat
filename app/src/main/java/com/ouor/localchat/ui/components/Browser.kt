@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -140,7 +141,7 @@ fun HandoffBanner(title: String, body: String, onStop: () -> Unit, onGiveBack: (
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LcButton(stringResource(R.string.ui_stop_task), onStop, variant = ButtonVariant.Text, size = ButtonSize.Sm)
+            TextButton(onStop) { Text(stringResource(R.string.ui_stop_task), style = LcTheme.text.label, color = c.onWarningContainer) }
             Box(Modifier.weight(1f))
             LcButton(stringResource(R.string.ui_give_back_to_ai), onGiveBack, variant = ButtonVariant.Agent, icon = Icons.Rounded.AutoAwesome)
         }
@@ -295,7 +296,7 @@ fun <T> TabGrid(tabs: List<T>, modifier: Modifier = Modifier, card: @Composable 
 
 /**
  * B-09 overlay layer over the page. [rect] is in this layer's px (caller scales CSS px by view.width / innerWidth).
- * 2dp agent outline + 6dp halo + label above (below when no room). Fades 0→1 120ms, holds ~1s, 1→0 200ms per [key].
+ * 2dp agent outline + 6dp halo + label to the right (above/below when no room). Fades 0→1 120ms, holds ~1s, 1→0 200ms per [key].
  * Pointer events pass through (no input modifiers).
  */
 @Composable
@@ -321,9 +322,17 @@ fun ElementHighlightLayer(rect: Rect?, label: String, icon: ImageVector?, key: A
             },
         )
         val labelH = with(density) { 24.dp.toPx() }
+        val gap = with(density) { 8.dp.toPx() }
+        // Mockup B-09: label beside the element; above/below only when ~96dp does not fit on the right.
+        val right = rect.right + gap + with(density) { 96.dp.toPx() } <= constraints.maxWidth
         val above = rect.top >= labelH
+        val pos = when {
+            right -> IntOffset((rect.right + gap).roundToInt(), (rect.center.y - with(density) { 10.dp.toPx() }).roundToInt())
+            above -> IntOffset(rect.left.roundToInt(), (rect.top - labelH).roundToInt())
+            else -> IntOffset(rect.left.roundToInt(), (rect.bottom + with(density) { 4.dp.toPx() }).roundToInt())
+        }
         Row(
-            Modifier.offset { IntOffset(rect.left.roundToInt(), if (above) (rect.top - labelH).roundToInt() else (rect.bottom + with(density) { 4.dp.toPx() }).roundToInt()) }
+            Modifier.offset { pos }
                 .height(20.dp).background(c.agent, LcRadius.xs).padding(horizontal = 7.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {

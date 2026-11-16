@@ -200,7 +200,7 @@ fun Banner(
             if (!stackedActions) actions.forEach { a -> BannerButton(a, fg) }
         }
         if (stackedActions && actions.isNotEmpty()) {
-            Row(Modifier.padding(start = 24.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.padding(start = 24.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 actions.forEachIndexed { i, a ->
                     if (i == 0) LcButton(a.label, a.onClick, variant = ButtonVariant.Outline, size = ButtonSize.Sm)
                     else BannerButton(a, fg)
