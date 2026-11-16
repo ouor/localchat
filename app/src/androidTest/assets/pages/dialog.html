@@ -1,0 +1,9 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dialogs</title></head>
+<body>
+<button id="ask" onclick="document.getElementById('r').textContent = 'confirm=' + confirm('Really delete?')">Ask</button>
+<button id="name" onclick="document.getElementById('r').textContent = 'prompt=' + prompt('Your name?', 'anon')">Name</button>
+<p id="r">none</p>
+<input id="pw" type="password">
+<script>console.log('dialog page ready');</script>
+</body></html>

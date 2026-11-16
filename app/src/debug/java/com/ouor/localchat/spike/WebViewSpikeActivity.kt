@@ -30,7 +30,7 @@ import java.io.File
  * a native tap is injected at 3 s, drawToBitmap at 5 s and print-to-PDF at 6 s.
  *
  * adb shell am start -n com.ouor.localchat/.spike.WebViewSpikeActivity --es mode offscreen [--ez preraster true]
- * modes: onscreen | covered (opaque view on top) | offscreen (translated out) | alpha0
+ * modes: onscreen | covered (opaque view on top) | offscreen (translated out) | alpha0 | invisible (covered + View.INVISIBLE)
  */
 class WebViewSpikeActivity : Activity() {
 
@@ -68,6 +68,11 @@ class WebViewSpikeActivity : Activity() {
             "covered" -> root.addView(cover, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             "offscreen" -> parking.post { parking.translationX = root.width.toFloat() }
             "alpha0" -> parking.alpha = 0f
+            // Track C battery check: covered + WebView INVISIBLE (Chromium sees the view hidden).
+            "invisible" -> {
+                root.addView(cover, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+                web.visibility = View.INVISIBLE
+            }
         }
         setContentView(root)
         web.loadDataWithBaseURL("https://spike.local/", PAGE, "text/html", "utf-8", null)

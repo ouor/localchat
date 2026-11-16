@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebStorage
@@ -115,7 +116,7 @@ class BrowserEngine @Inject constructor(
         val tab = BrowserTab(nextId++, context, owner, this)
         byId[tab.id] = tab
         hostActivity?.let { tab.contextWrapper.baseContext = it }
-        host?.addView(tab.webView, full())
+        parkInHost(tab.webView)
         tab.load(url ?: BLANK)
         publish()
         return tab.id
@@ -183,7 +184,7 @@ class BrowserEngine @Inject constructor(
         hostActivity = activity
         byId.values.forEach { tab ->
             tab.contextWrapper.baseContext = activity
-            if (tab.webView.parent == null) container.addView(tab.webView, full())
+            if (tab.webView.parent == null) parkInHost(tab.webView)
         }
     }
 
@@ -202,6 +203,7 @@ class BrowserEngine @Inject constructor(
     fun unpark(tabId: Int): WebView {
         val w = tab(tabId).webView
         (w.parent as? ViewGroup)?.removeView(w)
+        w.visibility = View.VISIBLE
         return w
     }
 
@@ -209,6 +211,15 @@ class BrowserEngine @Inject constructor(
     fun park(tabId: Int) {
         val w = byId[tabId]?.webView ?: return
         (w.parent as? ViewGroup)?.removeView(w)
+        parkInHost(w)
+    }
+
+    /**
+     * Parked WebViews are INVISIBLE: measured on devphone01 (track-c.md) timers, evaluateJavascript, trusted
+     * taps, drawToBitmap and PDF still work, while rAF drops ~8x and process CPU on an animated page 65% -> 40%.
+     */
+    private fun parkInHost(w: WebView) {
+        w.visibility = View.INVISIBLE
         host?.addView(w, full())
     }
 
@@ -220,13 +231,13 @@ class BrowserEngine @Inject constructor(
      * user holds control, calls [onUserControl] (the loop shows Pause.UserControl) and waits for it to come back
      * (B-09 ③). Marks [toolName] as the tab's AI activity until [clearAiActivity]. Throws [PageError] when denied.
      */
-    suspend fun acquireAiTab(sessionId: String, tabId: Int?, toolName: String, onUserControl: suspend (Int) -> Unit = {}): BrowserTab {
+    suspend fun acquireAiTab(sessionId: String, tabId: Int?, toolName: String? = null, onUserControl: suspend (Int) -> Unit = {}): BrowserTab {
         while (true) {
-            val tab = withContext(Dispatchers.Main.immediate) { checkedAiTab(sessionId, tabId) }
+            val tab = withContext(Dispatchers.Main.immediate) { aiTabFor(sessionId, tabId) }
             if (tab.control == Control.AI) {
                 withContext(Dispatchers.Main.immediate) {
                     defaultAiTab[sessionId] = tab.id
-                    _aiActivity.value += (tab.id to toolName)
+                    if (toolName != null) _aiActivity.value += (tab.id to toolName)
                 }
                 return tab
             }
@@ -246,7 +257,8 @@ class BrowserEngine @Inject constructor(
         return tab
     }
 
-    private fun checkedAiTab(sessionId: String, tabId: Int?): BrowserTab {
+    /** Main thread. [acquireAiTab] without the control wait: default tab (created when missing), ownership, B-S3. */
+    fun aiTabFor(sessionId: String, tabId: Int?): BrowserTab {
         val id = tabId
             ?: defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
             ?: openAiTab(sessionId, null)

@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Forms</title></head>
+<body>
+<form id="search" method="get" action="/search"><input id="sq" name="q"><button id="go">Search</button></form>
+<form id="login" method="POST" action="/login">
+  <input id="user" name="user"><button id="signin">Sign in</button>
+  <button id="plain" type="button">Show more</button>
+  <button id="override" formmethod="get">Preview</button>
+</form>
+<button id="del">Delete account</button>
+<a id="buy" href="/cart">Buy now</a>
+<a id="article" href="/a">How to delete a git branch locally and remotely, a complete guide for beginners</a>
+<input id="keys">
+<p id="log"></p>
+<div contenteditable="true" id="editor" aria-label="Editor">old text</div>
+<script>
+  var log = document.getElementById('log');
+  document.getElementById('keys').addEventListener('keydown', function (e) { log.textContent += e.key + ':' + e.isTrusted + ' '; });
+  document.getElementById('sq').addEventListener('input', function (e) { log.textContent += 'input:' + e.target.value + ' '; });
+  document.getElementById('search').addEventListener('submit', function (e) { e.preventDefault(); log.textContent += 'submitted '; });
+</script>
+</body></html>

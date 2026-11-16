@@ -360,6 +360,7 @@
       if (skipSubtree(el)) return;
       if (el.localName === 'iframe' || el.localName === 'frame') return frame(el, depth);
       if (el.localName === 'option' && el.closest('select')) return;
+      if (el.localName === 'slot') return children(el, depth, false); // no box of its own; walk assigned nodes
       var role = roleOf(el);
       var inner = el.shadowRoot || el;
       var field = isField(el) || el.localName === 'select';
