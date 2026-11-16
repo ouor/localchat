@@ -8,9 +8,9 @@ import com.ouor.localchat.core.model.ModelCapabilities
  */
 object ToolExposure {
     fun exposedTools(caps: ModelCapabilities, searchOn: Boolean, browserOn: Boolean): List<Tool> {
-        if (!caps.toolCalling.value) return emptyList() // S-03 falls back to LinkPrefetcher
+        // Both switches off means no tools at all; pasted links are then prefetched by the app (S-03).
+        if (!caps.toolCalling.value) return emptyList()
         val groups = buildSet {
-            add(ToolGroup.LINK)
             if (searchOn) add(ToolGroup.SEARCH)
             if (browserOn) add(ToolGroup.BROWSER)
         }

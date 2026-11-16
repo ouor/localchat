@@ -17,7 +17,7 @@ import kotlinx.serialization.json.put
 
 object PageText : Tool {
     override val name = "page_text"
-    override val groups = setOf(ToolGroup.LINK, ToolGroup.SEARCH, ToolGroup.BROWSER)
+    override val groups = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER)
     override val labelRes = R.string.tool_page_text
     override val description =
         "Read the main text of the page in your tab, in pages of 20,000 characters. The result starts with a " +

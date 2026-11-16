@@ -50,8 +50,8 @@ class ToolsTest {
     }
 
     @Test
-    fun `link tools are always there`() {
-        assertEquals(setOf("open_tab", "page_text", "close_tab"), names(caps(), search = false, browser = false))
+    fun `search and browser off means no tools, not even link reading`() {
+        assertTrue(names(caps(), search = false, browser = false).isEmpty())
     }
 
     @Test

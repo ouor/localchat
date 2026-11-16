@@ -95,7 +95,7 @@ class DeepSeekEndToEndRealApiTest {
     private object Weather : Tool {
         var calls = 0
         override val name = "get_weather"
-        override val groups = setOf(ToolGroup.LINK)
+        override val groups = setOf(ToolGroup.SEARCH)
         override val description = "Current weather for a city."
         override val parameters = buildJsonObject {
             put("type", "object")
