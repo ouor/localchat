@@ -47,6 +47,15 @@ class SecretStore @Inject constructor(
         }
     }
 
+    /** Backup (SEC-4): every key that still decrypts. */
+    suspend fun all(): Map<String, ApiKey> =
+        store.data.first().byEndpoint.keys.mapNotNull { id -> get(id)?.let { id to it } }.toMap()
+
+    /** Restore (K-04 step 3): the stored keys become exactly [keys]. */
+    suspend fun replaceAll(keys: Map<String, ApiKey>) {
+        store.updateData { SecretEntries(keys.mapValues { (id, key) -> seal(id, key.value) }) }
+    }
+
     /** null removes the key. */
     suspend fun set(endpointId: String, key: ApiKey?) {
         store.updateData { entries ->

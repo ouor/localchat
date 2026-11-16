@@ -15,6 +15,9 @@ import com.ouor.localchat.storage.db.likeEscape
 import com.ouor.localchat.storage.db.toEntity
 import com.ouor.localchat.storage.db.toModel
 import androidx.room.withTransaction
+import com.ouor.localchat.storage.AttachmentFiles
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -27,6 +30,7 @@ class SessionRepository @Inject constructor(
     private val db: AppDatabase,
     private val dao: ChatDao,
     private val attachments: AttachmentDao,
+    private val files: AttachmentFiles,
     private val clock: Clock,
 ) : ChatStore {
 
@@ -118,8 +122,10 @@ class SessionRepository @Inject constructor(
 
     override suspend fun collectAttachmentGarbage(cutoff: Long) {
         val ids = attachments.orphans(cutoff)
-        // shortcut: rows only; AttachmentFiles (track D) has no delete API yet and must GC files without rows.
-        if (ids.isNotEmpty()) attachments.delete(ids)
+        withContext(Dispatchers.IO) { ids.forEach(files::delete) }
+        ids.chunked(500).forEach { attachments.delete(it) }
+        val rows = attachments.allIds().toSet()
+        withContext(Dispatchers.IO) { files.deleteWithoutRow(rows, cutoff) }
     }
 
     private suspend fun applySelection(sessionId: String, selection: Selection) {

@@ -48,4 +48,11 @@ class SecretStoreTest {
         store.set("ep1", null)
         assertEquals(emptySet<String>(), store.endpointIds.first())
     }
+
+    @Test
+    fun `all and replaceAll for backups`() = runTest {
+        store.set("ep1", ApiKey("sk-a"))
+        store.replaceAll(mapOf("ep2" to ApiKey("sk-b"), "ep3" to ApiKey("sk-c")))
+        assertEquals(mapOf("ep2" to "sk-b", "ep3" to "sk-c"), store.all().mapValues { it.value.value })
+    }
 }

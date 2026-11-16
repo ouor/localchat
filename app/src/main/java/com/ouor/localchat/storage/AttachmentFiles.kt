@@ -27,7 +27,16 @@ class AttachmentFiles(private val dir: File) {
         listOf(original(id), text(id), requestImage(id)).forEach { it.delete() }
     }
 
-    // TODO(track B): GC of files whose attachment row has no refs (architecture 8.1).
+    /**
+     * GC of files with no attachment row, last modified before [cutoff]: a crash between copy and
+     * upsert, or originals a restore inspect copied but never restored. Rows themselves are GC'd by chat.
+     */
+    fun deleteWithoutRow(rowIds: Set<String>, cutoff: Long) {
+        dir.listFiles()?.forEach { f ->
+            val id = f.name.removeSuffix(".txt").removeSuffix(".req.jpg")
+            if (id !in rowIds && f.lastModified() < cutoff) f.delete()
+        }
+    }
 
     private fun file(name: String): File {
         // Ids are UUIDs or backup ids; anything that could leave the directory is a bug or an attack.

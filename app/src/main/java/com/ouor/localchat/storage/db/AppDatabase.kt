@@ -3,6 +3,7 @@ package com.ouor.localchat.storage.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.ouor.localchat.storage.db.dao.AttachmentDao
+import com.ouor.localchat.storage.db.dao.BackupDao
 import com.ouor.localchat.storage.db.dao.ChatDao
 import com.ouor.localchat.storage.db.dao.ProviderDao
 import com.ouor.localchat.storage.db.entities.AttachmentEntity
@@ -27,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun providerDao(): ProviderDao
+    abstract fun backupDao(): BackupDao
 
     companion object {
         const val NAME = "localchat.db"

@@ -15,6 +15,7 @@ import com.ouor.localchat.storage.SecretKeySource
 import com.ouor.localchat.storage.db.AppDatabase
 import com.ouor.localchat.storage.db.dao.AttachmentDao
 import com.ouor.localchat.storage.db.dao.ChatDao
+import com.ouor.localchat.storage.db.dao.BackupDao
 import com.ouor.localchat.storage.db.dao.ProviderDao
 import dagger.Module
 import dagger.Provides
@@ -41,6 +42,9 @@ object StorageModule {
 
     @Provides
     fun providerDao(db: AppDatabase): ProviderDao = db.providerDao()
+
+    @Provides
+    fun backupDao(db: AppDatabase): BackupDao = db.backupDao()
 
     @Provides
     @Singleton

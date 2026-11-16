@@ -22,6 +22,8 @@ import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.model.Attachment
 import com.ouor.localchat.core.model.AttachmentKind
 import com.ouor.localchat.core.model.PrepState
+import com.ouor.localchat.attach.AttachmentIngest
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.ouor.localchat.tools.Tool
@@ -60,10 +62,24 @@ class CatalogToolPort @Inject constructor() : ToolPort {
 class StoredAttachmentPort @Inject constructor(
     private val dao: AttachmentDao,
     private val files: AttachmentFiles,
+    private val ingest: AttachmentIngest,
     private val clock: Clock,
 ) : AttachmentPort {
-    // TODO(track D): extracted text and the downscaled request image from AttachmentFiles.
-    override suspend fun payload(id: String): AttachmentPayload? = dao.get(id)?.toModel()?.let { AttachmentPayload(it) }
+    /** Derived files are made on demand (e.g. after a restore) with prepareStored (track-d.md 6). */
+    override suspend fun payload(id: String): AttachmentPayload? {
+        val a = dao.get(id)?.toModel() ?: return null
+        if (!a.hasOriginal || a.state != PrepState.Ready) return AttachmentPayload(a)
+        return withContext(Dispatchers.IO) {
+            val derived = if (a.kind == AttachmentKind.IMAGE) files.requestImage(id) else files.text(id)
+            if (!derived.isFile) ingest.prepareStored(a)
+            when {
+                !derived.isFile -> AttachmentPayload(a)
+                a.kind == AttachmentKind.IMAGE ->
+                    AttachmentPayload(a, imageDataUrl = "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(derived.readBytes()))
+                else -> AttachmentPayload(a, text = derived.readText())
+            }
+        }
+    }
 
     override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String = withContext(Dispatchers.IO) {
         val id = Ids.new()
