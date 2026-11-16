@@ -223,6 +223,7 @@
     <string name="ui_max_output">Max output tokens</string>
     <string name="ui_reset_defaults">Reset to defaults</string>
     <string name="ui_new_tab">New tab</string>
+    <string name="ui_tab_n">Tab %1$d</string>
     <string name="ui_sensitive_site">Sensitive site. The AI cannot read or operate this page.</string>
     <string name="ui_handoff_body">AI is waiting. Hand it back when you are done. AI cannot see passwords.</string>
     <string name="ui_download_title">Download this file?</string>

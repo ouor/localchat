@@ -223,6 +223,7 @@
     <string name="ui_max_output">최대 출력 토큰</string>
     <string name="ui_reset_defaults">기본값으로 되돌리기</string>
     <string name="ui_new_tab">새 탭</string>
+    <string name="ui_tab_n">탭 %1$d</string>
     <string name="ui_sensitive_site">민감 사이트예요. AI는 이 페이지를 읽거나 조작할 수 없어요.</string>
     <string name="ui_handoff_body">AI가 기다리는 중이에요. 마치면 돌려주세요. 비밀번호는 AI가 볼 수 없어요.</string>
     <string name="ui_download_title">이 파일을 다운로드할까요?</string>

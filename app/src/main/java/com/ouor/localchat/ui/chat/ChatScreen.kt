@@ -211,7 +211,7 @@ internal fun ChatScreen(
                     LazyColumn(Modifier.fillMaxSize(), list, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(state.turns, key = { it.user.node.id }) { turn ->
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                UserTurn(turn.user, cs, chat)
+                                UserTurn(turn.user, cs, chat, state.attachments, composer::thumbnail)
                                 turn.reply?.let { reply ->
                                     AssistantTurn(
                                         reply, state, cs.voice,
@@ -221,6 +221,7 @@ internal fun ChatScreen(
                                         onVersion = chat::selectVersion,
                                         onSources = { sourcesOf = reply },
                                         onLink = { browserActions.open(it) },
+                                        toolStep = chat::toolStep,
                                         onErrorAction = { a ->
                                             when (a) {
                                                 ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) }
@@ -274,13 +275,14 @@ internal fun ChatScreen(
         text = stringResource(R.string.ui_delete_chat_body), kind = DialogKind.Destructive,
     )
     when (val p = state.pause) {
-        is Pause.Approval -> LcBottomSheet({}, null, locked = true) {
+        // Locked sheet: swipe and outside taps do nothing; back = deny (SC-13).
+        is Pause.Approval -> LcBottomSheet({ chat.resolve(Resolution.ApprovalAnswer(p.id, false)) }, null, locked = true) {
             val r = p.request
             ApprovalContent(
                 toolVisual(r.toolName).icon,
                 stringResource(R.string.ui_approval_title, toolLabel(r.toolName)),
                 r.targetText ?: stringResource(R.string.ui_approval_body),
-                r.url.orEmpty(),
+                listOfNotNull(r.tabId?.let { stringResource(R.string.ui_tab_n, it) }, r.url).joinToString(" · "),
                 onDeny = { chat.resolve(Resolution.ApprovalAnswer(p.id, false)) },
                 onAllow = { chat.resolve(Resolution.ApprovalAnswer(p.id, true)) },
                 code = r.code,

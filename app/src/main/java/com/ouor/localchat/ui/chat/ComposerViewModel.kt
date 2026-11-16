@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -76,7 +78,7 @@ sealed interface ComposerEffect {
 }
 
 /** I-01 composer (architecture 10.3). Draft key = session id or [Draft.NEW_CHAT]. */
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel(assistedFactory = ComposerViewModel.Factory::class)
 class ComposerViewModel @AssistedInject constructor(
     @Assisted private val sessionId: String?,
@@ -87,7 +89,7 @@ class ComposerViewModel @AssistedInject constructor(
     private val voiceInput: VoiceInput,
     private val files: AttachmentFiles,
     providers: ProviderRepository,
-    sessions: SessionRepository,
+    private val sessions: SessionRepository,
 ) : ViewModel(), ComposerActions {
 
     @AssistedFactory
@@ -159,6 +161,16 @@ class ComposerViewModel @AssistedInject constructor(
                 drafts.update(key, t, ids)
                 lastSaved = drafts.observe(key).first()
             }
+        }
+        viewModelScope.launch {
+            // Restored/shared draft ids arrive without metadata; fill them in when the rows exist.
+            attachments.map { list -> list.filter { it.name.isEmpty() }.map { it.id } }.distinctUntilChanged()
+                .flatMapLatest { ids -> sessions.observeAttachments(ids) }
+                .collect { rows ->
+                    if (rows.isEmpty()) return@collect
+                    val byId = rows.associateBy { it.id }
+                    attachments.update { list -> list.map { a -> if (a.name.isEmpty()) byId[a.id] ?: a else a } }
+                }
         }
         viewModelScope.launch {
             // I-05: send once everything is ready.

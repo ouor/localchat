@@ -22,7 +22,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -57,6 +60,8 @@ data class ChatUiState(
     val loading: Boolean = true,
     val title: String = "",
     val turns: List<TurnUi> = emptyList(),
+    /** Metadata of the user messages' attachments by id; ids without a row show a placeholder tile. */
+    val attachments: Map<String, com.ouor.localchat.core.model.Attachment> = emptyMap(),
     /** A-06: divider goes after the turn whose reply id this is. */
     val summaryAfterId: String? = null,
     val runPhase: RunPhase? = null,
@@ -95,6 +100,8 @@ class ChatViewModel @AssistedInject constructor(
     private val _effects = Channel<ChatEffect>(Channel.BUFFERED)
     val effects = _effects.receiveAsFlow()
 
+    private val attachmentIds = MutableStateFlow<List<String>>(emptyList())
+
     val state: StateFlow<ChatUiState> = if (sessionId == null) {
         sessions.saveHealth.map { ChatUiState(loading = false, saveFailing = it == SaveHealth.FAILING) }
     } else {
@@ -127,9 +134,12 @@ class ChatViewModel @AssistedInject constructor(
                 lastModel = s?.lastModel,
             )
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
+    }.onEach { s -> attachmentIds.value = s.turns.flatMap { it.user.attachmentIds } }
+        .combine(attachmentIds.flatMapLatest { sessions.observeAttachments(it) }) { s, rows -> s.copy(attachments = rows.associateBy { it.id }) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
     override fun stop() { sessionId?.let(engine::stop) }
+    override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock) = engine.toolStep(block)
     override fun selectVersion(messageId: String) = launch { sessions.selectVersion(messageId) }
     override fun regenerate(assistantId: String, model: ModelRef) = guarded { engine.regenerate(assistantId, model) }
     override fun continueReply(assistantId: String) = guarded { engine.continueReply(assistantId) }

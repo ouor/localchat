@@ -17,6 +17,8 @@ interface ChatActions {
     fun rename(title: String)
     fun delete()
     fun compactNow()
+    /** Step label and argument summary (F-01: ui does not branch on tool names for this). */
+    fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock): com.ouor.localchat.chat.ToolStep? = null
 }
 
 /** Composer callbacks; [ComposerViewModel] implements them. */
