@@ -475,7 +475,7 @@ private fun ComposerArea(
         if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 when {
-                    unsupported != null -> Text(stringResource(R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    unsupported != null -> Text(stringResource(if ((unsupported.state as PrepState.Failed).reason == PrepFailure.TOO_LARGE) R.string.fb3_d_file_too_large else R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
                     cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
                 }
@@ -586,8 +586,10 @@ internal fun compact(n: Int): String = when {
     else -> n.toString()
 }
 
-/** Retrying cannot fix an unsupported file type, so its tile offers no retry (FB2 QA Minor-2). */
-internal fun isUnsupported(a: Attachment) = (a.state as? PrepState.Failed)?.reason == PrepFailure.UNSUPPORTED_TYPE
+/** Retrying cannot fix an unsupported type, an old Office format or a file over 64 MB, so its tile offers no retry (FB2 QA Minor-2). */
+internal fun isUnsupported(a: Attachment) = (a.state as? PrepState.Failed)?.reason in FINAL_FAILURES
+
+private val FINAL_FAILURES = setOf(PrepFailure.UNSUPPORTED_TYPE, PrepFailure.LEGACY_OFFICE, PrepFailure.TOO_LARGE)
 
 private fun siteOf(url: String) = runCatching { java.net.URI(url).host?.removePrefix("www.") }.getOrNull() ?: url
 
