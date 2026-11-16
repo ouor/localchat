@@ -1,0 +1,202 @@
+package com.ouor.localchat.ui.providers
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.ouor.localchat.core.model.ApiKey
+import com.ouor.localchat.core.model.ChatError
+import com.ouor.localchat.core.model.Endpoint
+import com.ouor.localchat.core.model.ModelInfo
+import com.ouor.localchat.core.model.ModelOverrides
+import com.ouor.localchat.core.model.PresetId
+import com.ouor.localchat.provider.ConnectionResult
+import com.ouor.localchat.provider.EndpointDraft
+import com.ouor.localchat.provider.Preset
+import com.ouor.localchat.provider.Presets
+import com.ouor.localchat.provider.ProviderRepository
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class ProvidersViewModel @Inject constructor(providers: ProviderRepository) : ViewModel() {
+    val endpoints: StateFlow<List<Endpoint>?> = providers.endpoints.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+}
+
+/** Connection check result shown under the key field (P-02). */
+sealed interface CheckUi {
+    data object Checking : CheckUi
+    data class Ok(val models: Int) : CheckUi
+    data class Failed(val error: ChatError) : CheckUi
+}
+
+data class EndpointUiState(
+    val isNew: Boolean,
+    val loaded: Boolean = false,
+    val name: String = "",
+    val baseUrl: String = "",
+    val key: String = "",
+    val preset: PresetId? = null,
+    val allowHttp: Boolean = false,
+    val maxRetries: Int = 5,
+    val enabled: Boolean = true,
+    /** Last 4 of the stored key (SEC-2); null = none / unreadable. */
+    val keyHint: String? = null,
+    val editingKey: Boolean = false,
+    val check: CheckUi? = null,
+    val refreshing: Boolean = false,
+) {
+    val isHttp get() = baseUrl.trim().startsWith("http://", ignoreCase = true)
+    val urlValid get() = Regex("^https?://[^\\s/]+.*", RegexOption.IGNORE_CASE).matches(baseUrl.trim())
+    val canSave get() = name.isNotBlank() && urlValid && (!isHttp || allowHttp)
+}
+
+sealed interface EndpointEffect {
+    data class Saved(val endpointId: String) : EndpointEffect
+    data object Deleted : EndpointEffect
+}
+
+/** SC-02 add / detail (architecture 10.3). */
+@HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
+class EndpointEditViewModel @AssistedInject constructor(
+    @Assisted val endpointId: String?,
+    private val providers: ProviderRepository,
+) : ViewModel() {
+
+    @AssistedFactory
+    interface Factory { fun create(endpointId: String?): EndpointEditViewModel }
+
+    private val _state = MutableStateFlow(EndpointUiState(isNew = endpointId == null))
+    val state = _state.asStateFlow()
+    val models: StateFlow<List<ModelInfo>> = (endpointId?.let(providers::models) ?: emptyFlow())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _effects = Channel<EndpointEffect>(Channel.BUFFERED)
+    val effects = _effects.receiveAsFlow()
+
+    init {
+        viewModelScope.launch {
+            if (endpointId == null) { pickPreset(Presets.of(PresetId.DEEPSEEK)); _state.update { it.copy(loaded = true) }; return@launch }
+            val e = providers.endpoints.first().firstOrNull { it.id == endpointId } ?: return@launch
+            _state.update {
+                it.copy(loaded = true, name = e.name, baseUrl = e.baseUrl, preset = e.preset, allowHttp = e.allowHttp, maxRetries = e.maxRetries,
+                    enabled = e.enabled, keyHint = providers.keyHint(e.id))
+            }
+        }
+    }
+
+    fun pickPreset(p: Preset) = _state.update { it.copy(name = p.name, baseUrl = p.baseUrl, preset = p.id, allowHttp = p.baseUrl.startsWith("http:"), check = null) }
+    fun onName(v: String) = _state.update { it.copy(name = v) }
+    fun onUrl(v: String) = _state.update { it.copy(baseUrl = v, check = null) }
+    fun onKey(v: String) = _state.update { it.copy(key = v, check = null) }
+    fun onAllowHttp(v: Boolean) = _state.update { it.copy(allowHttp = v) }
+    fun editKey() = _state.update { it.copy(editingKey = true) }
+
+    private fun draft(s: EndpointUiState) =
+        EndpointDraft(s.name.trim(), s.baseUrl.trim(), s.key.trim().takeIf { it.isNotEmpty() }?.let(::ApiKey), s.preset, s.allowHttp, s.maxRetries)
+
+    fun check() {
+        val s = _state.value
+        _state.update { it.copy(check = CheckUi.Checking) }
+        viewModelScope.launch {
+            val r = providers.checkConnection(draft(s), endpointId)
+            _state.update { it.copy(check = r.toUi()) }
+        }
+    }
+
+    fun save() {
+        val s = _state.value
+        if (!s.canSave) return
+        viewModelScope.launch {
+            val id = endpointId?.also { providers.update(it, draft(s)) } ?: providers.add(draft(s))
+            _effects.send(EndpointEffect.Saved(id))
+            providers.refreshModels(id)
+        }
+    }
+
+    /** Detail screen: key replaced in place (P-02 "키 교체"). */
+    fun saveKey() {
+        val id = endpointId ?: return
+        val k = _state.value.key.trim().takeIf { it.isNotEmpty() } ?: return
+        viewModelScope.launch {
+            providers.setKey(id, ApiKey(k))
+            _state.update { it.copy(key = "", editingKey = false, keyHint = providers.keyHint(id)) }
+            check()
+        }
+    }
+
+    fun refresh() {
+        val id = endpointId ?: return
+        _state.update { it.copy(refreshing = true) }
+        viewModelScope.launch {
+            val r = providers.refreshModels(id)
+            _state.update { it.copy(refreshing = false, check = r.toUi()) }
+        }
+    }
+
+    fun addModel(modelId: String) { endpointId?.let { id -> viewModelScope.launch { providers.addManualModel(id, modelId) } } }
+    fun setHidden(m: ModelInfo, hidden: Boolean) = viewModelScope.launch { providers.setHidden(m.endpointId, m.modelId, hidden) }
+    fun setEnabled(v: Boolean) { _state.update { it.copy(enabled = v) }; endpointId?.let { viewModelScope.launch { providers.setEnabled(it, v) } } }
+    fun retries(delta: Int) {
+        _state.update { it.copy(maxRetries = (it.maxRetries + delta).coerceIn(0, 10)) }
+        val id = endpointId ?: return
+        viewModelScope.launch { providers.update(id, draft(_state.value).copy(apiKey = null)) }
+    }
+    fun delete() {
+        val id = endpointId ?: return
+        viewModelScope.launch { providers.delete(id); _effects.send(EndpointEffect.Deleted) }
+    }
+
+    private fun ConnectionResult.toUi() = when (this) {
+        is ConnectionResult.Ok -> CheckUi.Ok(modelCount)
+        is ConnectionResult.Failed -> CheckUi.Failed(error)
+    }
+}
+
+data class ModelDetailUiState(val model: ModelInfo? = null, val overrides: ModelOverrides = ModelOverrides(), val endpointName: String = "")
+
+/** SC-02a: values with their source badges; edits replace the whole override set. */
+@HiltViewModel(assistedFactory = ModelDetailViewModel.Factory::class)
+class ModelDetailViewModel @AssistedInject constructor(
+    @Assisted("endpoint") private val endpointId: String,
+    @Assisted("model") private val modelId: String,
+    private val providers: ProviderRepository,
+) : ViewModel() {
+
+    @AssistedFactory
+    interface Factory { fun create(@Assisted("endpoint") endpointId: String, @Assisted("model") modelId: String): ModelDetailViewModel }
+
+    private val _state = MutableStateFlow(ModelDetailUiState())
+    val state = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val name = providers.endpoints.first().firstOrNull { it.id == endpointId }?.name.orEmpty()
+            _state.update { it.copy(overrides = providers.overrides(endpointId, modelId), endpointName = name) }
+            providers.models(endpointId).collect { list -> _state.update { s -> s.copy(model = list.firstOrNull { it.modelId == modelId }) } }
+        }
+    }
+
+    fun edit(transform: ModelOverrides.() -> ModelOverrides) {
+        val next = _state.value.overrides.transform()
+        _state.update { it.copy(overrides = next) }
+        viewModelScope.launch { providers.updateModel(endpointId, modelId, next) }
+    }
+
+    fun reset() = viewModelScope.launch {
+        providers.resetModel(endpointId, modelId)
+        _state.update { it.copy(overrides = ModelOverrides()) }
+    }
+}

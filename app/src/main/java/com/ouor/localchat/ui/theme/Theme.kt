@@ -147,6 +147,16 @@ private val LcShapes = Shapes(
 fun LocalchatTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (darkTheme) DarkLcColors else LightLcColors
     val text = LcTextStyles()
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
+        // Edge-to-edge bars are transparent; icon color must follow the app theme, not the system one.
+        (view.context as? android.app.Activity)?.window?.let { w ->
+            androidx.core.view.WindowCompat.getInsetsController(w, view).apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
+            }
+        }
+    }
     CompositionLocalProvider(LocalLcColors provides colors, LocalLcText provides text) {
         MaterialTheme(colorScheme = colors.toScheme(), typography = text.toM3(), shapes = LcShapes, content = content)
     }
