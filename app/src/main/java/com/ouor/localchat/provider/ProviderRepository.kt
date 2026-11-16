@@ -6,6 +6,7 @@ import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.model.ApiKey
 import com.ouor.localchat.core.model.ChatError
 import com.ouor.localchat.core.model.Endpoint
+import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelOverrides
 import com.ouor.localchat.core.model.PresetId
@@ -121,6 +122,16 @@ class ProviderRepository @Inject constructor(
     /** The stored user values (SC-02a form start); [ModelInfo] only has the resolved result. */
     suspend fun overrides(endpointId: String, modelId: String): ModelOverrides =
         dao.model(endpointId, modelId)?.toRecord()?.overrides ?: ModelOverrides()
+
+    /**
+     * FB-6 "자동": the model's caps with every user override ignored, so each value's source is
+     * SERVER, DEFAULT (built-in) or UNKNOWN. null when the model is not stored.
+     */
+    suspend fun autoCaps(endpointId: String, modelId: String): ModelCapabilities? {
+        val row = dao.model(endpointId, modelId) ?: return null
+        val host = KnownModels.hostOf(dao.endpoint(endpointId)?.baseUrl)
+        return row.toRecord().copy(overrides = ModelOverrides()).toModelInfo(host).caps
+    }
 
     /** Replaces all user values of the model. */
     suspend fun updateModel(endpointId: String, modelId: String, overrides: ModelOverrides) =

@@ -154,6 +154,23 @@ class ChatCompletionsClientTest {
     }
 
     @Test
+    fun `FB-6 max_tokens is serialized only when set`() {
+        fun json(r: ChatRequest) = AppJson.parseToJsonElement(AppJson.encodeToString(ChatRequest.serializer(), r)).jsonObject
+        assertFalse("max_tokens" in json(request))
+        assertEquals("2048", json(request.copy(maxTokens = 2048))["max_tokens"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `FB-6 R7 retries once without a rejected max_tokens`() = runTest {
+        server.enqueue(Scenario.http(400, message = "Unsupported parameter: 'max_tokens'"), Scenario.text("ok"))
+        assertEquals("ok", client.stream(target(), request.copy(maxTokens = 4096)).toList().text())
+        assertTrue("max_tokens" in AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject)
+        val retried = AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        assertFalse("max_tokens" in retried)
+        assertTrue("stream_options" in retried)
+    }
+
+    @Test
     fun `R7 does not strip thinking for the DeepSeek reasoning message`() = runTest {
         server.enqueue(Scenario.http(400, message = "The reasoning_content in the thinking mode must be passed back"))
         val req = request.withReasoning(ReasoningWire.DEEPSEEK_THINKING, on = true, effort = null)

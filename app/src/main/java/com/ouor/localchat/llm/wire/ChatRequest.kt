@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonObject
 /**
  * `POST /chat/completions` body. Built by chat.context.ContextAssembler, sent by
  * ChatCompletionsClient. Encode with core.AppJson (nulls omitted, defaults kept).
- * `max_tokens` is deliberately absent (architecture 4.1).
+ * `max_tokens` is sent only when the user set a max output for the model (FB-6, architecture 4.1).
  */
 @Serializable
 data class ChatRequest(
@@ -21,6 +21,8 @@ data class ChatRequest(
     val thinking: Thinking? = null,
     val stream: Boolean = true,
     @SerialName("stream_options") val streamOptions: StreamOptions? = StreamOptions(includeUsage = true),
+    /** User override only (ModelOverrides.maxOutputTokens); null = omitted. */
+    @SerialName("max_tokens") val maxTokens: Int? = null,
 )
 
 /**
