@@ -11,10 +11,9 @@ plugins {
     alias(libs.plugins.aboutlibraries)
 }
 
-// Release signing secrets stay out of git (signing/SIGNING.md).
-val ksProps = Properties().apply {
-    rootProject.file("signing/keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
-}
+// Release signing secrets stay out of git (signing/SIGNING.md); without them the release APK is unsigned.
+val ksFile = rootProject.file("signing/keystore.properties")
+val ksProps = Properties().apply { ksFile.takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 
 android {
     namespace = "com.ouor.localchat"
@@ -42,10 +41,12 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (ksFile.exists()) signingConfig = signingConfigs.getByName("release")
+            // R8 shrink/optimize + resource shrinking (needs android.r8.gradual.support); keep rules in src/main/keepRules.
             optimization {
-                enable = false
+                enable = true
             }
+            ndk { abiFilters += "arm64-v8a" } // distributed builds ship arm64 only
         }
     }
     compileOptions {
