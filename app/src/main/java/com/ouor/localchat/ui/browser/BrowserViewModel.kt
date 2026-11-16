@@ -9,7 +9,6 @@ import com.ouor.localchat.browser.Control
 import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.TabInfo
-import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
@@ -26,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -61,8 +61,8 @@ data class BrowserUiState(
 }
 
 /** Re-marks sensitive tabs when the tabs or the rule change (a settings change alone must update the banner). */
-internal fun Flow<BrowserUiState>.withSensitive(rule: Flow<SensitiveUrls>): Flow<BrowserUiState> =
-    combine(rule) { s, r -> s.copy(sensitive = s.tabs.filter { r.isSensitive(it.url) }.mapTo(HashSet()) { it.id }) }
+internal fun Flow<BrowserUiState>.withSensitive(isSensitive: Flow<(url: String) -> Boolean>): Flow<BrowserUiState> =
+    combine(isSensitive) { s, sensitive -> s.copy(sensitive = s.tabs.filter { sensitive(it.url) }.mapTo(HashSet()) { it.id }) }
 
 @HiltViewModel(assistedFactory = BrowserViewModel.Factory::class)
 class BrowserViewModel @AssistedInject constructor(
@@ -88,7 +88,7 @@ class BrowserViewModel @AssistedInject constructor(
                 !(p is BrowserPrompt.Dialog && tabs.firstOrNull { it.id == p.tabId }?.owner is Owner.Ai)
             },
         )
-    }.withSensitive(engine.sensitive).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
+    }.withSensitive(engine.sensitive.map { it::isSensitive }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
 
     init {
         viewModelScope.launch {

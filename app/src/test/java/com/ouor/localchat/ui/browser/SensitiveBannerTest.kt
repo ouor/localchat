@@ -6,6 +6,7 @@ import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.browser.safety.SensitiveUrls
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -17,7 +18,7 @@ class SensitiveBannerTest {
         val tabs = listOf(TabInfo(1, "bank", "https://www.paypal.com/", Owner.User, Control.USER, loading = false))
         val ui = MutableStateFlow(BrowserUiState(tabs = tabs))
         val rule = MutableStateFlow(SensitiveUrls(listOf("paypal.com"), emptyList()))
-        ui.withSensitive(rule).test {
+        ui.withSensitive(rule.map { it::isSensitive }).test {
             assertEquals(setOf(1), awaitItem().sensitive)
             rule.value = SensitiveUrls(emptyList(), emptyList()) // built-in list switched off
             assertEquals(emptySet<Int>(), awaitItem().sensitive)
