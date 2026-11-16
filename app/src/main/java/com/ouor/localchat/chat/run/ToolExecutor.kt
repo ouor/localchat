@@ -5,6 +5,7 @@ import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
 import com.ouor.localchat.chat.BrowserPort
 import com.ouor.localchat.chat.context.SystemPrompt
+import com.ouor.localchat.chat.context.Untrusted
 import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.model.Source
 import com.ouor.localchat.core.model.ToolCallBlock
@@ -50,15 +51,15 @@ class ToolExecutor(
     private val sources = existingSources.associateBy { it.url }.toMutableMap()
     private var callKey: String? = null
 
-    /** Tab the current call acted on, for cookie masking. */
-    private var lastTab: BrowserTab? = null
+    /** Tab the current call acted on, for cookie masking and the sensitive-URL recheck. */
+    private var lastTabId: Int? = null
 
     /** Tab and URL an ALWAYS approval was given for; the tool must act on exactly that page. */
     private var approvedPage: Pair<Int, String?>? = null
 
     suspend fun execute(call: ToolCallBlock): Result {
         callKey = call.key
-        lastTab = null
+        lastTabId = null
         val tool = tools.firstOrNull { it.name == call.name }
             ?: return error(call, "Unknown tool: ${call.name}")
         val args = try {
@@ -79,15 +80,17 @@ class ToolExecutor(
                 approvedPage = tabId to url
             }
             val outcome = tool.run(args, this)
+            // SE 2: the tab may have redirected to a sensitive page after it was acquired.
+            val sensitive = lastTabId?.let(browserPort::tabUrl)?.let(browserPort::isSensitive) == true
             val block = ToolResultBlock(
                 callId = call.callId,
                 step = call.step,
-                content = postProcess(outcome.text),
-                isError = outcome.isError,
-                summary = outcome.summary,
+                content = if (sensitive) SENSITIVE else seal(outcome.text, lastTabId),
+                isError = outcome.isError || sensitive,
+                summary = outcome.summary.takeUnless { sensitive },
                 sources = outcome.sources,
-                artifactIds = outcome.artifactIds,
-                imageForModelId = outcome.imageForModelId,
+                artifactIds = if (sensitive) emptyList() else outcome.artifactIds,
+                imageForModelId = outcome.imageForModelId.takeUnless { sensitive },
             )
             val state = when {
                 outcome.denied -> ToolCallState.DENIED
@@ -97,12 +100,15 @@ class ToolExecutor(
             done(call, block, state, outcome.handoff)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ToolError) {
+            // App-written text: sent as is.
+            error(call, e.message ?: "Tool failed")
         } catch (e: Exception) {
-            // ToolError, PageError and anything unexpected: the model sees the message and can adapt.
-            error(call, e.message ?: "Tool failed: ${e::class.simpleName}")
+            // PageError and anything else may carry page text (alert(), option labels, a thrown cookie): SE 4.
+            error(call, seal(e.message ?: "Tool failed: ${e::class.simpleName}", lastTabId))
         } finally {
             approvedPage = null
-            if (lastTab != null) browserPort.clearAiActivity(sessionId)
+            if (lastTabId != null) browserPort.clearAiActivity(sessionId)
         }
     }
 
@@ -126,11 +132,12 @@ class ToolExecutor(
         approvedPage?.let { (tabId, url) ->
             if (tabId != id || browserPort.tabUrl(id) != url) throw ToolError("The page changed after approval; ask again.")
         }
-        return browserPort.tab(id).also { lastTab = it }
+        lastTabId = id
+        return browserPort.tab(id)
     }
 
     override suspend fun requireApproval(request: ApprovalRequest): Boolean = ask(
-        ApprovalInfo(request.toolName, lastTab?.id, request.url, request.targetText, request.code, request.screenshotId, request.reason),
+        ApprovalInfo(request.toolName, lastTabId, request.url, request.targetText, request.code, request.screenshotId, request.reason),
     )
 
     private suspend fun ask(info: ApprovalInfo): Boolean {
@@ -147,11 +154,15 @@ class ToolExecutor(
     override fun numberSource(url: String, title: String, snippet: String?): Int =
         sources.getOrPut(url) { Source(sources.size + 1, url, title, snippet) }.n
 
-    /** Architecture 6.4 post-processing, in this order. Every tool returns page-derived text (B-S5). */
-    private fun postProcess(text: String): String {
-        val masked = lastTab?.let { tab -> browserPort.maskCookies(text, tab.url) } ?: text
+    /**
+     * Architecture 6.4 post-processing, in this order: cookie mask by [tabId]'s URL, 50 KB cap, boundary.
+     * Every tool returns page-derived text (B-S5); LinkPrefetcher goes through here too (AN 12).
+     */
+    fun seal(text: String, tabId: Int?): String {
+        val url = tabId?.let(browserPort::tabUrl)
+        val masked = url?.let { browserPort.maskCookies(text, it) } ?: text
         val capped = if (masked.length > MAX_RESULT) masked.take(MAX_RESULT) + "\n…[truncated]" else masked
-        return "<untrusted_page_content>\n$capped\n</untrusted_page_content>"
+        return Untrusted.wrap(capped)
     }
 
     private fun error(call: ToolCallBlock, message: String) =
@@ -165,5 +176,6 @@ class ToolExecutor(
     private companion object {
         /** 50 KB result cap (architecture 6.4). */
         const val MAX_RESULT = 50_000
+        const val SENSITIVE = "The tab is now on a sensitive page (banking, mail, accounts); its content was withheld."
     }
 }

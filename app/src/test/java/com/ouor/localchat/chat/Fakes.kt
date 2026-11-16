@@ -149,7 +149,8 @@ class FakeBrowserPort : BrowserPort {
     val aiTabCalls = mutableListOf<Int?>()
     override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int = (tabIdArg ?: 1).also { aiTabCalls += tabIdArg }
     override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
-    override fun maskCookies(text: String, url: String) = text
+    /** Stands in for CookieMasker: the tab's cookie value is SECRETCOOKIE. */
+    override fun maskCookies(text: String, url: String) = text.replace("SECRETCOOKIE", "***")
     override fun clearAiActivity(sessionId: String) = Unit
     val opened = mutableListOf<String>()
     val closed = mutableListOf<Int>()
