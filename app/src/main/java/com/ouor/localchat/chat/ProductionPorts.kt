@@ -3,7 +3,8 @@ package com.ouor.localchat.chat
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
-import com.ouor.localchat.browser.Owner
+import com.ouor.localchat.browser.safety.CookieMasker
+import com.ouor.localchat.tools.ToolExposure
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.llm.ChatCompletionsClient
@@ -14,6 +15,15 @@ import com.ouor.localchat.provider.reasoningWire
 import com.ouor.localchat.storage.SecretStore
 import com.ouor.localchat.storage.db.dao.AttachmentDao
 import com.ouor.localchat.storage.db.toModel
+import com.ouor.localchat.storage.db.toEntity
+import com.ouor.localchat.storage.AttachmentFiles
+import com.ouor.localchat.core.Clock
+import com.ouor.localchat.core.Ids
+import com.ouor.localchat.core.model.Attachment
+import com.ouor.localchat.core.model.AttachmentKind
+import com.ouor.localchat.core.model.PrepState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.ouor.localchat.tools.Tool
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -43,31 +53,42 @@ class ProviderModelPort @Inject constructor(
 }
 
 class CatalogToolPort @Inject constructor() : ToolPort {
-    // TODO(track C): tools.ToolExposure.exposedTools(caps, search, browser) once ToolCatalog exists.
-    override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool> = emptyList()
+    override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool> =
+        ToolExposure.exposedTools(caps, search, browser)
 }
 
-class StoredAttachmentPort @Inject constructor(private val dao: AttachmentDao) : AttachmentPort {
+class StoredAttachmentPort @Inject constructor(
+    private val dao: AttachmentDao,
+    private val files: AttachmentFiles,
+    private val clock: Clock,
+) : AttachmentPort {
     // TODO(track D): extracted text and the downscaled request image from AttachmentFiles.
     override suspend fun payload(id: String): AttachmentPayload? = dao.get(id)?.toModel()?.let { AttachmentPayload(it) }
+
+    override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String = withContext(Dispatchers.IO) {
+        val id = Ids.new()
+        files.original(id).writeBytes(bytes)
+        dao.upsert(
+            Attachment(id, name, mime, bytes.size.toLong(), AttachmentKind.ARTIFACT, PrepState.Ready, hasOriginal = true, createdAt = clock.now())
+                .toEntity(),
+        )
+        id
+    }
 }
 
 class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) : BrowserPort {
-    override suspend fun aiTab(sessionId: String, tabIdArg: Int?): BrowserTab {
-        val owner = Owner.Ai(sessionId)
-        val id = if (tabIdArg == null) {
-            engine.tabs.value.firstOrNull { it.owner == owner }?.id ?: engine.openAiTab(sessionId, null)
-        } else {
-            val info = engine.tabs.value.firstOrNull { it.id == tabIdArg } ?: throw ToolRejected("No tab $tabIdArg")
-            if (info.owner != owner) throw ToolRejected("Tab $tabIdArg is not an AI tab of this conversation")
-            tabIdArg
-        }
-        // TODO(track C): refuse sensitive URLs with browser.safety.SensitiveUrls (B-S3).
-        return engine.tab(id)
-    }
+    // Default tab creation, ownership and B-S3 live in one place in the engine (main thread only).
+    override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int =
+        withContext(Dispatchers.Main.immediate) { engine.aiTabFor(sessionId, tabIdArg).id }
+
+    override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
 
     override fun control(tabId: Int): Flow<Control> =
         engine.tabs.map { tabs -> tabs.firstOrNull { it.id == tabId }?.control ?: Control.AI }.distinctUntilChanged()
 
     override fun setControl(tabId: Int, control: Control) = engine.setControl(tabId, control)
+
+    override fun maskCookies(text: String, url: String): String = CookieMasker.mask(text, engine.cookieHeader(url))
+
+    override fun clearAiActivity(sessionId: String) = engine.clearAiActivity(sessionId)
 }

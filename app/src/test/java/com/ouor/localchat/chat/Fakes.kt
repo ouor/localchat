@@ -26,7 +26,6 @@ import com.ouor.localchat.llm.LlmEvent
 import com.ouor.localchat.llm.LlmResult
 import com.ouor.localchat.llm.LlmTarget
 import com.ouor.localchat.llm.wire.ChatRequest
-import com.ouor.localchat.storage.AttachmentFiles
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.Tool
@@ -142,7 +141,11 @@ class FakeToolPort(val tools: List<Tool>) : ToolPort {
 class FakeBrowserPort : BrowserPort {
     val controls = MutableStateFlow<Map<Int, Control>>(emptyMap())
     val setCalls = mutableListOf<Pair<Int, Control>>()
-    override suspend fun aiTab(sessionId: String, tabIdArg: Int?) = BrowserTab(tabIdArg ?: 1)
+    val aiTabCalls = mutableListOf<Int?>()
+    override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int = (tabIdArg ?: 1).also { aiTabCalls += tabIdArg }
+    override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
+    override fun maskCookies(text: String, url: String) = text
+    override fun clearAiActivity(sessionId: String) = Unit
     override fun control(tabId: Int) = controls.map { it[tabId] ?: Control.AI }
     override fun setControl(tabId: Int, control: Control) {
         setCalls += tabId to control
@@ -191,9 +194,10 @@ class Harness(
     private val titles = TitleGenerator(store, llm)
     private val attachments = object : AttachmentPort {
         override suspend fun payload(id: String): AttachmentPayload? = null
+        override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "artifact-$name"
     }
     private val runner = TurnRunner(
-        store, llm, models, FakeToolPort(tools), attachments, browser, BrowserEngine(), AttachmentFiles(kotlin.io.path.createTempDirectory("lc-files").toFile()),
+        store, llm, models, FakeToolPort(tools), attachments, browser, { throw AssertionError("browser used") },
         settings, compactor, titles, clock, scope,
     )
     val recovery = StartupRecovery(store, clock)

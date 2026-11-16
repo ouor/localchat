@@ -31,7 +31,6 @@ import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.llm.LlmError
 import com.ouor.localchat.llm.LlmEvent
-import com.ouor.localchat.storage.AttachmentFiles
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.tools.Tool
 import kotlinx.coroutines.CancellationException
@@ -42,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /** The agent loop of one reply (architecture 5.3). Started by ChatEngine through RunRegistry. */
@@ -53,8 +53,7 @@ class TurnRunner @Inject constructor(
     private val toolPort: ToolPort,
     private val attachments: AttachmentPort,
     private val browserPort: BrowserPort,
-    private val browser: BrowserEngine,
-    private val files: AttachmentFiles,
+    private val browser: Provider<BrowserEngine>,
     private val settings: SettingsStore,
     private val compactor: Compactor,
     private val titles: TitleGenerator,
@@ -113,7 +112,7 @@ class TurnRunner @Inject constructor(
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
                 ?: SystemPrompt.build(clock.now(), ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
-            val executor = ToolExecutor(sessionId, browser, files, browserPort, handle, tools, existingSources) { id, state ->
+            val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.callId == id) it.copy(state = state) else it }))
             }
             val maxSteps = prefs.maxSteps

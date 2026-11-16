@@ -180,7 +180,11 @@ class AgentLoopTest {
         assertEquals(Pause.UserControl(3), (phase(h, sid) as RunPhase.Paused).pause)
         h.browser.controls.value = mapOf(3 to Control.AI)
         advanceUntilIdle()
-        assertEquals("clicked 3", h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().content)
+        // Checked again after the wait; the JVM fake has no WebView, so the tool ends as an error result.
+        assertEquals(listOf<Int?>(3, 3), h.browser.aiTabCalls)
+        val result = h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single()
+        assertTrue(result.isError)
+        assertEquals("no WebView on the JVM (tab 3)", result.content)
     }
 
     @Test

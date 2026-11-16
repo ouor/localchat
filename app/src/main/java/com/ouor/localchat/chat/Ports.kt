@@ -52,15 +52,22 @@ data class AttachmentPayload(val attachment: Attachment, val text: String? = nul
 /** Attachment rows + AttachmentFiles (track D). */
 interface AttachmentPort {
     suspend fun payload(id: String): AttachmentPayload?
+
+    /** B-08: stores a tool artifact as an ARTIFACT attachment; returns its id. */
+    suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String
 }
 
 /** BrowserEngine (track C) checks behind ToolContext.aiTab (architecture 6.4). */
 interface BrowserPort {
-    /** Default or given AI tab of [sessionId]; throws [ToolRejected] on ownership or sensitive-URL failure. */
-    suspend fun aiTab(sessionId: String, tabIdArg: Int?): BrowserTab
+    /** Default or given AI tab id of [sessionId] after ownership and sensitive-URL checks; throws when refused. */
+    suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int
+    fun tab(tabId: Int): BrowserTab
     fun control(tabId: Int): Flow<Control>
     fun setControl(tabId: Int, control: Control)
-}
 
-/** A tool call refused before it ran; [message] goes to the model as the error result. */
-class ToolRejected(message: String) : Exception(message)
+    /** B-S4: masks the tab's cookie values in [text]. */
+    fun maskCookies(text: String, url: String): String
+
+    /** End of a tool call: clears the B-09 ② "AI is operating" state. */
+    fun clearAiActivity(sessionId: String)
+}
