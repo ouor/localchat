@@ -218,7 +218,12 @@ internal fun ChatScreen(
     // expands a block must keep its header in place). A new message re-arms it.
     val running by androidx.compose.runtime.rememberUpdatedState(state.running)
     var touched by remember { mutableStateOf(false) }
-    suspend fun toBottom() { if (list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE) }
+    // Layout-state flows can emit while a measure pass runs; scrolling then forces a nested remeasure (crash), so wait for
+    // the next frame's animation phase, before layout, and check again.
+    suspend fun toBottom() {
+        androidx.compose.runtime.withFrameNanos { }
+        if (list.canScrollForward && list.layoutInfo.totalItemsCount > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
+    }
     LaunchedEffect(state.turns.size) { follow = true; touched = false }
     LaunchedEffect(list) {
         androidx.compose.runtime.snapshotFlow { follow && (running || !touched) && list.canScrollForward && !list.isScrollInProgress }.collect { if (it) toBottom() }
