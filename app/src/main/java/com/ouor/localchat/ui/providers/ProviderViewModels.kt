@@ -141,6 +141,8 @@ class EndpointEditViewModel @AssistedInject constructor(
     fun check() {
         val s = _state.value
         _state.update { it.copy(check = CheckUi.Checking) }
+        // A saved endpoint's check also stores the list: the "모델 N" header and the status line read the same rows (FB2 QA O1).
+        if (endpointId != null) return refresh()
         suspend fun run(keep: Boolean) { _state.update { it.copy(check = providers.checkConnection(draft(s), endpointId, keep).toUi()) } }
         keyGuarded({ _state.update { it.copy(check = CheckUi.Checking) }; run(true) }) { run(false) }
     }

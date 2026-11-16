@@ -6,7 +6,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ouor.localchat.chat.MemoryDataStore
 import com.ouor.localchat.core.AppJson
+import com.ouor.localchat.core.model.ApiKey
 import com.ouor.localchat.llm.ChatCompletionsClient
+import com.ouor.localchat.provider.EndpointDraft
 import com.ouor.localchat.provider.FakeProviderDao
 import com.ouor.localchat.provider.ProviderRepository
 import com.ouor.localchat.storage.SecretEntries
@@ -18,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -29,7 +32,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import javax.crypto.KeyGenerator
 
-/** FB2 QA Major-1: the model list fetched after saving survives the screen closing right away. */
+/** FB2 QA Major-1 (models fetched after saving survive the screen closing) and O1 (one source for the model count). */
 class EndpointSaveTest {
 
     private val server = FakeOpenAiServer()
@@ -61,5 +64,18 @@ class EndpointSaveTest {
         store.clear() // onboarding: Saved removes the entry, its ViewModel is cleared at once
         val models = withContext(Dispatchers.Default) { withTimeout(5_000) { repo.models(saved.endpointId).first { it.isNotEmpty() } } }
         assertEquals(listOf("deepseek-chat", "deepseek-reasoner"), models.map { it.modelId })
+    }
+
+    @Test
+    fun `checking a saved endpoint stores the list the header counts`() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        server.models = listOf("a", "b")
+        val id = repo.add(EndpointDraft("x", server.baseUrl, ApiKey("k"), null, allowHttp = true))
+        val vm = EndpointEditViewModel(id, null, false, repo)
+        vm.check()
+        val check = withContext(Dispatchers.Default) { withTimeout(5_000) { vm.state.first { it.check !is CheckUi.Checking && it.check != null }.check } }
+        assertEquals(CheckUi.Ok(2), check)
+        // The status line on a saved endpoint shows the stored count; it must be the same rows the header counts.
+        assertEquals(2, repo.models(id).first().size)
     }
 }
