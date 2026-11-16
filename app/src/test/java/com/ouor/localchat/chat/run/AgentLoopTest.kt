@@ -258,6 +258,7 @@ class AgentLoopTest {
         advanceUntilIdle()
         // Checked again after the wait; the JVM fake has no WebView, so the tool ends as an error result.
         assertEquals(listOf<Int?>(3, 3), h.browser.aiTabCalls)
+        assertEquals(listOf(3 to "click"), h.browser.activity) // F-02: B-09 ② is marked through the engine path
         val result = h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single()
         assertTrue(result.isError)
         assertEquals(Untrusted.wrap("no WebView on the JVM (tab 3)"), result.content) // not a ToolError: page-derived (SE 4)
@@ -449,6 +450,22 @@ class AgentLoopTest {
         val r = singleResult(h)
         assertTrue(r.isError)
         assertTrue(r.content, r.content.startsWith("<untrusted_page_content>\n") &&"SECRETCOOKIE" !in r.content)
+    }
+
+    @Test
+    fun `cookies of both the start and the end page are masked (SE 19)`() = runTest {
+        lateinit var h: Harness
+        val nav = FakeTool("page_text") { _, ctx ->
+            runCatching { ctx.aiTab(3) }
+            h.browser.urls[3] = "https://b.test/" // the tool navigated
+            ToolOutcome("a=AAA b=BBB")
+        }
+        h = Harness(this, tools = listOf(nav))
+        h.browser.urls[3] = "https://a.test/"
+        h.browser.cookies["https://a.test/"] = "AAA"
+        h.browser.cookies["https://b.test/"] = "BBB"
+        val r = singleResult(h)
+        assertTrue(r.content, "AAA" !in r.content && "BBB" !in r.content)
     }
 
     @Test

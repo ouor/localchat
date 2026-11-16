@@ -35,6 +35,7 @@ import com.ouor.localchat.tools.ToolOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -153,8 +154,24 @@ class FakeBrowserPort : BrowserPort {
     val aiTabCalls = mutableListOf<Int?>()
     override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int = (tabIdArg ?: 1).also { aiTabCalls += tabIdArg }
     override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
+    /** B-09 ② marks set by acquireAiTab: tab id to tool name. */
+    val activity = mutableListOf<Pair<Int, String>>()
+    /** Same contract as BrowserEngine.acquireAiTab: wait while USER, then check again. */
+    override suspend fun acquireAiTab(sessionId: String, tabIdArg: Int?, toolName: String, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int {
+        while (true) {
+            val id = aiTabId(sessionId, tabIdArg)
+            if (controls.value[id] != Control.USER) return id.also { activity += it to toolName }
+            onUserControl(id)
+            try {
+                controls.first { it[id] != Control.USER }
+            } finally {
+                onResumed()
+            }
+        }
+    }
     /** Stands in for CookieMasker: the tab's cookie value is SECRETCOOKIE. */
-    override fun maskCookies(text: String, url: String) = text.replace("SECRETCOOKIE", "***")
+    val cookies = HashMap<String, String>()
+    override fun maskCookies(text: String, url: String) = text.replace("SECRETCOOKIE", "***").let { t -> cookies[url]?.let { t.replace(it, "***") } ?: t }
     override fun clearAiActivity(sessionId: String) = Unit
     val opened = mutableListOf<String>()
     val closed = mutableListOf<Int>()
@@ -167,7 +184,6 @@ class FakeBrowserPort : BrowserPort {
     override fun isSensitive(url: String) = "bank" in url
     val urls = HashMap<Int, String>()
     override fun tabUrl(tabId: Int): String? = urls[tabId] ?: "https://tab$tabId.test/"
-    override fun control(tabId: Int) = controls.map { it[tabId] ?: Control.AI }
     override fun setControl(tabId: Int, control: Control) {
         setCalls += tabId to control
         controls.value = controls.value + (tabId to control)

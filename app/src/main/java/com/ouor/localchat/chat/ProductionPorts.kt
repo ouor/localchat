@@ -65,8 +65,8 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
 
     override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
 
-    override fun control(tabId: Int): Flow<Control> =
-        engine.tabs.map { tabs -> tabs.firstOrNull { it.id == tabId }?.control ?: Control.AI }.distinctUntilChanged()
+    override suspend fun acquireAiTab(sessionId: String, tabIdArg: Int?, toolName: String, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int =
+        engine.acquireAiTab(sessionId, tabIdArg, toolName, onUserControl, onResumed).id
 
     override fun setControl(tabId: Int, control: Control) = engine.setControl(tabId, control)
 
