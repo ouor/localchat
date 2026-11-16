@@ -222,5 +222,17 @@
     <string name="ui_context_window">Context window</string>
     <string name="ui_max_output">Max output tokens</string>
     <string name="ui_reset_defaults">Reset to defaults</string>
+    <string name="ui_new_tab">New tab</string>
+    <string name="ui_sensitive_site">Sensitive site. The AI cannot read or operate this page.</string>
+    <string name="ui_handoff_body">AI is waiting. Hand it back when you are done. AI cannot see passwords.</string>
+    <string name="ui_download_title">Download this file?</string>
+    <string name="ui_download_body">%1$s (%2$s) is saved to Downloads.</string>
+    <string name="ui_permission_title">Allow site access?</string>
+    <string name="ui_permission_body">%1$s wants to use: %2$s</string>
+    <string name="ui_switch">Switch</string>
+    <string name="ui_switch_manual">Switch to manual control? AI waits on this tab.</string>
+    <string name="ui_ok">OK</string>
+    <string name="ui_edit_url">Search or enter address</string>
+    <string name="ui_tabs_title">Tabs %1$d</string>
     <string name="ui_cap_priority">Your setting wins over the server value, which wins over the built-in table.</string>
 </resources>

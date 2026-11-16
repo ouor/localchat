@@ -83,11 +83,11 @@ sealed interface ChatEffect {
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel(assistedFactory = ChatViewModel.Factory::class)
 class ChatViewModel @AssistedInject constructor(
-    @Assisted val sessionId: String?,
+    @Assisted override val sessionId: String?,
     private val engine: ChatEngine,
     private val sessions: SessionRepository,
     providers: ProviderRepository,
-) : ViewModel() {
+) : ViewModel(), ChatActions {
 
     @AssistedFactory
     interface Factory { fun create(sessionId: String?): ChatViewModel }
@@ -129,22 +129,22 @@ class ChatViewModel @AssistedInject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
-    fun stop() { sessionId?.let(engine::stop) }
-    fun selectVersion(messageId: String) = launch { sessions.selectVersion(messageId) }
-    fun regenerate(assistantId: String, model: ModelRef) = guarded { engine.regenerate(assistantId, model) }
-    fun continueReply(assistantId: String) = guarded { engine.continueReply(assistantId) }
-    fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) =
+    override fun stop() { sessionId?.let(engine::stop) }
+    override fun selectVersion(messageId: String) = launch { sessions.selectVersion(messageId) }
+    override fun regenerate(assistantId: String, model: ModelRef) = guarded { engine.regenerate(assistantId, model) }
+    override fun continueReply(assistantId: String) = guarded { engine.continueReply(assistantId) }
+    override fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) =
         guarded { engine.editAndResend(userId, text, attachmentIds, model) }
-    fun resolve(resolution: Resolution) { sessionId?.let { engine.resolve(it, resolution) } }
-    fun retryWrites() = launch { sessions.retryPendingWrites() }
-    fun rename(title: String) = launch { sessionId?.let { sessions.rename(it, title) } }
-    fun delete() = launch {
+    override fun resolve(resolution: Resolution) { sessionId?.let { engine.resolve(it, resolution) } }
+    override fun retryWrites() = launch { sessions.retryPendingWrites() }
+    override fun rename(title: String) = launch { sessionId?.let { sessions.rename(it, title) } }
+    override fun delete() = launch {
         val id = sessionId ?: return@launch
         engine.stop(id)
         sessions.delete(id)
         _effects.send(ChatEffect.Deleted)
     }
-    fun compactNow() = guarded {
+    override fun compactNow() = guarded {
         val id = sessionId ?: return@guarded
         try { engine.compactNow(id) } catch (e: Exception) {
             if (e is ChatRejected) throw e

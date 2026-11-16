@@ -104,6 +104,7 @@ fun ProvidersRoute(vm: ProvidersViewModel, onBack: () -> Unit, onOpen: (String) 
 /** SC-02. New: preset chips + name/URL/key + check + save. Existing: key, models, connection, delete. */
 @Composable
 fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (String) -> Unit, onModel: (String, String) -> Unit) {
+    SecureWindow()
     val s by vm.state.collectAsStateWithLifecycle()
     val models by vm.models.collectAsStateWithLifecycle()
     LaunchedEffect(vm) {
@@ -161,6 +162,16 @@ fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (Strin
         LcDialog(stringResource(R.string.ui_add_model), { adding = false }, stringResource(R.string.ui_save), { vm.addModel(id.trim()); adding = false }, confirmEnabled = id.isNotBlank()) {
             LcTextField(id, { id = it }, placeholder = "model-id")
         }
+    }
+}
+
+/** SEC-2 / SE 27: no screenshots or recents preview while an API key can be on screen. */
+@Composable
+private fun SecureWindow() {
+    val window = (androidx.compose.ui.platform.LocalContext.current as? android.app.Activity)?.window ?: return
+    androidx.compose.runtime.DisposableEffect(window) {
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
     }
 }
 

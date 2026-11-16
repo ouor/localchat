@@ -150,18 +150,15 @@ private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
                 val chat = hiltViewModel<ChatViewModel, ChatViewModel.Factory> { it.create(key.sessionId) }
                 val composer = hiltViewModel<ComposerViewModel, ComposerViewModel.Factory> { it.create(key.sessionId) }
                 ChatRoute(
-                    chat, composer,
+                    chat, composer, hiltViewModel<com.ouor.localchat.ui.browser.BrowserViewModel, com.ouor.localchat.ui.browser.BrowserViewModel.Factory> { it.create(key.sessionId) },
                     ChatNav(
                         openDrawer = openDrawer,
                         newChat = { backStack.showChat(null) },
-                        openBrowser = { /* shortcut: browser panel arrives with the browser screens (Phase 3 step 5). */ },
                         openSession = { id -> backStack[backStack.lastIndex] = ChatKey(id) },
                         closeSession = { backStack.showChat(null) },
                         addProvider = { backStack.add(EndpointKey()) },
                         editEndpoint = { backStack.add(EndpointKey(it)) },
                         modelDetail = { e, m -> backStack.add(ModelKey(e, m)) },
-                        // shortcut: external browser until the in-app browser screens land (Phase 3 step 5).
-                        openLink = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } },
                     ),
                 )
             }

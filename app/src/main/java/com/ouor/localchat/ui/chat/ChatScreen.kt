@@ -98,22 +98,24 @@ import com.ouor.localchat.ui.components.toolVisual
 import com.ouor.localchat.ui.theme.LcTheme
 import com.ouor.localchat.ui.theme.endpointDotColor
 import kotlinx.coroutines.launch
+import com.ouor.localchat.ui.browser.BrowserActions
+import com.ouor.localchat.ui.browser.BrowserOverlay
+import com.ouor.localchat.ui.browser.BrowserPeek
+import com.ouor.localchat.ui.browser.BrowserUiState
 
 /** What the chat needs from the app shell (navigation lives in AppScaffold). */
 class ChatNav(
     val openDrawer: (() -> Unit)?,
     val newChat: () -> Unit,
-    val openBrowser: () -> Unit,
     val openSession: (String) -> Unit,
     val closeSession: () -> Unit,
     val addProvider: () -> Unit,
     val editEndpoint: (String) -> Unit,
     val modelDetail: (String, String) -> Unit,
-    val openLink: (String) -> Unit,
 )
 
 @Composable
-fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, nav: ChatNav) {
+fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, browser: com.ouor.localchat.ui.browser.BrowserViewModel, nav: ChatNav) {
     val state by chat.state.collectAsStateWithLifecycle()
     val cs by composer.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -142,17 +144,22 @@ fun ChatRoute(chat: ChatViewModel, composer: ComposerViewModel, nav: ChatNav) {
             }
         }
     }
-    ChatScreen(state, cs, chat, composer, nav, snackbar)
+    val bs by browser.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state.runPhase) { browser.onRunPhase(state.runPhase) }
+    ChatScreen(state, cs, bs, chat, composer, browser, nav, snackbar)
 }
 
+/** Pure screen: state in, callbacks out (architecture 11). Compose tests drive it with fixed states. */
 @Composable
-private fun ChatScreen(
+internal fun ChatScreen(
     state: ChatUiState,
     cs: ComposerUiState,
-    chat: ChatViewModel,
-    composer: ComposerViewModel,
+    browserState: BrowserUiState,
+    chat: ChatActions,
+    composer: ComposerActions,
+    browserActions: BrowserActions,
     nav: ChatNav,
-    snackbar: SnackbarHostState,
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val c = LcTheme.colors
     var menu by remember { mutableStateOf(false) }
@@ -177,7 +184,7 @@ private fun ChatScreen(
                 title = state.title.ifEmpty { if (chat.sessionId == null) "" else stringResource(R.string.ui_new_chat) },
                 navigationIcon = { nav.openDrawer?.let { LcIconButton(Icons.Rounded.Menu, stringResource(R.string.ui_menu), it) } },
                 actions = {
-                    LcIconButton(Icons.Outlined.Web, stringResource(R.string.ui_browser), nav.openBrowser)
+                    LcIconButton(Icons.Outlined.Web, stringResource(R.string.ui_browser), { browserActions.open(null) })
                     LcIconButton(Icons.Outlined.EditNote, stringResource(R.string.ui_new_chat), nav.newChat, enabled = chat.sessionId != null)
                     if (chat.sessionId != null) {
                         Box {
@@ -213,7 +220,7 @@ private fun ChatScreen(
                                         onContinue = { chat.continueReply(reply.node.id) },
                                         onVersion = chat::selectVersion,
                                         onSources = { sourcesOf = reply },
-                                        onLink = nav.openLink,
+                                        onLink = { browserActions.open(it) },
                                         onErrorAction = { a ->
                                             when (a) {
                                                 ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) }
@@ -236,10 +243,12 @@ private fun ChatScreen(
                     )
                 }
             }
+            BrowserPeek(browserState, browserActions, Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp))
             ComposerArea(cs, state, composer, chat, nav, onPicker = { picker = true }, onAttach = { picks.launch(arrayOf("*/*")) },
                 onMic = { mic.launch(android.Manifest.permission.RECORD_AUDIO) }, onGauge = { contextCard = true })
         }
         LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 140.dp))
+        BrowserOverlay(browserState, browserActions)
     }
 
     // ---- sheets and dialogs ----
@@ -253,7 +262,7 @@ private fun ChatScreen(
             if (chat.sessionId != null && !state.running) ({ contextCard = false; chat.compactNow() }) else null,
         )
     }
-    sourcesOf?.let { reply -> SourcesSheet(sources(reply.body), nav.openLink) { sourcesOf = null } }
+    sourcesOf?.let { reply -> SourcesSheet(sources(reply.body), { sourcesOf = null; browserActions.open(it) }) { sourcesOf = null } }
     renaming?.let { current ->
         var t by remember { mutableStateOf(current) }
         LcDialog(stringResource(R.string.ui_rename), { renaming = null }, stringResource(R.string.ui_save), { chat.rename(t.trim()); renaming = null }, confirmEnabled = t.isNotBlank()) {
@@ -308,8 +317,8 @@ private fun Welcome(cs: ComposerUiState, onPicker: () -> Unit, modifier: Modifie
 private fun ComposerArea(
     cs: ComposerUiState,
     state: ChatUiState,
-    composer: ComposerViewModel,
-    chat: ChatViewModel,
+    composer: ComposerActions,
+    chat: ChatActions,
     nav: ChatNav,
     onPicker: () -> Unit,
     onAttach: () -> Unit,
@@ -383,7 +392,7 @@ private fun ComposerArea(
 }
 
 @Composable
-private fun Toggles(cs: ComposerUiState, composer: ComposerViewModel, nav: ChatNav) {
+private fun Toggles(cs: ComposerUiState, composer: ComposerActions, nav: ChatNav) {
     val noTools = stringResource(R.string.ui_reason_no_tools)
     val settings = stringResource(R.string.ui_model_settings)
     val open = { cs.model?.let { nav.modelDetail(it.endpointId, it.modelId) } ?: Unit }

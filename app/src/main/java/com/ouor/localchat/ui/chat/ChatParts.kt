@@ -59,7 +59,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
-internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatViewModel) {
+internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions) {
     var editing by rememberSaveable(user.node.id) { mutableStateOf<String?>(null) }
     val e = editing
     if (e != null) {
