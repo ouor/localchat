@@ -127,7 +127,7 @@ fun ProvidersRoute(vm: ProvidersViewModel, onBack: () -> Unit, onOpen: (String) 
 
 /** SC-02. New: preset chips + name/URL/key + check + save. Existing: key, models, connection, delete. */
 @Composable
-fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (String) -> Unit, onModel: (String, String) -> Unit) {
+internal fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (String) -> Unit, onModel: (String, String) -> Unit) {
     SecureWindow()
     val s by vm.state.collectAsStateWithLifecycle()
     val models by vm.models.collectAsStateWithLifecycle()

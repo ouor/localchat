@@ -74,7 +74,7 @@ sealed interface EndpointEffect {
 }
 
 /** What the URL, key and connection-check parts of SC-02 call ([EndpointEditViewModel]; fakes in layout tests). */
-interface EndpointFieldActions {
+internal interface EndpointFieldActions {
     fun onUrl(v: String)
     fun onAllowHttp(v: Boolean)
     fun onKey(v: String)
@@ -86,7 +86,7 @@ interface EndpointFieldActions {
 
 /** SC-02 add / detail (architecture 10.3). */
 @HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
-class EndpointEditViewModel @AssistedInject constructor(
+internal class EndpointEditViewModel @AssistedInject constructor(
     @Assisted val endpointId: String?,
     @Assisted private val preset: PresetId?,
     @Assisted private val custom: Boolean,
