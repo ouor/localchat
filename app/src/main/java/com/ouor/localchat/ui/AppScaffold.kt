@@ -4,11 +4,7 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Construction
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
@@ -19,7 +15,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -32,7 +27,6 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import com.ouor.localchat.R
 import com.ouor.localchat.core.model.ThemeMode
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.ui.chat.ChatNav
@@ -40,9 +34,6 @@ import com.ouor.localchat.ui.chat.ChatRoute
 import com.ouor.localchat.ui.chat.ChatViewModel
 import com.ouor.localchat.ui.chat.ComposerViewModel
 import com.ouor.localchat.ui.components.AdaptiveScaffold
-import com.ouor.localchat.ui.components.EmptyState
-import com.ouor.localchat.ui.components.LcIconButton
-import com.ouor.localchat.ui.components.LcTopBar
 import com.ouor.localchat.ui.components.NavDrawerContent
 import com.ouor.localchat.ui.components.isExpandedWidth
 import com.ouor.localchat.ui.markdown.JsRenderEngine
@@ -202,16 +193,16 @@ private fun AppNav(backStack: NavBackStack<NavKey>, openDrawer: (() -> Unit)?) {
                     onOpen = { backStack.add(EndpointKey(it)) }, onAdd = { backStack.add(EndpointKey()) },
                 )
             }
-            entry<SettingsKey> { ComingSoon { backStack.removeLastOrNull() } }
-            entry<DataKey> { ComingSoon { backStack.removeLastOrNull() } }
+            entry<SettingsKey> {
+                com.ouor.localchat.ui.settings.SettingsHomeRoute(
+                    hiltViewModel(), onBack = { backStack.removeLastOrNull() },
+                    onProviders = { backStack.add(ProvidersKey) }, onAgent = { backStack.add(com.ouor.localchat.ui.nav.AgentKey) },
+                    onData = { backStack.add(DataKey) }, onAbout = { backStack.add(com.ouor.localchat.ui.nav.AboutKey) },
+                )
+            }
+            entry<com.ouor.localchat.ui.nav.AgentKey> { com.ouor.localchat.ui.settings.AgentSettingsRoute(hiltViewModel()) { backStack.removeLastOrNull() } }
+            entry<com.ouor.localchat.ui.nav.AboutKey> { com.ouor.localchat.ui.settings.AboutRoute { backStack.removeLastOrNull() } }
+            entry<DataKey> { com.ouor.localchat.ui.settings.DataRoute(hiltViewModel(), onBack = { backStack.removeLastOrNull() }, onRestored = { backStack.showChat(null) }) }
         },
     )
-}
-
-@Composable
-private fun ComingSoon(onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        LcTopBar("", navigationIcon = { LcIconButton(Icons.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack) })
-        EmptyState(Icons.Outlined.Construction, stringResource(R.string.ui_coming_soon), null)
-    }
 }

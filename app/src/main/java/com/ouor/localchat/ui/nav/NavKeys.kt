@@ -25,3 +25,9 @@ data object SettingsKey : NavKey
 
 @Serializable
 data object DataKey : NavKey
+
+@Serializable
+data object AgentKey : NavKey
+
+@Serializable
+data object AboutKey : NavKey
