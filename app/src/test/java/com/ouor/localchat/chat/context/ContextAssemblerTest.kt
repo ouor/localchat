@@ -47,6 +47,58 @@ class ContextAssemblerTest {
     private fun texts(input: AssemblyInput) = ContextAssembler.build(input).messages.map { it.role to it.content?.jsonPrimitive?.content }
 
     @Test
+    fun `the same step and call id in two replies keeps each reply's own result (AN 4)`() {
+        fun call() = com.ouor.localchat.core.model.ToolCallBlock("call_0", "page_text", "{}", 0, com.ouor.localchat.core.model.ToolCallState.DONE, 0)
+        fun result(text: String) = com.ouor.localchat.core.model.ToolResultBlock("call_0", 0, text, isError = false)
+        val path = listOf(
+            user("u1", "q1"), reply("a1", call(), result("PAGE A"), TextBlock("A", 1)),
+            user("u2", "q2"), reply("a2", call(), result("PAGE B"), TextBlock("B", 1)),
+            user("u3", "q3"),
+        )
+        val tools = ContextAssembler.build(input(path)).messages.filter { it.role == "tool" }.map { it.content!!.jsonPrimitive.content }
+        assertEquals(listOf("PAGE A", "PAGE B"), tools)
+    }
+
+    @Test
+    fun `an ERROR turn that already ran tools stays in context so they are not repeated (SE 12)`() {
+        val click = com.ouor.localchat.core.model.ToolCallBlock("c1", "click", "{}", 0, com.ouor.localchat.core.model.ToolCallState.DONE, 0)
+        val done = com.ouor.localchat.core.model.ToolResultBlock("c1", 0, "ordered", isError = false)
+        val path = listOf(
+            user("u1", "buy it"), reply("a1", click, done, status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.SERVER_BUSY)),
+            user("u2", "go on"),
+        )
+        val msgs = ContextAssembler.build(input(path)).messages
+        assertEquals(listOf("system", "user", "assistant", "tool", "user"), msgs.map { it.role })
+        assertEquals("ordered", msgs[3].content!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `only the newest screenshot is resent as an image and every one is estimated (SE 13)`() {
+        fun shot(n: Int) = listOf(
+            com.ouor.localchat.core.model.ToolCallBlock("c$n", "screenshot", "{}", n, com.ouor.localchat.core.model.ToolCallState.DONE, 0),
+            com.ouor.localchat.core.model.ToolResultBlock("c$n", n, "shot $n", isError = false, imageForModelId = "img$n"),
+        )
+        val att = (1..3).associate { n ->
+            "img$n" to AttachmentPayload(
+                com.ouor.localchat.core.model.Attachment("img$n", "s.png", "image/png", 1, com.ouor.localchat.core.model.AttachmentKind.ARTIFACT, com.ouor.localchat.core.model.PrepState.Ready, true, createdAt = 0),
+                imageDataUrl = "data:image/png;base64,$n",
+            )
+        }
+        val path = listOf(user("u1", "q1"), reply("a1", *(shot(1) + shot(2)).toTypedArray(), TextBlock("ok", 3)), user("u2", "q2"))
+        val current = empty().copy(blocks = shot(3))
+        val vision = model.copy(caps = caps().copy(imageInput = com.ouor.localchat.core.model.Sourced(true, com.ouor.localchat.core.model.CapSource.DEFAULT)))
+        val request = ContextAssembler.build(input(path, current, attachments = att).copy(model = vision))
+        val images = request.messages.filter { it.role == "user" }.map { it.content.toString() }.filter { "image_url" in it }
+        assertEquals(1, images.size)
+        assertTrue(images.single().contains("base64,3"))
+
+        // Usage-anchored estimate: a screenshot taken after the last usage counts as an image, not 6 chars.
+        val anchored = listOf(user("u1", "q1"), reply("a1", TextBlock("ok", 0), usage = Usage(10, 10)), user("u2", "q2"))
+        val estimate = TokenEstimate.estimate(request, anchored + MessageNode("cur", "s", null, null, Role.ASSISTANT, t++, current), null)
+        assertTrue("$estimate", estimate >= 20 + 1000)
+    }
+
+    @Test
     fun `failed, refused and empty stopped turns are dropped whole`() {
         val path = listOf(
             user("u1", "ok q"), reply("a1", TextBlock("ok a", 0)),

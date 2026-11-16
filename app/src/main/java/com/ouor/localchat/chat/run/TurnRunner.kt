@@ -152,6 +152,8 @@ class TurnRunner @Inject constructor(
                 var request = assemble(path, model, tools, system)
                 val window = model.caps.contextWindow.value
                 if (!compacted && window != null && estimate(request, path) > window * 0.8) {
+                    // Spent even when nothing could be summarized: the path is fixed for the turn, so a second
+                    // attempt on ContextOverflow would find the same nothing (SE 13 c reviewed, left as is).
                     compacted = true
                     phase(RunPhase.Compacting)
                     try {
@@ -208,7 +210,16 @@ class TurnRunner @Inject constructor(
                             return
                         }
                         save()
-                        for (call in calls) runTool(executor, call)
+                        // SE 24: one response cannot fan out into an unbounded run of tools.
+                        calls.take(MAX_CALLS_PER_STEP).forEach { runTool(executor, it) }
+                        calls.drop(MAX_CALLS_PER_STEP).forEach { skipped ->
+                            publish(
+                                body.copy(
+                                    blocks = body.blocks.map { if (it is ToolCallBlock && it.key == skipped.key) it.copy(state = ToolCallState.CANCELLED, endedAt = clock.now()) else it } +
+                                        ToolResultBlock(skipped.callId, skipped.step, TOO_MANY_CALLS, isError = true),
+                                ),
+                            )
+                        }
                         step++
                     }
                     else -> error("not terminal")
@@ -302,6 +313,8 @@ class TurnRunner @Inject constructor(
     private companion object {
         /** Architecture 8.1: streaming writes at most once a second, plus at step boundaries and the end. */
         const val SAVE_INTERVAL_MS = 1000L
+        const val MAX_CALLS_PER_STEP = 10
+        const val TOO_MANY_CALLS = "Not run: at most 10 tool calls per step. Call it again in the next step if still needed."
 
         /** RunPhase.RunningTool name shown as "reading: {site}" (architecture 5.7). */
         const val READ_LINK = "read_link"

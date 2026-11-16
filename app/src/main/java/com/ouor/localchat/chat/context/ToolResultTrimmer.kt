@@ -12,7 +12,7 @@ object ToolResultTrimmer {
     const val TAIL = 500
 
     /**
-     * [results] in request order as (ToolCallBlock.key, toolName, content). Returns key → content to send.
+     * [results] in request order as (unique call key, toolName, content). Returns key → content to send.
      */
     fun trim(results: List<Triple<String, String, String>>): Map<String, String> {
         val bulky = results.filter { it.second in BULKY }

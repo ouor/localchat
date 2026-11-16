@@ -62,6 +62,7 @@ object TokenEstimate {
         is TextBlock -> block.text.length
         is ThinkingBlock -> block.text.length
         is ToolCallBlock -> block.name.length + block.argumentsJson.length
-        is ToolResultBlock -> block.content.length
+        // Only the newest screenshot is sent, but counting each is a safe upper bound (SE 13).
+        is ToolResultBlock -> block.content.length + (if (block.imageForModelId != null) IMAGE_CHARS else 0)
     }
 }

@@ -459,6 +459,21 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `at most 10 tool calls of one step run, the rest get a result asking to call again (SE 24)`() = runTest {
+        val tool = FakeTool("open_tab")
+        val h = Harness(this, tools = listOf(tool))
+        h.llm.events(LlmEvent.ToolCallsReady((1..12).map { ToolCallRequest("c$it", "open_tab", "{}") }), finished("tool_calls"))
+        h.llm.text("done")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        assertEquals(10, tool.calls)
+        assertEquals(List(10) { ToolCallState.DONE } + List(2) { ToolCallState.CANCELLED }, reply.blocks.filterIsInstance<ToolCallBlock>().map { it.state })
+        assertEquals(12, h.llm.requests[1].messages.count { it.role == "tool" })
+        assertEquals(ReplyStatus.DONE, reply.status)
+    }
+
+    @Test
     fun `an unexpected exception in the loop is saved as ERROR instead of escaping`() = runTest {
         val h = Harness(this)
         h.llm.scripts.addLast { emit(LlmEvent.TextDelta("half")); throw IllegalStateException("bad row") }

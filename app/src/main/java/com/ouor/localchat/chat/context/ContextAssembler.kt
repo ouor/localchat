@@ -74,18 +74,22 @@ object ContextAssembler {
 
         val replies = kept.mapNotNull { it.body as? MessageBody.Assistant } +
             if (input.continueMode) emptyList() else listOf(input.current)
+        // Keys are "reply index/step/callId": step + id repeat across replies on servers that renumber (AN 4).
         val sendable = ToolResultTrimmer.trim(
-            replies.flatMap { body ->
+            replies.flatMapIndexed { reply, body ->
                 val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
                 body.blocks.filterIsInstance<ToolCallBlock>()
-                    .map { Triple(it.key, it.name, results[it.key]?.content ?: SystemPrompt.ABORTED) }
+                    .map { Triple("$reply/${it.key}", it.name, results[it.key]?.content ?: SystemPrompt.ABORTED) }
             },
         )
 
+        val latestImage = replies.flatMap { b -> b.blocks.filterIsInstance<ToolResultBlock>().mapNotNull { it.imageForModelId } }.lastOrNull()
+
+        var reply = 0
         for (node in kept) {
             when (val body = node.body) {
                 is MessageBody.User -> messages += userMessage(body, input)
-                is MessageBody.Assistant -> messages += assistantSteps(body, current = false, sendable, input)
+                is MessageBody.Assistant -> messages += assistantSteps(body, reply++, current = false, sendable, latestImage, input)
             }
         }
         if (input.continueMode) {
@@ -94,7 +98,7 @@ object ContextAssembler {
             messages += WireMessage("assistant", JsonPrimitive(text))
             messages += WireMessage("user", JsonPrimitive(SystemPrompt.CONTINUE))
         } else {
-            messages += assistantSteps(input.current, current = true, sendable, input)
+            messages += assistantSteps(input.current, reply, current = true, sendable, latestImage, input)
         }
 
         // Architecture 4.3, via llm's single mapping.
@@ -122,7 +126,8 @@ object ContextAssembler {
     }
 
     private fun excluded(body: MessageBody.Assistant): Boolean =
-        body.status == ReplyStatus.ERROR ||
+        // An ERROR turn that already ran tools is kept like STOPPED: the model must know what it did (SE 12).
+        (body.status == ReplyStatus.ERROR && body.blocks.none { it is ToolCallBlock }) ||
             body.refusal ||
             body.status == ReplyStatus.PENDING ||
             body.status == ReplyStatus.STREAMING ||
@@ -157,8 +162,10 @@ object ContextAssembler {
     /** Rules 5-8: one assistant message per step, its tool results, then any screenshot as a user image. */
     private fun assistantSteps(
         body: MessageBody.Assistant,
+        reply: Int,
         current: Boolean,
         sendable: Map<String, String>,
+        latestImage: String?,
         input: AssemblyInput,
     ): List<WireMessage> = buildList {
         for ((_, blocks) in body.blocks.groupBy { it.step }.toSortedMap()) {
@@ -181,11 +188,12 @@ object ContextAssembler {
             )
             val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
             for (call in calls) {
-                add(WireMessage("tool", JsonPrimitive(sendable[call.key] ?: SystemPrompt.ABORTED), toolCallId = call.callId))
+                add(WireMessage("tool", JsonPrimitive(sendable["$reply/${call.key}"] ?: SystemPrompt.ABORTED), toolCallId = call.callId))
             }
             // Rule 7: tool messages cannot carry images.
             if (input.model.caps.imageInput.value) {
-                val images = calls.mapNotNull { results[it.key]?.imageForModelId }
+                // Only the newest screenshot is resent; older ones would pile up on every request (SE 13).
+                val images = calls.mapNotNull { results[it.key]?.imageForModelId }.filter { it == latestImage }
                     .mapNotNull { input.attachments[it]?.imageDataUrl }
                 if (images.isNotEmpty()) add(WireMessage("user", JsonArray(images.map(::imagePart))))
             }
