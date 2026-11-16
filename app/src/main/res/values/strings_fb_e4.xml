@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fb_e4_strip_cd">AI is working on %1$s, open browser</string>
+    <string name="fb_e4_handle_cd">Resize panel</string>
+    <string name="fb_e4_state_half">Half</string>
+    <string name="fb_e4_state_full">Full</string>
+</resources>
