@@ -99,6 +99,17 @@ class AgentScriptTest {
         Regex(Regex.escape(line) + "[^\\n]*\\[ref=(e\\d+)]").find(snap)?.groupValues?.get(1) ?: error("no ref for '$line' in\n$snap")
 
     @Test
+    fun thumbnailAfterLoad() {
+        load("snapshot.html")
+        runBlocking { delay(1_500) }
+        val t = tab.thumbnail
+        assertNotNull(t)
+        t!!
+        assertEquals(BrowserTab.THUMB_WIDTH, t.width)
+        assertTrue(t.height > 0)
+    }
+
+    @Test
     fun snapshotFormat() = runBlocking<Unit> {
         load("snapshot.html")
         val s = snapshot()

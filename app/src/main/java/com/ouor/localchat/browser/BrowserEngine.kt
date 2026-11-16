@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -209,7 +210,9 @@ class BrowserEngine @Inject constructor(
 
     /** BrowserSurface gives the WebView back to the host container. */
     fun park(tabId: Int) {
-        val w = byId[tabId]?.webView ?: return
+        val t = byId[tabId] ?: return
+        val w = t.webView
+        if (t.refreshThumbnail()) publish() // last frame the user saw
         (w.parent as? ViewGroup)?.removeView(w)
         parkInHost(w)
     }
@@ -329,7 +332,7 @@ class BrowserEngine @Inject constructor(
 
     private fun publish() {
         _tabs.value = byId.values.map { t ->
-            TabInfo(t.id, t.title, t.url, t.owner, t.control, t.loading.value, t.webView.canGoBack(), t.webView.canGoForward())
+            TabInfo(t.id, t.title, t.url, t.owner, t.control, t.loading.value, t.webView.canGoBack(), t.webView.canGoForward(), t.thumbnail)
         }
     }
 
@@ -351,6 +354,8 @@ data class TabInfo(
     val loading: Boolean,
     val canGoBack: Boolean = false,
     val canGoForward: Boolean = false,
+    /** [BrowserTab.THUMB_WIDTH] px wide, null until the page was first drawn. Never recycle it. */
+    val thumbnail: Bitmap? = null,
 ) {
     /** Plain http page: the address bar shows a warning; AI typing here needs approval (team decision 1). */
     val insecure: Boolean get() = url.startsWith("http://", ignoreCase = true)
