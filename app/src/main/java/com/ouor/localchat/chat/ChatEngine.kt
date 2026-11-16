@@ -4,6 +4,7 @@ import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
 import com.ouor.localchat.chat.run.RunRegistry
 import com.ouor.localchat.chat.run.RunState
+import com.ouor.localchat.chat.run.StartupRecovery
 import com.ouor.localchat.chat.run.TurnRunner
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.Ids
@@ -51,6 +52,7 @@ class ChatEngine @Inject constructor(
     private val store: ChatStore,
     private val registry: RunRegistry,
     private val runner: TurnRunner,
+    private val recovery: StartupRecovery,
     private val models: ModelPort,
     private val tools: ToolPort,
     private val compactor: Compactor,
@@ -63,6 +65,7 @@ class ChatEngine @Inject constructor(
 
     /** Sends [draft]; creates the session when [sessionId] is null. Returns the session id. */
     suspend fun send(sessionId: String?, draft: Draft, options: GenOptions, model: ModelRef): String {
+        recovery.awaitDone()
         if (draft.text.isBlank() && draft.attachmentIds.isEmpty()) throw ChatRejected(ChatRejected.Reason.EMPTY)
         if (sessionId != null) checkIdle(sessionId)
         requireModel(model)
@@ -86,6 +89,7 @@ class ChatEngine @Inject constructor(
 
     /** M-04: new sibling reply under the same user message. */
     suspend fun regenerate(assistantId: String, model: ModelRef) {
+        recovery.awaitDone()
         val (old, body) = assistant(assistantId)
         if (!MessageTree.canRegenerate(body)) throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         checkIdle(old.sessionId)
@@ -95,6 +99,7 @@ class ChatEngine @Inject constructor(
 
     /** M-05: new sibling question plus a new reply. */
     suspend fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) {
+        recovery.awaitDone()
         val old = store.node(userId)?.takeIf { it.body is MessageBody.User }
             ?: throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         if (text.isBlank() && attachmentIds.isEmpty()) throw ChatRejected(ChatRejected.Reason.EMPTY)
@@ -109,6 +114,7 @@ class ChatEngine @Inject constructor(
 
     /** M-03: continues the same reply (only when MessageTree.canContinue). */
     suspend fun continueReply(assistantId: String) {
+        recovery.awaitDone()
         val (node, body) = assistant(assistantId)
         if (!MessageTree.canContinue(body)) throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         checkIdle(node.sessionId)

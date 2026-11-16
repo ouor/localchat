@@ -27,6 +27,7 @@ import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.HandoffRequest
 import com.ouor.localchat.tools.ToolOutcome
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -326,7 +327,7 @@ class AgentLoopTest {
 
     @Test
     fun `recovery stops unfinished replies with interrupted results`() = runTest {
-        val h = Harness(this)
+        val h = Harness(this, recovered = false)
         val sid = Ids.new()
         h.store.sessions[sid] = com.ouor.localchat.core.model.Session(sid, "t", TitleSource.NONE, 0, 0, null, null)
         val node = com.ouor.localchat.core.model.MessageNode(
@@ -337,11 +338,25 @@ class AgentLoopTest {
             ),
         )
         h.store.messages["a"] = node
-        StartupRecovery(h.store, h.registry, h.clock).run()
+        h.recovery.run()
         val reply = h.store.reply("a")
         assertEquals(ReplyStatus.STOPPED, reply.status)
         assertEquals(SystemPrompt.INTERRUPTED, reply.blocks.filterIsInstance<ToolResultBlock>().single().content)
         assertTrue(h.store.gcCutoff != null)
+    }
+
+    @Test
+    fun `sending waits for startup recovery so a new reply is not stopped by it`() = runTest {
+        val h = Harness(this, recovered = false)
+        h.llm.text("hi")
+        val sent = async { h.sendNew() }
+        advanceUntilIdle()
+        assertFalse(sent.isCompleted)
+        assertTrue(h.store.messages.isEmpty())
+        h.recovery.run()
+        val sid = sent.await()
+        advanceUntilIdle()
+        assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
     }
 
     private suspend fun TestScope.threeTurns(h: Harness, usage: Usage? = null): String {

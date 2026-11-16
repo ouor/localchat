@@ -5,6 +5,7 @@ import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Control
 import com.ouor.localchat.chat.run.RunRegistry
+import com.ouor.localchat.chat.run.StartupRecovery
 import com.ouor.localchat.chat.run.TurnRunner
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.MessageTree
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -172,7 +174,13 @@ class TickClock : Clock {
 }
 
 /** Full engine over fakes, run in [scope] (the test scope). */
-class Harness(scope: CoroutineScope, tools: List<Tool> = emptyList(), maxSteps: Int = 25, val models: FakeModelPort = FakeModelPort()) {
+class Harness(
+    scope: CoroutineScope,
+    tools: List<Tool> = emptyList(),
+    maxSteps: Int = 25,
+    val models: FakeModelPort = FakeModelPort(),
+    recovered: Boolean = true,
+) {
     val store = FakeChatStore()
     val llm = FakeLlm()
     val browser = FakeBrowserPort()
@@ -185,8 +193,13 @@ class Harness(scope: CoroutineScope, tools: List<Tool> = emptyList(), maxSteps: 
         override suspend fun payload(id: String): AttachmentPayload? = null
     }
     private val runner = TurnRunner(
-        store, llm, models, FakeToolPort(tools), attachments, browser, BrowserEngine(), AttachmentFiles(),
+        store, llm, models, FakeToolPort(tools), attachments, browser, BrowserEngine(), AttachmentFiles(kotlin.io.path.createTempDirectory("lc-files").toFile()),
         settings, compactor, titles, clock, scope,
     )
-    val engine = ChatEngine(store, registry, runner, models, FakeToolPort(tools), compactor, settings, clock)
+    val recovery = StartupRecovery(store, clock)
+    val engine = ChatEngine(store, registry, runner, recovery, models, FakeToolPort(tools), compactor, settings, clock)
+
+    init {
+        if (recovered) scope.launch { recovery.run() }
+    }
 }
