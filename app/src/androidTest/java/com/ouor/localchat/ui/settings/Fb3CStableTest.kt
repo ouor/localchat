@@ -205,6 +205,7 @@ class Fb3CStableTest {
         rule.waitForIdle()
         rule.onNodeWithContentDescription(warn, useUnmergedTree = true).assertExists()
         assertEquals(next, rule.onNodeWithText("최대 출력 토큰").box())
+        Shots.save("fb3-c-limit-warning-icon")
         // The warning text is in the menu.
         rule.onNodeWithText("컨텍스트 창").performClick()
         rule.onNodeWithText(warn).assertExists()
@@ -245,6 +246,7 @@ class Fb3CStableTest {
         rule.onAllNodesWithContentDescription(del)[0].performClick()
         rule.waitForIdle()
         assertEquals(listOf("b.example.com", "c.example.com"), domains)
+        Shots.save("fb3-c-domain-undo")
         // b's X is now the first X on screen, and it is where it was.
         assertEquals(secondX, rule.onAllNodesWithContentDescription(del)[0].box())
         rule.onNodeWithText(ctx.getString(R.string.fb3_c_undo)).performClick()

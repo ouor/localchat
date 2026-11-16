@@ -52,6 +52,7 @@ import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -287,7 +288,8 @@ private fun TitleValue(title: String, titleColor: Color, value: String?, subtitl
     ) { ms, cs ->
         val loose = cs.copy(minWidth = 0, minHeight = 0)
         val t = ms[0].measure(loose)
-        val room = cs.maxWidth - t.width - 12.dp.roundToPx()
+        // Unbounded (intrinsic max width): everything fits on one line.
+        val room = if (cs.hasBoundedWidth) cs.maxWidth - t.width - 12.dp.roundToPx() else Constraints.Infinity
         val inline = room >= 96.dp.roundToPx()
         val v = ms.firstOrNull { it.layoutId == "v" }?.measure(if (inline) loose.copy(maxWidth = room) else loose)
         val s = ms.firstOrNull { it.layoutId == "s" }?.measure(loose)
