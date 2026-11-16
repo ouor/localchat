@@ -380,23 +380,26 @@ internal fun LimitRow(
             }
             if (warn != null) Text(warn, Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp), style = LcTheme.text.caption, color = c.warning)
         }
-        DropdownMenu(
-            menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
-            shape = LcRadius.sm, containerColor = c.surfaceRaised,
-        ) {
-            LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
-            HorizontalDivider(color = c.border)
-            presets.forEach { p ->
-                val label = limitLabel(p, presets)
-                val exact = "%,d".format(p)
-                LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
+        // FB2-1: zero-size anchor at the row's bottom end, so the menu opens under the value/▾ with its end edges aligned.
+        Box(Modifier.align(Alignment.BottomEnd)) {
+            DropdownMenu(
+                menu, { menu = false }, Modifier.widthIn(min = 220.dp).heightIn(max = 360.dp),
+                shape = LcRadius.sm, containerColor = c.surfaceRaised,
+            ) {
+                LimitItem(autoText, null, null, v == null) { menu = false; onSet(null) }
+                HorizontalDivider(color = c.border)
+                presets.forEach { p ->
+                    val label = limitLabel(p, presets)
+                    val exact = "%,d".format(p)
+                    LimitItem(label, exact, stringResource(R.string.fb_e3_limit_item_cd, label, exact), v == p) { menu = false; onSet(p) }
+                }
+                HorizontalDivider(color = c.border)
+                val outside = v != null && v !in presets
+                LimitItem(
+                    if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
+                    null, null, outside,
+                ) { menu = false; custom = true }
             }
-            HorizontalDivider(color = c.border)
-            val outside = v != null && v !in presets
-            LimitItem(
-                if (outside) stringResource(R.string.fb_e3_limit_custom_n, limitLabel(v!!, presets)) else stringResource(R.string.fb_e3_limit_custom),
-                null, null, outside,
-            ) { menu = false; custom = true }
         }
     }
     if (custom) {
