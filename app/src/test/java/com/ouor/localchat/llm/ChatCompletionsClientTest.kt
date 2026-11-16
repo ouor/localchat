@@ -221,6 +221,23 @@ class ChatCompletionsClientTest {
     }
 
     @Test
+    fun `audit 7 a rejected thinking DISABLED is never stripped - the 400 is shown`() = runTest {
+        server.enqueue(Scenario.http(400, message = "Unknown parameter: 'thinking'"), Scenario.text("ok"))
+        val req = request.withReasoning(ReasoningWire.DEEPSEEK_THINKING, on = false, effort = null)
+        val events = client.stream(target(), req).toList()
+        assertTrue((events.single() as LlmEvent.Failed).error is LlmError.BadRequest)
+    }
+
+    @Test
+    fun `audit 7 a rejected thinking ENABLED is stripped and retried once`() = runTest {
+        server.enqueue(Scenario.http(400, message = "Unknown parameter: 'thinking'"), Scenario.text("ok"))
+        val req = request.withReasoning(ReasoningWire.DEEPSEEK_THINKING, on = true, effort = null)
+        assertEquals("ok", client.stream(target(), req).toList().text())
+        server.takeRequest()
+        assertFalse("thinking" in AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject)
+    }
+
+    @Test
     fun `error inside the stream is classified`() = runTest {
         server.enqueue(Scenario.raw("""data: {"error":{"message":"maximum context length is 10 tokens"}}""" + "\n\n"))
         assertEquals(
