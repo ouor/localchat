@@ -103,7 +103,9 @@ class LayoutStressTest {
             val t = layout(rule.onNodeWithText(label, useUnmergedTree = true))
             assertEquals(label, 1, t.lineCount)
             assertFalse(label, t.isLineEllipsized(0))
-            assertFalse(label, t.hasVisualOverflow)
+            // Laid out whole: the line ends inside the text box (hasVisualOverflow is not usable here: with
+            // Ellipsis the paragraph is laid out at the max width even when the text is shorter).
+            assertTrue("$label cut: right=${t.getLineRight(0)} width=${t.size.width}", t.getLineRight(0) <= t.size.width + 1f)
         }
         // Labels too long for the row still take one line (ellipsis), never wrap into a column.
         assertEquals(1, layout(rule.onNodeWithText("새 대화 기본 모델 $cjk60", useUnmergedTree = true)).lineCount)
@@ -125,7 +127,7 @@ class LayoutStressTest {
                 start = { ModelChip(provider40, model80, Color.Red, {}, Modifier.weight(1f, fill = false)) },
                 end = { ContextGauge(null, {}, tokensText = ctx.getString(R.string.ui_tokens, "31.6k")) },
             )
-            BrowserStatusStrip(title100, "www.example.com", {}, {})
+            BrowserStatusStrip("S-$title100", "www.example.com", {}, {})
         }
         // Top bar: title and subtitle end in an ellipsis on one line (not clipped); the action stays visible.
         listOf(title100, provider40).forEach {
@@ -142,11 +144,11 @@ class LayoutStressTest {
         val gauge = layout(rule.onNodeWithText(ctx.getString(R.string.ui_tokens, "31.6k"), useUnmergedTree = true))
         assertEquals(1, gauge.lineCount)
         assertFalse(gauge.isLineEllipsized(0))
-        assertFalse(gauge.hasVisualOverflow)
+        assertTrue("gauge cut: right=${gauge.getLineRight(0)} width=${gauge.size.width}", gauge.getLineRight(0) <= gauge.size.width + 1f)
         assertTrue(layout(rule.onNodeWithText(model80, substring = true, useUnmergedTree = true)).isLineEllipsized(0))
         // Agent strip: the take-over button is whole and on screen.
         val take = rule.onNodeWithText(ctx.getString(R.string.ui_take_over), useUnmergedTree = true)
-        assertFalse(layout(take).hasVisualOverflow)
+        layout(take).let { assertTrue("take over cut", it.getLineRight(0) <= it.size.width + 1f) }
         assertOnScreen(take)
     }
 

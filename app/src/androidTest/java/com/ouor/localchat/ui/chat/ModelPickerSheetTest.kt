@@ -16,6 +16,9 @@ import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.testing.ScreenOnRule
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.getBoundsInRoot
 import com.ouor.localchat.ui.providers.providerModelGroup
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.unit.dp
@@ -121,6 +124,47 @@ class ModelPickerSheetTest {
         org.junit.Assert.assertTrue("composed $composed rows", composed in 1..30)
         header(ctx.getString(R.string.ui_models)).performClick()
         rows("beta-m").assertCountEquals(0)
+    }
+
+    @Test fun expandingAGroupDoesNotMoveItsHeader() {
+        val models = List(5) { model("a", "alpha-m$it") } + List(300) { model("b", "beta-m$it") }
+        rule.setContent {
+            LocalchatTheme(false) { ModelPickerSheet(models, null, { names[it].orEmpty() }, {}, endpointIds = listOf("a", "b", "z")) {} }
+        }
+        rule.waitForIdle()
+        val before = header("Beta").getBoundsInRoot().top
+        header("Beta").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("beta-m0", useUnmergedTree = true).assertExists()
+        org.junit.Assert.assertEquals(before, header("Beta").getBoundsInRoot().top)
+        val alpha = header("Alpha").getBoundsInRoot().top
+        header("Alpha").performClick()
+        rule.waitForIdle()
+        org.junit.Assert.assertEquals(alpha, header("Alpha").getBoundsInRoot().top)
+    }
+
+    @Test fun backupSheetCheckboxStaysPutWhenFieldsAppear() {
+        // Same LcBottomSheet(heightFraction) setup as DataScreen's full-backup sheet (H5).
+        var withKeys by androidx.compose.runtime.mutableStateOf(false)
+        rule.setContent {
+            LocalchatTheme(false) {
+                com.ouor.localchat.ui.components.LcBottomSheet({}, "Backup", heightFraction = 0.9f) {
+                    androidx.compose.foundation.layout.Column {
+                        androidx.compose.material3.Text("summary")
+                        androidx.compose.foundation.layout.Row {
+                            com.ouor.localchat.ui.components.LcCheckbox(withKeys, { withKeys = it }, androidx.compose.ui.Modifier.testTag("keys"))
+                        }
+                        if (withKeys) repeat(3) { androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(90.dp)) }
+                        androidx.compose.material3.Text("file.zip")
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val before = rule.onNodeWithTag("keys").getBoundsInRoot().top
+        rule.onNodeWithTag("keys").performClick()
+        rule.waitForIdle()
+        org.junit.Assert.assertEquals(before, rule.onNodeWithTag("keys").getBoundsInRoot().top)
     }
 
     @Test fun noRecentSectionWithoutHistory() {

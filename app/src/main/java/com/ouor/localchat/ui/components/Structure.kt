@@ -114,6 +114,8 @@ fun LcSheetHeader(title: String?, onClose: (() -> Unit)?, modifier: Modifier = M
 
 /**
  * Modal sheet (M3). [locked] = approval sheet: no swipe / outside / back dismiss; the content must offer the decision.
+ * [heightFraction] = fixed height (share of the screen), opened fully: content that grows (expanded groups, extra
+ * fields) only adds below, so the control just tapped stays put (P-STABLE). Null = wrap content.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,10 +125,11 @@ fun LcBottomSheet(
     modifier: Modifier = Modifier,
     locked: Boolean = false,
     fullHeight: Boolean = false,
+    heightFraction: Float? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val c = LcTheme.colors
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = fullHeight || locked, confirmValueChange = { !locked || it != androidx.compose.material3.SheetValue.Hidden })
+    val state = rememberModalBottomSheetState(skipPartiallyExpanded = fullHeight || locked || heightFraction != null, confirmValueChange = { !locked || it != androidx.compose.material3.SheetValue.Hidden })
     ModalBottomSheet(
         onDismissRequest = { if (!locked) onDismiss() },
         sheetState = state,
@@ -140,8 +143,10 @@ fun LcBottomSheet(
         sheetGesturesEnabled = !locked,
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = !locked),
     ) {
-        LcSheetHeader(title, if (locked) null else onDismiss)
-        content()
+        Column(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier) {
+            LcSheetHeader(title, if (locked) null else onDismiss)
+            content()
+        }
     }
 }
 

@@ -18,6 +18,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.getBoundsInRoot
 import org.junit.Assert.assertEquals
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -63,12 +65,12 @@ class MarkdownTableTest {
                 MarkdownMessage(md, emptyList(), streaming = false, onLinkClick = {}, onCitationClick = {}, modifier = Modifier.width(360.dp))
             }
         }
-        rule.onNodeWithText(wide, useUnmergedTree = true).assertExists()
+        shows(wide)
         md = "| x | y |\n|---|---|\n| 1 | 2 |"
-        rule.waitForIdle()
+        shows("x")
         // Two short columns share the 360dp; with leaked 240dp widths the first cell would start a 480dp table.
-        val x = rule.onNodeWithText("x", useUnmergedTree = true).getBoundsInRoot()
-        val y = rule.onNodeWithText("y", useUnmergedTree = true).getBoundsInRoot()
+        val x = rule.onNodeWithText("x", substring = true, useUnmergedTree = true).getBoundsInRoot()
+        val y = rule.onNodeWithText("y", substring = true, useUnmergedTree = true).getBoundsInRoot()
         val col = y.left - x.left
         assertTrue("first column $col should be ~180dp (360 / 2), not the old 240dp", col < 220.dp)
     }
@@ -81,10 +83,18 @@ class MarkdownTableTest {
                 MarkdownMessage(md, emptyList(), streaming = true, onLinkClick = {}, onCitationClick = {}, modifier = Modifier.width(360.dp))
             }
         }
-        val before = rule.onNodeWithText("y", useUnmergedTree = true).getBoundsInRoot().left
+        shows("y")
+        val before = rule.onNodeWithText("y", substring = true, useUnmergedTree = true).getBoundsInRoot().left
         // Same table, the wide row replaced while streaming: the first column keeps its width.
         md = "| x | y |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
-        rule.waitForIdle()
-        assertEquals(before, rule.onNodeWithText("y", useUnmergedTree = true).getBoundsInRoot().left)
+        shows("4")
+        assertEquals(before, rule.onNodeWithText("y", substring = true, useUnmergedTree = true).getBoundsInRoot().left)
+    }
+
+    /** The markdown is parsed off the main thread; wait until [text] is laid out. */
+    private fun shows(text: String) = try {
+        rule.waitUntil(5_000) { rule.onAllNodesWithText(text, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+    } catch (e: Throwable) {
+        throw AssertionError("'$text' not shown in " + rule.onRoot(useUnmergedTree = true).printToString(), e)
     }
 }
