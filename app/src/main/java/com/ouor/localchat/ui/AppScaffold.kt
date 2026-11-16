@@ -15,6 +15,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -76,6 +77,7 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
     LocalchatTheme(dark) {
         CompositionLocalProvider(LocalJsRenderEngine provides app.renderEngine) {
             val backStack = rememberNavBackStack(ChatKey())
+            ShareRouting { backStack.showChat(null) }
             BoxWithConstraints(Modifier.fillMaxSize().background(LcTheme.colors.surface)) {
                 val wide = isExpandedWidth(maxWidth)
                 val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -107,6 +109,26 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
                 }
             }
         }
+    }
+}
+
+/**
+ * I-02: MainActivity puts shared content into the new-chat draft; here we only move to the new chat.
+ * Launch intent once (saveable flag, so rotation doesn't re-route), later shares via onNewIntent.
+ */
+@Composable
+private fun ShareRouting(onShared: () -> Unit) {
+    val activity = LocalContext.current as? androidx.activity.ComponentActivity ?: return
+    val current by androidx.compose.runtime.rememberUpdatedState(onShared)
+    var handledLaunch by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (!handledLaunch && com.ouor.localchat.chat.SharedContent.from(activity.intent) != null) current()
+        handledLaunch = true
+    }
+    androidx.compose.runtime.DisposableEffect(activity) {
+        val listener = androidx.core.util.Consumer<Intent> { if (com.ouor.localchat.chat.SharedContent.from(it) != null) current() }
+        activity.addOnNewIntentListener(listener)
+        onDispose { activity.removeOnNewIntentListener(listener) }
     }
 }
 
