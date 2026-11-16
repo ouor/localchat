@@ -103,7 +103,9 @@ object ContextAssembler {
         }
 
         // Architecture 4.3, via llm's single mapping.
-        val effort = input.options.reasoningEffort ?: caps.reasoning.value?.defaultEffort
+        // The model's current settings win over the options (a model whose reasoning was switched off never reasons).
+        val spec = caps.reasoning.value
+        val effort = input.options.reasoningEffort?.takeIf { spec?.efforts?.contains(it) == true } ?: spec?.defaultEffort
         return ChatRequest(
             model = input.model.ref.modelId,
             messages = messages,
@@ -111,7 +113,7 @@ object ContextAssembler {
                 ?.map { WireTool(WireFunction(it.name, it.description, it.parameters)) },
             // FB-6: only a user-set max output is sent; server/built-in values stay the server's own default.
             maxTokens = caps.maxOutputTokens.takeIf { it.source == CapSource.USER }?.value,
-        ).withReasoning(input.model.reasoningWire, input.options.reasoning, effort)
+        ).withReasoning(input.model.reasoningWire, input.options.reasoning && spec != null, effort)
     }
 
     /**

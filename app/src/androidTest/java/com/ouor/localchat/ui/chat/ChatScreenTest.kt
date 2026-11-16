@@ -70,9 +70,9 @@ class ChatScreenTest {
         override val sessionId: String? get() = sid
         override fun stop() {}
         override fun selectVersion(messageId: String) {}
-        override fun regenerate(assistantId: String, model: ModelRef) {}
+        override fun regenerate(assistantId: String, model: ModelRef, options: GenOptions) {}
         override fun continueReply(assistantId: String) {}
-        override fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) {}
+        override fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef, options: GenOptions) {}
         override fun resolve(resolution: Resolution) { resolved += resolution }
         override fun retryWrites() {}
         override fun rename(title: String) {}

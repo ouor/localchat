@@ -78,7 +78,7 @@ internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, atta
     val e = editing
     if (e != null) {
         UserMessageEditor(e, { editing = it }, { editing = null }, {
-            cs.model?.let { m -> chat.editAndResend(user.node.id, e.trim(), user.attachmentIds, m.ref) }
+            cs.model?.let { m -> chat.editAndResend(user.node.id, e.trim(), user.attachmentIds, m.ref, cs.options) }
             editing = null
         })
     } else {

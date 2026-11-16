@@ -2,6 +2,7 @@ package com.ouor.localchat.ui.chat
 
 import android.net.Uri
 import com.ouor.localchat.chat.run.Resolution
+import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.ModelRef
 
 /** Chat callbacks; [ChatViewModel] implements them, Compose tests pass a fake (architecture 11). */
@@ -9,9 +10,9 @@ interface ChatActions {
     val sessionId: String?
     fun stop()
     fun selectVersion(messageId: String)
-    fun regenerate(assistantId: String, model: ModelRef)
+    fun regenerate(assistantId: String, model: ModelRef, options: GenOptions)
     fun continueReply(assistantId: String)
-    fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef)
+    fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef, options: GenOptions)
     fun resolve(resolution: Resolution)
     fun retryWrites()
     fun rename(title: String)
