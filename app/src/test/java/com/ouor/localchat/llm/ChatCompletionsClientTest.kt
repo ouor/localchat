@@ -229,6 +229,16 @@ class ChatCompletionsClientTest {
     }
 
     @Test
+    fun `a side request (title, summary) may drop a rejected thinking DISABLED and retry once`() = runTest {
+        // FB3 eng m4: complete() is not the main reply; a title that thinks first beats no title.
+        server.enqueue(Scenario.http(400, message = "Unknown parameter: 'thinking'"), Scenario.text("ok"))
+        val req = request.withReasoning(ReasoningWire.DEEPSEEK_THINKING, on = false, effort = null)
+        assertEquals(LlmResult.Ok("ok", "stop", null), client.complete(target(), req).let { (it as LlmResult.Ok).copy(usage = null) })
+        assertTrue("thinking" in AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject)
+        assertFalse("thinking" in AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject)
+    }
+
+    @Test
     fun `audit 7 a rejected thinking ENABLED is stripped and retried once`() = runTest {
         server.enqueue(Scenario.http(400, message = "Unknown parameter: 'thinking'"), Scenario.text("ok"))
         val req = request.withReasoning(ReasoningWire.DEEPSEEK_THINKING, on = true, effort = null)

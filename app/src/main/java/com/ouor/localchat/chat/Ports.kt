@@ -84,8 +84,11 @@ interface BrowserPort {
     /** End of a tool call: clears the B-09 ② "AI is operating" state. */
     fun clearAiActivity(sessionId: String)
 
-    /** S-03 hidden tab for LinkPrefetcher. */
-    suspend fun openAiTab(sessionId: String, url: String): Int
+    /**
+     * S-03 hidden link-prefetch tab (never in the panel, tab list or get_tabs). The caller owns the id: call it
+     * inside NonCancellable and store the id there, or a cancel on return loses it and the tab leaks.
+     */
+    suspend fun openPrefetchTab(sessionId: String, url: String): Int
     suspend fun close(tabId: Int)
 
     /** BUG-13: closes the AI tabs of [sessionId] (a deleted chat), or of every chat when null. */

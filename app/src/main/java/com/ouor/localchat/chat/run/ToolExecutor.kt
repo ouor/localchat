@@ -1,7 +1,9 @@
 package com.ouor.localchat.chat.run
 
+import android.util.Log
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
+import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.chat.BrowserPort
 import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.context.Untrusted
@@ -36,8 +38,7 @@ class ToolExecutor(
     private val attachments: AttachmentPort,
     private val browserPort: BrowserPort,
     private val handle: RunRegistry.RunHandle,
-    /** Narrowed by TurnRunner when a switch is turned off mid-run (audit #10). */
-    var tools: List<Tool>,
+    tools: List<Tool>,
     existingSources: List<Source>,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
     private val onState: (callKey: String, ToolCallState) -> Unit,
@@ -46,6 +47,19 @@ class ToolExecutor(
     data class Result(val block: ToolResultBlock, val state: ToolCallState, val handoff: HandoffRequest?)
 
     override val browser: BrowserEngine get() = engine.get()
+
+    /** Tools this turn may run; only ever narrowed ([narrow]). */
+    var tools: List<Tool> = tools
+        private set
+
+    /** Names dropped by [narrow]: a call to one is answered [TOOL_OFF], not "Unknown tool". */
+    private val turnedOff = HashSet<String>()
+
+    /** Audit #10: keeps only the tools named in [keep] (a switch was turned off mid-run). */
+    fun narrow(keep: Set<String>) {
+        tools.filter { it.name !in keep }.mapTo(turnedOff) { it.name }
+        tools = tools.filter { it.name in keep }
+    }
 
     private val sources = existingSources.associateBy { it.url }.toMutableMap()
     private var callKey: String? = null
@@ -66,7 +80,7 @@ class ToolExecutor(
         toolName = call.name
         startUrl = null
         val tool = tools.firstOrNull { it.name == call.name }
-            ?: return error(call, "Unknown tool: ${call.name}")
+            ?: return error(call, if (call.name in turnedOff) TOOL_OFF else "Unknown tool: ${call.name}")
         val args = try {
             Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }).jsonObject
         } catch (_: Exception) {
@@ -107,11 +121,15 @@ class ToolExecutor(
             throw e
         } catch (e: ToolError) {
             // App-written text: sent as is.
-            error(call, e.message ?: "Tool failed")
+            error(call, e.message ?: TOOL_FAILED)
+        } catch (e: PageError) {
+            // May carry page text (alert(), option labels, a thrown cookie): SE 4.
+            error(call, seal(e.message ?: TOOL_FAILED, lastTabId, startUrl))
         } catch (e: Exception) {
-            // PageError and anything else may carry page text (alert(), option labels, a thrown cookie): SE 4.
-            // No class name: R8 renames it in release builds.
-            error(call, seal(e.message ?: "Tool failed", lastTabId, startUrl))
+            // FB3 eng m5: an unplanned exception's text (a path, an internal state, a class name R8 renames) is not
+            // for the model or the user; it goes to the log only.
+            runCatching { Log.w("localchat", "tool ${call.name} failed", e) } // JVM tests have no android.util.Log
+            error(call, TOOL_FAILED)
         } finally {
             approvedPage = null
             if (lastTabId != null) browserPort.clearAiActivity(sessionId)
@@ -181,5 +199,7 @@ class ToolExecutor(
         /** 50 KB result cap (architecture 6.4). */
         private const val MAX_RESULT = 50_000
         const val SENSITIVE = "The tab is now on a sensitive page (banking, mail, accounts); its content was withheld."
+        const val TOOL_OFF = "The user turned this tool off."
+        const val TOOL_FAILED = "Tool failed"
     }
 }

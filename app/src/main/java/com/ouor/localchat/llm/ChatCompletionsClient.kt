@@ -59,7 +59,13 @@ class ChatCompletionsClient internal constructor(
      * Emits exactly one terminal event ([LlmEvent.Finished] or [LlmEvent.Failed]). Cancellation is
      * coroutine cancellation and closes the socket immediately.
      */
-    fun stream(target: LlmTarget, request: ChatRequest): Flow<LlmEvent> = flow {
+    fun stream(target: LlmTarget, request: ChatRequest): Flow<LlmEvent> = stream(target, request, side = false)
+
+    /**
+     * [side]: a side request (title, summary) may drop a rejected `thinking: disabled` too; a reasoning answer to
+     * those is just slower. The main reply never does (audit #7).
+     */
+    private fun stream(target: LlmTarget, request: ChatRequest, side: Boolean): Flow<LlmEvent> = flow {
         val url = target.url("chat/completions")
             ?: return@flow emit(LlmEvent.Failed(LlmError.Config(target.urlProblem()), partial = false))
         val maxRetries = target.maxRetries.coerceIn(0, 10)
@@ -77,7 +83,7 @@ class ChatCompletionsClient internal constructor(
             }
             if (!failure.partial && !strippedField) {
                 // R7: retry once without an optional field the server named in its 400.
-                val stripped = withoutRejectedField(body, failure.error)
+                val stripped = withoutRejectedField(body, failure.error, side)
                 if (stripped != null) {
                     body = stripped
                     strippedField = true
@@ -98,7 +104,7 @@ class ChatCompletionsClient internal constructor(
     suspend fun complete(target: LlmTarget, request: ChatRequest): LlmResult {
         val text = StringBuilder()
         var result: LlmResult = LlmResult.Failed(LlmError.Protocol("no terminal event"))
-        stream(target, request).collect { e ->
+        stream(target, request, side = true).collect { e ->
             when (e) {
                 is LlmEvent.TextDelta -> text.append(e.text)
                 is LlmEvent.Finished -> result = LlmResult.Ok(text.toString(), e.finishReason, e.usage)
@@ -187,13 +193,14 @@ class ChatCompletionsClient internal constructor(
      * R7: `stream_options` / `thinking` / `max_tokens` (or `max_completion_tokens`, as it may have been sent)
      * named (quoted) in a 400 and present in the request.
      */
-    private fun withoutRejectedField(body: ChatRequest, error: LlmError): ChatRequest? {
+    private fun withoutRejectedField(body: ChatRequest, error: LlmError, side: Boolean): ChatRequest? {
         if (error !is LlmError.BadRequest) return null
         val message = error.serverMessage ?: return null
         return when {
             body.streamOptions != null && named(message, "stream_options") -> body.copy(streamOptions = null)
-            // Audit #7: never drop DISABLED; DeepSeek-style servers read a missing `thinking` as ON.
-            body.thinking == Thinking.ENABLED && named(message, "thinking") -> body.copy(thinking = null)
+            // Audit #7: the main reply never drops DISABLED; DeepSeek-style servers read a missing `thinking` as ON.
+            // A side request (FB3 eng m4) may: a title that thinks first beats no title.
+            (body.thinking == Thinking.ENABLED || (side && body.thinking != null)) && named(message, "thinking") -> body.copy(thinking = null)
             body.maxTokens != null && (named(message, "max_tokens") || named(message, "max_completion_tokens")) ->
                 body.copy(maxTokens = null)
             else -> null

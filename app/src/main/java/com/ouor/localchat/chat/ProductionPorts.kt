@@ -88,9 +88,8 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
         sessions.forEach(engine::closeSessionTabs)
     }
 
-    // NonCancellable: a cancel landing after the tab opened would throw away its id, and nobody could close it.
-    override suspend fun openAiTab(sessionId: String, url: String): Int =
-        withContext(Dispatchers.Main.immediate + kotlinx.coroutines.NonCancellable) { engine.openAiTab(sessionId, url, hidden = true) }
+    override suspend fun openPrefetchTab(sessionId: String, url: String): Int =
+        withContext(Dispatchers.Main.immediate) { engine.openAiTab(sessionId, url, hidden = true) }
 
     override suspend fun close(tabId: Int) = withContext(Dispatchers.Main.immediate) { engine.close(tabId) }
 

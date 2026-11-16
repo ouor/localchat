@@ -67,7 +67,14 @@ class BrowserEngine @Inject constructor(
     private var hostActivity: Activity? = null
 
     private val _tabs = MutableStateFlow<List<TabInfo>>(emptyList())
+
+    /** Every tab, S-03 hidden link-prefetch tabs included (the run loop's own checks). */
     val tabs: StateFlow<List<TabInfo>> = _tabs.asStateFlow()
+
+    private val _visibleTabs = MutableStateFlow<List<TabInfo>>(emptyList())
+
+    /** [tabs] without hidden link-prefetch tabs: what the panel, tab list and get_tabs show. */
+    val visibleTabs: StateFlow<List<TabInfo>> = _visibleTabs.asStateFlow()
 
     private val _highlight = MutableStateFlow<Highlight?>(null)
 
@@ -124,8 +131,9 @@ class BrowserEngine @Inject constructor(
     fun openUserTab(url: String): Int = open(Owner.User, url)
 
     /**
-     * Throws [PageError] at [MAX_TABS]. A [hidden] tab (S-03 link prefetch) never shows in the panel or tab list
-     * and never becomes the chat's default AI tab; its opener must close it.
+     * Throws [PageError] at [MAX_TABS] visible tabs. A [hidden] tab (S-03 link prefetch) never shows in the panel or
+     * tab list, never counts toward [MAX_TABS] (its own cap is [TabRules.MAX_HIDDEN_TABS]) and never becomes the
+     * chat's default AI tab; its opener must close it.
      */
     @MainThread
     fun openAiTab(sessionId: String, url: String?, hidden: Boolean = false): Int {
@@ -155,7 +163,7 @@ class BrowserEngine @Inject constructor(
 
     /** The chat's own AI tabs, for its browser panel and preview (B-04). Any thread. */
     fun sessionTabs(sessionId: String): Flow<List<TabInfo>> =
-        tabs.map { list -> list.filter { it.owner == Owner.Ai(sessionId) } }.distinctUntilChanged()
+        visibleTabs.map { list -> list.filter { it.owner == Owner.Ai(sessionId) } }.distinctUntilChanged()
 
     /** [aiActivity] limited to the chat's own tabs: what its "AI is operating" bar shows (B-09 ②). Any thread. */
     fun sessionActivity(sessionId: String): Flow<Map<Int, String>> =
@@ -169,7 +177,8 @@ class BrowserEngine @Inject constructor(
     }
 
     private fun open(owner: Owner, url: String?, hidden: Boolean = false): Int {
-        if (byId.size >= MAX_TABS) throw PageError("Too many tabs are open ($MAX_TABS). Close unused tabs with close_tab.")
+        val hiddenCount = byId.values.count { it.hidden }
+        TabRules.limitError(hidden, byId.size - hiddenCount, hiddenCount)?.let { throw PageError(it) }
         val tab = BrowserTab(nextId++, context, owner, this)
         tab.hidden = hidden
         byId[tab.id] = tab
@@ -301,10 +310,11 @@ class BrowserEngine @Inject constructor(
         val h = host ?: return
         h.addView(w, full())
         // Screen off / dozing: no layout pass runs, so a new WebView would stay 0x0 (page innerWidth 0, no screenshots).
-        // Give it the host's size now (the display's when the host was never laid out); the next real pass agrees.
+        // Give it the host's size now (when the host was never laid out: the Activity window's, split screen
+        // included, else the display's); the next real pass agrees.
+        val win = hostActivity?.windowManager?.currentWindowMetrics?.bounds
         val dm = context.resources.displayMetrics
-        val width = h.width.takeIf { it > 0 } ?: dm.widthPixels
-        val height = h.height.takeIf { it > 0 } ?: dm.heightPixels
+        val (width, height) = TabRules.fallbackSize(h.width, h.height, win?.width(), win?.height(), dm.widthPixels, dm.heightPixels)
         w.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
         w.layout(0, 0, width, height)
     }
@@ -329,7 +339,8 @@ class BrowserEngine @Inject constructor(
             val tab = withContext(Dispatchers.Main.immediate) { aiTabFor(sessionId, tabId) }
             if (tab.control == Control.AI) {
                 withContext(Dispatchers.Main.immediate) {
-                    defaultAiTab[sessionId] = tab.id
+                    // A link-prefetch tab is read once and closed; the chat keeps its own default tab.
+                    if (!tab.hidden) defaultAiTab[sessionId] = tab.id
                     aiUsedAt[tab.id] = clock.now()
                     _aiActivity.value += (tab.id to toolName)
                 }
@@ -411,6 +422,17 @@ class BrowserEngine @Inject constructor(
     override fun onChanged(tab: BrowserTab) = publish()
 
     override fun onPrompt(prompt: BrowserPrompt) {
+        // Nobody sees a hidden link-prefetch tab: refuse at once, or the page would wait forever (FB3 ui m6).
+        val tab = byId[prompt.tabId]
+        if (tab?.hidden == true) {
+            when (prompt) {
+                is BrowserPrompt.Dialog -> tab.answerDialog(false, null)
+                is BrowserPrompt.FileChooser -> tab.answerFileChooser(prompt.id, null)
+                is BrowserPrompt.Permission -> tab.answerPermission(prompt.id, false)
+                is BrowserPrompt.Download -> tab.answerDownload(prompt.id, false)
+            }
+            return
+        }
         _prompts.value += prompt
     }
 
@@ -439,6 +461,7 @@ class BrowserEngine @Inject constructor(
         _tabs.value = byId.values.map { t ->
             TabInfo(t.id, t.title, t.url, t.owner, t.control, t.loading.value, t.webView.canGoBack(), t.webView.canGoForward(), t.thumbnail, t.hidden)
         }
+        _visibleTabs.value = _tabs.value.filterNot { it.hidden }
     }
 
     companion object {

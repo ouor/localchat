@@ -24,7 +24,7 @@ object GetTabs : Tool {
     override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome = onMain {
         val me = Owner.Ai(ctx.sessionId)
         val current = ctx.browser.currentAiTab(ctx.sessionId)
-        val tabs = ctx.browser.tabs.value
+        val tabs = ctx.browser.visibleTabs.value
         if (tabs.isEmpty()) return@onMain ToolOutcome("No tabs are open.")
         val lines = tabs.map { t ->
             val owner = when (t.owner) {
