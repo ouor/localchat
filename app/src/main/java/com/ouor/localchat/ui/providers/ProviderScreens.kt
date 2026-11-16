@@ -81,7 +81,6 @@ import com.ouor.localchat.ui.components.SectionLabel
 import com.ouor.localchat.ui.components.SettingsChevron
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.components.SettingsRow
-import com.ouor.localchat.ui.components.SettingsValue
 import com.ouor.localchat.ui.components.SourceBadge
 import com.ouor.localchat.ui.components.Stepper
 import com.ouor.localchat.ui.components.TextFieldKind
@@ -307,7 +306,7 @@ fun ModelDetailRoute(vm: ModelDetailViewModel, onBack: () -> Unit) {
  * [context] = (label, value) of the context window, only for the max-output row's warning.
  */
 @Composable
-private fun LimitRow(
+internal fun LimitRow(
     title: String, cap: Sourced<Int?>, auto: Sourced<Int?>, presets: List<Int>, range: IntRange,
     context: Pair<String, Int>?, divider: Boolean, onSet: (Int?) -> Unit,
 ) {
@@ -329,9 +328,9 @@ private fun LimitRow(
     }
     Box {
         Column {
-            SettingsRow(title, divider = divider, onClick = { menu = true }) {
+            // Value goes in the FB-2 value slot so the label keeps priority at 200% font.
+            SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
                 SourceBadge(cap.source)
-                SettingsValue(cap.value?.let { limitLabel(it, presets) } ?: "—")
                 Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
             }
             if (warn != null) Text(warn, Modifier.padding(start = 16.dp, end = 12.dp, bottom = 8.dp), style = LcTheme.text.caption, color = c.warning)

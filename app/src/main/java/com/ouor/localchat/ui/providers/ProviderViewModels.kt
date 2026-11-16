@@ -254,13 +254,13 @@ class ModelDetailViewModel @AssistedInject constructor(
             _state.update { it.copy(overrides = providers.overrides(endpointId, modelId), endpointName = name) }
             providers.models(endpointId).collect { list ->
                 val m = list.firstOrNull { it.modelId == modelId }
-                // TODO(FB-6): read ProviderRepository.autoCaps(endpointId, modelId) once track A lands it; until then the
-                // auto value is only known while no user override is set (last non-USER value seen on this screen).
+                // Re-read on every model change: a refresh can bring a new server value.
+                val auto = providers.autoCaps(endpointId, modelId)
                 _state.update { s ->
                     s.copy(
                         model = m,
-                        autoContext = m?.caps?.contextWindow?.takeIf { it.source != CapSource.USER } ?: s.autoContext,
-                        autoOutput = m?.caps?.maxOutputTokens?.takeIf { it.source != CapSource.USER } ?: s.autoOutput,
+                        autoContext = auto?.contextWindow ?: Sourced(null, CapSource.UNKNOWN),
+                        autoOutput = auto?.maxOutputTokens ?: Sourced(null, CapSource.UNKNOWN),
                     )
                 }
             }
