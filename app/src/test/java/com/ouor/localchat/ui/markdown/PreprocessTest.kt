@@ -95,4 +95,19 @@ class PreprocessTest {
         assertFalse(MathRules.isWellFormed("\\begin{matrix} a \\end{pmatrix}"))
         assertFalse(MathRules.isWellFormed("a}"))
     }
+
+    @Test fun `single line breaks become hard breaks`() {
+        assertEquals("• one  \n• two  \n• three", hardBreaks("• one\n• two\n• three"))
+        assertEquals("para one\n\npara two", hardBreaks("para one\n\npara two"))
+        assertEquals("already  \nbroken", hardBreaks("already  \nbroken"))
+        assertEquals("# Title\ntext", hardBreaks("# Title\ntext"))
+    }
+
+    @Test fun `code fences and tables stay as they are`() {
+        val code = "```kotlin\nval a = 1\nval b = 2\n```\nafter"
+        assertEquals(code, hardBreaks(code))
+        val table = "| a | b |\n|---|---|\n| 1 | 2 |"
+        assertEquals(table, hardBreaks(table))
+        assertEquals("text  \nmore\n\n| a |\n|---|", hardBreaks("text\nmore\n\n| a |\n|---|"))
+    }
 }

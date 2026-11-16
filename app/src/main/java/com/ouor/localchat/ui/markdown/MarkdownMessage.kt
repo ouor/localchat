@@ -124,7 +124,7 @@ private fun MarkdownBlock(
 ) {
     val c = LcTheme.colors
     val t = LcTheme.text
-    val parts = remember(markdown, sources.keys) { tokenizeInline(markdown, sources.keys) }
+    val parts = remember(markdown, sources.keys) { tokenizeInline(hardBreaks(markdown), sources.keys) }
     // R-03: decide per formula whether it renders; failures fall back to code-styled source.
     val mathOk = remember(parts, config) {
         parts.math.map { tex -> MathRules.isWellFormed(tex) && runCatching { (measurer.measure(MathRules.inline(tex), config, dark)?.widthPx ?: 0f) > 0f }.getOrDefault(false) }
