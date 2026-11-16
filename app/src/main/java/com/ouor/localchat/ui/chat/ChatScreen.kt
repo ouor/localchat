@@ -379,7 +379,7 @@ internal fun ChatScreen(
         ContextUsageCard(
             state.gaugePercent ?: 0,
             stringResource(R.string.ui_tokens, "%,d".format(state.usageTokens ?: 0)),
-            state.contextWindow?.let { "/ " + compact(it) } ?: "",
+            state.contextWindow?.let { "/ " + com.ouor.localchat.ui.providers.limitLabel(it, com.ouor.localchat.ui.providers.CONTEXT_PRESETS) } ?: "", // same "128K" as the limit menu
             stringResource(R.string.ui_context_note),
             if (chat.sessionId != null && !state.running) ({ contextCard = false; chat.compactNow() }) else null,
         )
