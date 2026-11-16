@@ -3,6 +3,7 @@ package com.ouor.localchat.chat.context
 import com.ouor.localchat.chat.AttachmentPayload
 import com.ouor.localchat.chat.ResolvedModel
 import com.ouor.localchat.core.model.AttachmentKind
+import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.MessageNode
@@ -108,6 +109,8 @@ object ContextAssembler {
             messages = messages,
             tools = input.tools.takeIf { it.isNotEmpty() }
                 ?.map { WireTool(WireFunction(it.name, it.description, it.parameters)) },
+            // FB-6: only a user-set max output is sent; server/built-in values stay the server's own default.
+            maxTokens = caps.maxOutputTokens.takeIf { it.source == CapSource.USER }?.value,
         ).withReasoning(input.model.reasoningWire, input.options.reasoning, effort)
     }
 

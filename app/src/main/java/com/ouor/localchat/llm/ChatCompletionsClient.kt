@@ -157,7 +157,7 @@ class ChatCompletionsClient internal constructor(
         }
     }
 
-    /** R7: `stream_options` / `thinking` named (quoted) in a 400 and present in the request. */
+    /** R7: `stream_options` / `thinking` / `max_tokens` named (quoted) in a 400 and present in the request. */
     private fun withoutRejectedField(body: ChatRequest, error: LlmError): ChatRequest? {
         if (error !is LlmError.BadRequest) return null
         val message = error.serverMessage ?: return null
@@ -165,6 +165,7 @@ class ChatCompletionsClient internal constructor(
         return when {
             body.streamOptions != null && named("stream_options") -> body.copy(streamOptions = null)
             body.thinking != null && named("thinking") -> body.copy(thinking = null)
+            body.maxTokens != null && named("max_tokens") -> body.copy(maxTokens = null)
             else -> null
         }
     }

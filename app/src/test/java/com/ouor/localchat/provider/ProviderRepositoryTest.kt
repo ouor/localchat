@@ -3,7 +3,9 @@ package com.ouor.localchat.provider
 import com.ouor.localchat.chat.MemoryDataStore
 import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.model.ApiKey
+import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.ChatErrorKind
+import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.core.model.ModelOverrides
 import com.ouor.localchat.core.model.PresetId
 import com.ouor.localchat.llm.ChatCompletionsClient
@@ -125,6 +127,47 @@ class ProviderRepositoryTest {
         repo.setEnabled(id, false)
         assertTrue(repo.allVisibleModels.first().isEmpty())
         repo.updateModel(id, "unknown", ModelOverrides(toolCalling = true)) // ignored
+    }
+
+    @Test
+    fun `FB-6 autoCaps ignores user overrides and reports server, built-in or unknown`() = runTest {
+        val id = repo.add(draft())
+        val server = AppJson.parseToJsonElement("""{"id":"s","context_length":131072,"max_output_tokens":8192}""") as kotlinx.serialization.json.JsonObject
+        dao.upsertModels(listOf(ModelRecord(id, "s", server).toEntity()))
+        repo.addManualModel(id, "gpt-4o")
+        repo.addManualModel(id, "mystery")
+        listOf("s", "gpt-4o", "mystery").forEach { repo.updateModel(id, it, ModelOverrides(contextWindow = 4096, maxOutputTokens = 1024)) }
+        assertEquals(CapSource.USER, repo.models(id).first().first().caps.contextWindow.source)
+
+        val s = repo.autoCaps(id, "s")!!
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), s.contextWindow)
+        assertEquals(Sourced<Int?>(8192, CapSource.SERVER), s.maxOutputTokens)
+        assertEquals(Sourced<Int?>(128_000, CapSource.DEFAULT), repo.autoCaps(id, "gpt-4o")!!.contextWindow)
+        val unknown = repo.autoCaps(id, "mystery")!!
+        assertEquals(Sourced<Int?>(null, CapSource.UNKNOWN), unknown.contextWindow)
+        assertEquals(Sourced<Int?>(null, CapSource.UNKNOWN), unknown.maxOutputTokens)
+        assertNull(repo.autoCaps(id, "absent"))
+    }
+
+    @Test
+    fun `FB-6 a user context window reaches the gauge and the compaction threshold on the next read`() = runTest {
+        val id = repo.add(draft())
+        val server = AppJson.parseToJsonElement("""{"id":"s","context_length":131072}""") as kotlinx.serialization.json.JsonObject
+        dao.upsertModels(listOf(ModelRecord(id, "s", server).toEntity()))
+        val port = com.ouor.localchat.chat.ProviderModelPort(repo, secrets)
+        val ref = repo.models(id).first().single().ref
+        // Gauge denominator: ChatViewModel reads allVisibleModels; compaction (TurnRunner, Compactor): ModelPort.resolve.
+        suspend fun gauge() = repo.allVisibleModels.first().single().caps.contextWindow
+        suspend fun threshold() = port.resolve(ref)!!.caps.contextWindow
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), gauge())
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), threshold())
+
+        repo.updateModel(id, "s", ModelOverrides(contextWindow = 32_768))
+        assertEquals(Sourced<Int?>(32_768, CapSource.USER), gauge())
+        assertEquals(Sourced<Int?>(32_768, CapSource.USER), threshold())
+
+        repo.resetModel(id, "s") // "자동" again
+        assertEquals(Sourced<Int?>(131072, CapSource.SERVER), threshold())
     }
 
     @Test
