@@ -172,7 +172,7 @@ internal fun ChatScreen(
     val scope = rememberCoroutineScope()
     val atBottom by remember { androidx.compose.runtime.derivedStateOf { !list.canScrollForward } }
     val lastSize = state.turns.lastOrNull()?.reply?.body?.blocks?.sumOf { (it as? com.ouor.localchat.core.model.TextBlock)?.text?.length ?: 1 }
-    LaunchedEffect(state.turns.size, lastSize) { if (atBottom && state.turns.isNotEmpty()) list.scrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE) }
+    LaunchedEffect(state.turns.size, lastSize) { if (atBottom && state.turns.isNotEmpty()) list.scrollToItem(state.turns.lastIndex, Int.MAX_VALUE) }
 
     val picks = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { composer.attach(it) }
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) composer.startVoice() }
@@ -238,7 +238,7 @@ internal fun ChatScreen(
                         }
                     }
                     if (!atBottom) ScrollToBottomButton(
-                        { scope.launch { list.animateScrollToItem(list.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE) } },
+                        { scope.launch { list.animateScrollToItem(state.turns.lastIndex.coerceAtLeast(0), Int.MAX_VALUE) } },
                         Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
                         hasNew = state.running,
                     )
