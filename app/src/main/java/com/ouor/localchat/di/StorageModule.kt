@@ -6,7 +6,16 @@ import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.dataStoreFile
 import com.ouor.localchat.core.model.AppSettings
+import androidx.room.Room
+import com.ouor.localchat.storage.AndroidKeyStoreKeySource
 import com.ouor.localchat.storage.AppSettingsSerializer
+import com.ouor.localchat.storage.SecretEntries
+import com.ouor.localchat.storage.SecretEntriesSerializer
+import com.ouor.localchat.storage.SecretKeySource
+import com.ouor.localchat.storage.db.AppDatabase
+import com.ouor.localchat.storage.db.dao.AttachmentDao
+import com.ouor.localchat.storage.db.dao.ChatDao
+import com.ouor.localchat.storage.db.dao.ProviderDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -18,7 +27,33 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object StorageModule {
 
-    // TODO(track B): AppDatabase (Room, exportSchema, no destructive fallback).
+    // No fallbackToDestructiveMigration (architecture 8.4).
+    @Provides
+    @Singleton
+    fun database(@ApplicationContext context: Context): AppDatabase =
+        Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.NAME).build()
+
+    @Provides
+    fun chatDao(db: AppDatabase): ChatDao = db.chatDao()
+
+    @Provides
+    fun attachmentDao(db: AppDatabase): AttachmentDao = db.attachmentDao()
+
+    @Provides
+    fun providerDao(db: AppDatabase): ProviderDao = db.providerDao()
+
+    @Provides
+    @Singleton
+    fun secretsDataStore(@ApplicationContext context: Context): DataStore<SecretEntries> =
+        // Unreadable secrets cannot be recovered anyway; start empty so the app still opens (keys re-entered).
+        DataStoreFactory.create(
+            serializer = SecretEntriesSerializer,
+            corruptionHandler = ReplaceFileCorruptionHandler { SecretEntries() },
+            produceFile = { context.dataStoreFile("secrets.json") },
+        )
+
+    @Provides
+    fun secretKeySource(source: AndroidKeyStoreKeySource): SecretKeySource = source
 
     @Provides
     @Singleton
