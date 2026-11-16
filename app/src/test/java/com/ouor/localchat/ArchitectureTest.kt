@@ -38,7 +38,7 @@ class ArchitectureTest {
         "chat" to listOf("ChatEngine.kt", "SessionRepository.kt", "DraftRepository.kt", "run/RunState.kt"),
         "provider" to listOf("ProviderRepository.kt", "Presets.kt"),
         "attach" to listOf("AttachmentIngest.kt"),
-        "browser" to listOf("BrowserEngine.kt"),
+        "browser" to listOf("BrowserEngine.kt", "BrowserPrompt.kt", "Highlight.kt"), // element types of its public flows
         "backup" to listOf("BackupService.kt"),
         "storage" to listOf("SettingsStore.kt"),
         "speech" to listOf("VoiceInput.kt", "ReadAloud.kt"),
@@ -93,6 +93,8 @@ class ArchitectureTest {
         assertEquals(listOf("Room types stay in storage users: storage.db.dao.ChatDao"), check("tools", "import com.ouor.localchat.storage.db.dao.ChatDao"))
         assertEquals(emptyList<String>(), check("ui", "import com.ouor.localchat.chat.run.Pause.Approval"))
         assertEquals(emptyList<String>(), check("ui", "import com.ouor.localchat.R"))
+        assertEquals(emptyList<String>(), check("ui", "import com.ouor.localchat.browser.DialogKind"))
+        assertEquals(emptyList<String>(), check("ui", "import com.ouor.localchat.browser.Highlight"))
         assertEquals(emptyList<String>(), check("core", "// see com.ouor.localchat.llm.X and android.os"))
         assertEquals(emptyList<String>(), check("chat", "const val A = \"com.ouor.localchat.action.STOP\""))
     }
