@@ -119,24 +119,22 @@ class ChatEngine @Inject constructor(
         session.id
     }
 
-    /** M-04: new sibling reply under the same user message. */
-    suspend fun regenerate(assistantId: String, model: ModelRef) = starting {
+    /** M-04: new sibling reply under the same user message, with the composer's current switches (not the old reply's). */
+    suspend fun regenerate(assistantId: String, model: ModelRef, options: GenOptions) = starting {
         val (old, body) = assistant(assistantId)
         if (!MessageTree.canRegenerate(body)) throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         checkIdle(old.sessionId)
         requireModel(model)
-        insertAndStart(old.sessionId, old.parentId, listOf(pending(old.sessionId, model, body.options, clock.now())), model)
+        insertAndStart(old.sessionId, old.parentId, listOf(pending(old.sessionId, model, options, clock.now())), model)
     }
 
     /** M-05: new sibling question plus a new reply. */
-    suspend fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) = starting {
+    suspend fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef, options: GenOptions) = starting {
         val old = store.node(userId)?.takeIf { it.body is MessageBody.User }
             ?: throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         if (text.isBlank() && attachmentIds.isEmpty()) throw ChatRejected(ChatRejected.Reason.EMPTY)
         checkIdle(old.sessionId)
         requireModel(model)
-        val options = store.nodes(old.sessionId).firstOrNull { it.parentId == userId && it.body is MessageBody.Assistant }
-            ?.let { (it.body as MessageBody.Assistant).options } ?: settings.settings.first().lastOptions
         val now = clock.now()
         val user = node(old.sessionId, Role.USER, MessageBody.User(text, attachmentIds), now)
         insertAndStart(old.sessionId, old.parentId, listOf(user, pending(old.sessionId, model, options, now + 1)), model)

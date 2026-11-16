@@ -13,6 +13,7 @@ import com.ouor.localchat.chat.run.RunPhase
 import com.ouor.localchat.core.MessageTree
 import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.MessageNode
+import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.provider.ProviderRepository
 import dagger.assisted.Assisted
@@ -159,10 +160,10 @@ class ChatViewModel @AssistedInject constructor(
     override fun stop() { sessionId?.let(engine::stop) }
     override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock, result: com.ouor.localchat.core.model.ToolResultBlock?) = engine.toolStep(block, result)
     override fun selectVersion(messageId: String) = launch { sessions.selectVersion(messageId) }
-    override fun regenerate(assistantId: String, model: ModelRef) = guarded { engine.regenerate(assistantId, model) }
+    override fun regenerate(assistantId: String, model: ModelRef, options: GenOptions) = guarded { engine.regenerate(assistantId, model, options) }
     override fun continueReply(assistantId: String) = guarded { engine.continueReply(assistantId) }
-    override fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) =
-        guarded { engine.editAndResend(userId, text, attachmentIds, model) }
+    override fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef, options: GenOptions) =
+        guarded { engine.editAndResend(userId, text, attachmentIds, model, options) }
     override fun resolve(resolution: Resolution) { sessionId?.let { engine.resolve(it, resolution) } }
     override fun retryWrites() = launch { sessions.retryPendingWrites() }
     override fun rename(title: String) = launch { sessionId?.let { sessions.rename(it, title) } }

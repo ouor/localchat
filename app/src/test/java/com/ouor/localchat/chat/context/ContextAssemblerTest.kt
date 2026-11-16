@@ -153,9 +153,24 @@ class ContextAssemblerTest {
     fun `reasoning switch uses the model wire`() {
         val off = ContextAssembler.build(input(listOf(user("u", "q"))))
         assertEquals("disabled", off.thinking?.type)
-        val on = ContextAssembler.build(input(listOf(user("u", "q")), options = GenOptions(reasoning = true, reasoningEffort = "high")))
+        val levels = model.copy(caps = caps().copy(reasoning = com.ouor.localchat.core.model.Sourced(
+            com.ouor.localchat.core.model.ReasoningSpec(listOf("high", "max"), "high", com.ouor.localchat.core.model.ReasoningWire.DEEPSEEK_THINKING),
+            com.ouor.localchat.core.model.CapSource.SERVER)))
+        val on = ContextAssembler.build(input(listOf(user("u", "q")), options = GenOptions(reasoning = true, reasoningEffort = "max")).copy(model = levels))
         assertEquals("enabled", on.thinking?.type)
-        assertEquals("high", on.reasoningEffort)
+        assertEquals("max", on.reasoningEffort)
+        // An effort another model offered falls back to this model's default.
+        val foreign = ContextAssembler.build(input(listOf(user("u", "q")), options = GenOptions(reasoning = true, reasoningEffort = "minimal")).copy(model = levels))
+        assertEquals("high", foreign.reasoningEffort)
+    }
+
+    @Test
+    fun `a model whose reasoning is switched off never reasons, whatever the options say`() {
+        val noReasoning = model.copy(caps = caps().copy(reasoning = com.ouor.localchat.core.model.Sourced(null, com.ouor.localchat.core.model.CapSource.USER)))
+        val req = ContextAssembler.build(input(listOf(user("u", "q")), options = GenOptions(reasoning = true, reasoningEffort = "high")).copy(model = noReasoning))
+        // ResolvedModel keeps the DeepSeek wire, so "off" is sent explicitly.
+        assertEquals("disabled", req.thinking?.type)
+        assertNull(req.reasoningEffort)
     }
 
     @Test

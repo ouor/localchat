@@ -317,7 +317,7 @@ internal fun ChatScreen(
                                     AssistantTurn(
                                         reply, state, cs.voice,
                                         onCopy = { text -> clipboardSet(context, text) },
-                                        onRegenerate = { cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) } },
+                                        onRegenerate = { cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref, cs.options) } },
                                         onContinue = { chat.continueReply(reply.node.id) },
                                         onVersion = chat::selectVersion,
                                         onSources = { sourcesOf = reply },
@@ -330,7 +330,7 @@ internal fun ChatScreen(
                                         onSaveFile = { a -> saving = a; saveDoc.launch(a.name) },
                                         onErrorAction = { a ->
                                             when (a) {
-                                                ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref) }
+                                                ErrorAction.Retry -> cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref, cs.options) }
                                                 ErrorAction.ChangeKey -> reply.body.model?.let { nav.editEndpoint(it.endpointId) }
                                                 ErrorAction.TopUp -> reply.body.model?.let { nav.editEndpoint(it.endpointId) }
                                                 ErrorAction.OpenModelSettings -> reply.body.model?.let { nav.modelDetail(it.endpointId, it.modelId) }

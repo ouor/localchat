@@ -102,11 +102,11 @@ class AgentLoopTest {
 
         h.llm.results.addLast(LlmResult.Ok("关于月球的事实", "stop", null))
         h.llm.text("b")
-        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL)
+        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL, GenOptions())
         advanceUntilIdle()
         val question = h.store.messages.values.first { it.body is MessageBody.User }
         h.llm.text("c")
-        h.engine.editAndResend(question.id, "Facts about Venus", emptyList(), TEST_MODEL)
+        h.engine.editAndResend(question.id, "Facts about Venus", emptyList(), TEST_MODEL, GenOptions())
         advanceUntilIdle()
 
         assertEquals(1, h.llm.completeRequests.size)
@@ -544,7 +544,7 @@ class AgentLoopTest {
         advanceUntilIdle()
         val first = h.store.messages.values.last()
         h.llm.text("second")
-        h.engine.regenerate(first.id, TEST_MODEL)
+        h.engine.regenerate(first.id, TEST_MODEL, GenOptions())
         advanceUntilIdle()
         val user = h.store.messages.getValue(first.parentId!!)
         val second = h.store.messages.getValue(user.selectedChildId!!)
@@ -723,6 +723,25 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `regenerate and edit-resend use the switches passed now, not the old reply's`() = runTest {
+        val h = Harness(this)
+        h.llm.text("a")
+        h.engine.send(null, draft("q"), GenOptions(browser = true, search = true, reasoning = true), TEST_MODEL)
+        advanceUntilIdle()
+        fun lastOptions() = (h.store.messages.values.last { it.body is MessageBody.Assistant }.body as MessageBody.Assistant).options
+        assertTrue(lastOptions().browser)
+        h.llm.text("b")
+        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL, GenOptions())
+        advanceUntilIdle()
+        assertEquals(GenOptions(), lastOptions())
+        val question = h.store.messages.values.first { it.body is MessageBody.User }
+        h.llm.text("c")
+        h.engine.editAndResend(question.id, "q2", emptyList(), TEST_MODEL, GenOptions(search = true))
+        advanceUntilIdle()
+        assertEquals(GenOptions(search = true), lastOptions())
+    }
+
+    @Test
     fun `link prefetch survives a tab that cannot be opened`() = runTest {
         val page = FakeTool("page_text")
         val h = Harness(this, tools = listOf(page), models = FakeModelPort(caps(tools = false)))
@@ -881,7 +900,7 @@ class AgentLoopTest {
         assertNull(h.llm.requests.single().tools)
 
         h.llm.text("again")
-        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL)
+        h.engine.regenerate(h.store.messages.values.last().id, TEST_MODEL, GenOptions())
         advanceUntilIdle()
         assertEquals(1, h.browser.opened.size)
         assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)

@@ -76,6 +76,14 @@ data class ComposerUiState(
 ) {
     val canSend: Boolean get() = !running && model != null && (text.isNotBlank() || attachments.isNotEmpty()) &&
         attachments.none { it.state is PrepState.Failed }
+
+    /** What the switches show now; send, regenerate and edit-resend all use this, never an old reply's options. */
+    val options: GenOptions get() = GenOptions(
+        reasoning = reasoning.on,
+        reasoningEffort = if (reasoning.on) effort else null,
+        search = search.on,
+        browser = browser.on,
+    )
 }
 
 sealed interface ComposerEffect {
@@ -124,7 +132,8 @@ class ComposerViewModel @AssistedInject constructor(
             ?: if (wanted == null) models.maxByOrNull { it.lastUsedAt ?: 0L } else null
         val caps = model?.caps
         val reasoningSpec = caps?.reasoning?.value
-        val alwaysOn = reasoningSpec?.wire == ReasoningWire.ALWAYS_ON
+        // An EFFORT model has no "off" on the wire: omitting reasoning_effort means the server's default effort.
+        val alwaysOn = reasoningSpec?.wire == ReasoningWire.ALWAYS_ON || reasoningSpec?.wire == ReasoningWire.EFFORT
         val tools = caps?.toolCalling?.value == true
         val o = app.lastOptions
         ComposerUiState(
@@ -235,12 +244,7 @@ class ComposerViewModel @AssistedInject constructor(
         if (atts.any { it.state is PrepState.Preparing }) { local.update { it.copy(waiting = true) }; return }
         val issues = ingest.validate(atts.filter { it.name.isNotEmpty() }, model.caps).issues
         if (issues.any { it.kind == ValidationIssue.Kind.IMAGES_UNSUPPORTED }) { local.update { it.copy(imageIssue = true) }; return }
-        val options = GenOptions(
-            reasoning = s.reasoning.on,
-            reasoningEffort = if (s.reasoning.on) s.effort else null,
-            search = s.search.on,
-            browser = s.browser.on,
-        )
+        val options = s.options
         val draft = Draft(key, text.value.trim(), atts.map { it.id }, System.currentTimeMillis())
         viewModelScope.launch {
             try {
