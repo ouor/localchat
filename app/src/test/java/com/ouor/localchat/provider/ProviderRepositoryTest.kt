@@ -1,6 +1,6 @@
 package com.ouor.localchat.provider
 
-import androidx.datastore.core.DataStore
+import com.ouor.localchat.chat.MemoryDataStore
 import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.model.ApiKey
 import com.ouor.localchat.core.model.ChatErrorKind
@@ -28,37 +28,10 @@ import javax.crypto.KeyGenerator
 
 class ProviderRepositoryTest {
 
-    /** In-memory ProviderDao with the same semantics (upsert by key, CASCADE on endpoint delete). */
-    private class FakeDao : ProviderDao {
-        val eps = MutableStateFlow<Map<String, EndpointEntity>>(emptyMap())
-        val models = MutableStateFlow<Map<Pair<String, String>, ModelEntity>>(emptyMap())
-        override fun observeEndpoints() = eps.map { m -> m.values.sortedWith(compareBy({ it.sortOrder }, { it.createdAt })) }
-        override suspend fun endpoint(id: String) = eps.value[id]
-        override suspend fun upsertEndpoint(endpoint: EndpointEntity) { eps.value += endpoint.id to endpoint }
-        override suspend fun deleteEndpoint(id: String) {
-            eps.value -= id
-            models.value = models.value.filterKeys { it.first != id }
-        }
-        override fun observeModels(endpointId: String) =
-            models.map { m -> m.values.filter { it.endpointId == endpointId }.sortedBy { it.modelId } }
-        override fun observeAllModels() = models.map { m -> m.values.sortedWith(compareBy({ it.endpointId }, { it.modelId })) }
-        override suspend fun model(endpointId: String, modelId: String) = models.value[endpointId to modelId]
-        override suspend fun upsertModels(models: List<ModelEntity>) {
-            this.models.value += models.associateBy { it.endpointId to it.modelId }
-        }
-        override suspend fun deleteModel(endpointId: String, modelId: String) { models.value -= endpointId to modelId }
-    }
-
-    private class MemoryStore<T>(initial: T) : DataStore<T> {
-        val state = MutableStateFlow(initial)
-        override val data = state
-        override suspend fun updateData(transform: suspend (t: T) -> T): T = transform(state.value).also { state.value = it }
-    }
-
     private val server = FakeOpenAiServer()
-    private val dao = FakeDao()
+    private val dao = FakeProviderDao()
     private val aes = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
-    private val secrets = SecretStore(MemoryStore(SecretEntries())) { aes }
+    private val secrets = SecretStore(MemoryDataStore(SecretEntries())) { aes }
     private var now = 1_000L
     private val repo = ProviderRepository(ChatCompletionsClient(OkHttpClient(), AppJson), dao, secrets) { now }
 
