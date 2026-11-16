@@ -27,6 +27,9 @@ import java.security.SecureRandom
  */
 object PageScript {
 
+    // SE 17: the page can find this key (getOwnPropertyNames) and pre-define a fake API for its own document, so
+    // page-reported values (sensitive, formMethod, labels) are only as trustworthy as that page. The page cannot
+    // reach the other layers: agent.js type() re-checks the live element, and approvals are asked app-side.
     private val key: String = "__lc" + ByteArray(8).also(SecureRandom()::nextBytes).joinToString("") { "%02x".format(it) }
     private val keyJs = JsonPrimitive(key).toString()
 

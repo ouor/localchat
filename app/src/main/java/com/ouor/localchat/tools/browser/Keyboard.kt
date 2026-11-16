@@ -6,7 +6,6 @@ import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.browser.script.FocusResult
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.tools.ApprovalMode
-import com.ouor.localchat.tools.ApprovalRequest
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
@@ -17,7 +16,10 @@ import com.ouor.localchat.tools.params
 import com.ouor.localchat.tools.string
 import kotlinx.serialization.json.JsonObject
 
-/** Native key events to the focused element (trusted). Enter inside a POST form asks first (B-S2). */
+/**
+ * Native key events to the focused element (trusted). Any key into a password/OTP/card field or a frame is
+ * refused (B-S1, SE 1); Enter/Space on a control that a click would need approval for asks first (B-S2, SE 8).
+ */
 object Keyboard : Tool {
     override val name = "keyboard"
     override val groups = setOf(ToolGroup.BROWSER)
@@ -38,13 +40,10 @@ object Keyboard : Tool {
         val (code, meta) = parse(key) ?: throw ToolError("Unknown key '$key'. Use names like Enter, Tab, Escape, ArrowDown, Backspace, a, Control+A.")
         return onMain {
             val tab = ctx.tabFor(args)
-            if (code == KeyEvent.KEYCODE_ENTER) {
-                val focused = PageScript.call<FocusResult>(tab, "focusInfo").info
-                IrreversibleAction.reasonForEnter(focused)?.let { reason ->
-                    val label = focused?.label()
-                    if (!ctx.requireApproval(ApprovalRequest(name, "Enter in $label", tab.url, reason = reason))) return@onMain ToolOutcome.DENIED
-                }
-            }
+            val focus = PageScript.call<FocusResult>(tab, "focusInfo")
+            guardInput(focus.info, focus.sensitive)
+            val reason = IrreversibleAction.reasonForKey(code == KeyEvent.KEYCODE_ENTER, code == KeyEvent.KEYCODE_SPACE, focus.info)
+            if (!ctx.guardActivate(name, tab, reason, "$key on ${focus.info?.label()}")) return@onMain ToolOutcome.DENIED
             tab.key(code, meta)
             ToolOutcome("Pressed $key. ${settle(tab)}", summary = key)
         }

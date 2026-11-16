@@ -17,7 +17,8 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * Native trusted tap at the element centre when elementFromPoint lands on it, JS click() otherwise
- * (architecture 7.4). POST submits and risky labels ask the user first (B-S2).
+ * (architecture 7.4). POST submits, risky labels and frames ask the user first (B-S2); the target is located
+ * again right before the tap and must still be the approved one (SE 7).
  */
 object Click : Tool {
     override val name = "click"
@@ -40,11 +41,16 @@ object Click : Tool {
             val tab = ctx.tabFor(args)
             var at = locate(tab, target)
             if (at.disabled) throw ToolError("${at.info.label()} is disabled.")
-            IrreversibleAction.reasonForClick(at.info)?.let { reason ->
-                if (!ctx.requireApproval(ApprovalRequest(name, at.info.label(), tab.url, reason = reason))) return@onMain ToolOutcome.DENIED
-                at = locate(tab, target) // the page may have moved while the user decided
-            }
+            val reason = IrreversibleAction.reasonForClick(at.info)
+            val label = at.info.label()
+            if (!ctx.guardActivate(name, tab, reason, label)) return@onMain ToolOutcome.DENIED
+            if (reason != null) at = locate(tab, target) // scroll back to it after the approval wait
             ctx.highlight(tab, at, R.string.browser_highlight_click)
+            // SE 7: the page may have moved or swapped the element while the user decided or the outline showed.
+            at = locate(tab, target, scroll = false)
+            if (at.info.label() != label || IrreversibleAction.reasonForClick(at.info) != reason) {
+                throw ToolError("The element changed before the click. Take a new snapshot and try again.")
+            }
             val native = at.hit && tab.tap(at.cx, at.cy, at.innerWidth)
             if (!native) tolerateDialog(tab) { PageScript.callJson(tab, "click", targetArgs(target)) }
             ToolOutcome("Clicked ${at.info.label()}. ${settle(tab)}", summary = at.info.label())

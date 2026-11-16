@@ -33,9 +33,12 @@ object GetTabs : Tool {
                 else -> "[other chat]"
             }
             val mark = if (t.id == current) " [current]" else ""
-            // B-S3: a sensitive tab shows its domain only.
-            val page = if (ctx.browser.sensitiveUrls.isSensitive(t.url)) "(sensitive site: ${SensitiveUrls.hostOf(t.url)})"
-            else "\"${t.title}\" ${t.url}"
+            // B-S3: a sensitive tab shows its domain only; SE 21: so does a user's tab (B-S6: not the AI's to read).
+            val page = when {
+                ctx.browser.sensitiveUrls.isSensitive(t.url) -> "(sensitive site: ${SensitiveUrls.hostOf(t.url)})"
+                t.owner == Owner.User -> "(user's tab: ${SensitiveUrls.hostOf(t.url) ?: "no site"})"
+                else -> "\"${t.title}\" ${t.url}"
+            }
             "- tab ${t.id} $owner$mark $page"
         }
         ToolOutcome(lines.joinToString("\n"), summary = "${tabs.size} tabs")

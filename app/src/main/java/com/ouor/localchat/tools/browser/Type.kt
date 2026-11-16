@@ -2,11 +2,9 @@ package com.ouor.localchat.tools.browser
 
 import com.ouor.localchat.R
 import com.ouor.localchat.browser.safety.IrreversibleAction
-import com.ouor.localchat.browser.safety.SensitiveFields
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.TypeResult
 import com.ouor.localchat.tools.ApprovalMode
-import com.ouor.localchat.tools.ApprovalRequest
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
@@ -48,14 +46,10 @@ object Type : Tool {
         return onMain {
             val tab = ctx.tabFor(args)
             val at = locate(tab, target)
-            if (at.sensitive || SensitiveFields.isSensitive(at.info)) {
-                throw ToolError("Refused: ${at.info.label()} is a password, one-time-code or card field. Only the user may fill it; use request_handoff.")
-            }
+            guardInput(at.info, at.sensitive)
             if (!at.editable) throw ToolError("${at.info.label()} is not a text field.")
-            if (tab.url.startsWith("http://", ignoreCase = true)) {
-                val ok = ctx.requireApproval(ApprovalRequest(name, at.info.label(), tab.url, reason = IrreversibleAction.Reason.INSECURE_INPUT))
-                if (!ok) return@onMain ToolOutcome.DENIED
-            }
+            val insecure = if (tab.url.startsWith("http://", ignoreCase = true)) IrreversibleAction.Reason.INSECURE_INPUT else null
+            if (!ctx.guardActivate(name, tab, insecure, at.info.label())) return@onMain ToolOutcome.DENIED
             ctx.highlight(tab, at, R.string.browser_highlight_type)
             val r = PageScript.call<TypeResult>(tab, "type", targetArgs(target) { put("text", text); put("clear", clear) })
             ToolOutcome("Typed into ${at.info.label()}. Value now: \"${r.value}\"${dialogSuffix(tab)}", summary = at.info.label())

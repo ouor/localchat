@@ -112,7 +112,7 @@ class SafetyTest {
     fun `harmless labels and long text pass`() {
         listOf("Next", "Search", "Sort by price", "Ordered list", "Reposition", "Sender settings", "다음", "검색")
             .forEach { assertNull(it, IrreversibleAction.reasonForClick(button(it))) }
-        val article = "How to delete a git branch locally and remotely — a complete guide for beginners"
+        val article = "How to rename a git branch locally and remotely — a complete guide for beginners"
         assertNull(IrreversibleAction.reasonForClick(button(article, tag = "a", role = "link")))
         assertNull(IrreversibleAction.reasonForClick(ElementInfo(tag = "div", name = "Delete")))
     }
@@ -133,5 +133,52 @@ class SafetyTest {
         val out = CookieMasker.mask("x abcdef123456 y ko a+b=cdefg z", header)
         assertEquals("x [cookie] y ko [cookie] z", out)
         assertEquals("same", CookieMasker.mask("same", null))
+    }
+
+    // --- review fixes (track-c.md 8)
+
+    @Test
+    fun `input is refused into sensitive fields and frames (SE 1)`() {
+        assertTrue(SensitiveFields.refusesInput(field(type = "password"), scriptSensitive = false))
+        assertTrue(SensitiveFields.refusesInput(field(), scriptSensitive = true))
+        assertTrue(SensitiveFields.refusesInput(ElementInfo(tag = "iframe"), scriptSensitive = false))
+        assertFalse(SensitiveFields.refusesInput(field(nameAttr = "q"), scriptSensitive = false))
+        assertFalse(SensitiveFields.refusesInput(null, scriptSensitive = false))
+    }
+
+    @Test
+    fun `enter and space on a risky control ask like a click (SE 8)`() {
+        val delete = button("Delete account")
+        assertEquals(Reason.RISKY_KEYWORD, IrreversibleAction.reasonForKey(enter = true, space = false, focused = delete))
+        assertEquals(Reason.RISKY_KEYWORD, IrreversibleAction.reasonForKey(enter = false, space = true, focused = delete))
+        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForKey(enter = true, space = false, focused = field().copy(formMethod = "post")))
+        assertNull(IrreversibleAction.reasonForKey(enter = false, space = false, focused = delete)) // Tab, arrows ...
+        assertNull(IrreversibleAction.reasonForKey(enter = true, space = false, focused = button("Next")))
+        assertNull(IrreversibleAction.reasonForKey(enter = true, space = false, focused = null))
+    }
+
+    @Test
+    fun `frames need approval and long labels are checked from the start (SE 7, SE 18)`() {
+        assertEquals(Reason.FRAME, IrreversibleAction.reasonForClick(ElementInfo(tag = "iframe")))
+        val padded = "결제하기 " + "x".repeat(80)
+        assertEquals(Reason.RISKY_KEYWORD, IrreversibleAction.reasonForClick(button(padded)))
+    }
+
+    @Test
+    fun `unparseable web urls fail closed and lenient hosts parse (SE 20)`() {
+        assertTrue(urls.isSensitive("https://bad host/x"))
+        assertFalse(urls.isSensitive("about:blank"))
+        assertEquals("my_host.example", SensitiveUrls.hostOf("https://my_host.example/"))
+    }
+
+    @Test
+    fun `json escaped cookie values are masked (SE 19)`() {
+        assertEquals("""{"v":"[cookie]"}""", CookieMasker.mask("""{"v":"abc\\def1"}""", "t=abc\\def1"))
+    }
+
+    @Test
+    fun `added built-in domains (SE 28)`() {
+        listOf("https://docs.google.com/document/d/1", "https://drive.google.com/", "https://signin.aws.amazon.com/",
+            "https://login.coupang.com/", "https://paypal.me/x").forEach { assertTrue(it, urls.isSensitive(it)) }
     }
 }

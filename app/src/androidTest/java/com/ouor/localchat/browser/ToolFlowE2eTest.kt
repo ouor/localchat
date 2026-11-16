@@ -57,6 +57,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -307,6 +309,73 @@ class ToolFlowE2eTest {
         assertTrue(modelRequests().first().contains("Page /p3 body text"))
     }
 
+    @Test
+    fun keyboardIsRefusedInPasswordFieldAndFrames() {
+        llm.enqueue(
+            Scenario.toolCall("open_tab", """{"url":"${url("/login")}"}"""),
+            Scenario.toolCall("click", """{"target":"#pw"}"""),
+            Scenario.toolCall("keyboard", """{"key":"a"}"""),
+            Scenario.toolCall("click", """{"target":"#f"}"""), // opaque frame: approval (denied)
+            Scenario.text("done"),
+        )
+        val sid = send("login")
+        val frame = awaitPause(sid) as Pause.Approval
+        assertEquals("FRAME", frame.request.reason?.name)
+        engine.resolve(sid, Resolution.ApprovalAnswer(frame.id, allow = false))
+        val reply = awaitEnd(sid)
+        assertEquals(reply.results().joinToString { it.content }, listOf(ToolCallState.DONE, ToolCallState.DONE, ToolCallState.FAILED, ToolCallState.DENIED), reply.calls().map { it.state })
+        assertTrue(reply.results()[2].content, "Refused" in reply.results()[2].content)
+    }
+
+    @Test
+    fun enterOnFocusedRiskyButtonAsks() {
+        llm.enqueue(
+            Scenario.toolCall("open_tab", """{"url":"${url("/danger")}"}"""),
+            Scenario.toolCall("keyboard", """{"key":"Enter"}"""),
+            Scenario.toolCall("keyboard", """{"key":"Space"}"""),
+            Scenario.text("done"),
+        )
+        val sid = send("danger")
+        repeat(2) {
+            val p = awaitPause(sid) as Pause.Approval
+            assertEquals("keyboard", p.request.toolName)
+            assertEquals("RISKY_KEYWORD", p.request.reason?.name)
+            engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = false))
+        }
+        val reply = awaitEnd(sid)
+        assertEquals(listOf(ToolCallState.DONE, ToolCallState.DENIED, ToolCallState.DENIED), reply.calls().map { it.state })
+    }
+
+    @Test
+    fun getTabsShowsOnlyTheDomainOfUserTabs() {
+        runBlocking(Dispatchers.Main) { browser.openUserTab(url("/private-wiki?token=abc123")) }
+        llm.enqueue(Scenario.toolCall("get_tabs", "{}"), Scenario.text("done"))
+        val reply = awaitEnd(send("tabs"))
+        val out = reply.results().single().content
+        assertTrue(out, "(user's tab: localhost)" in out)
+        assertFalse(out, "token" in out || "private-wiki" in out)
+    }
+
+    @Test
+    fun acquireAiTabMarksActivityAndWaitsForControl() = runBlocking<Unit> {
+        val tab = browser.acquireAiTab("s1", null, "snapshot")
+        assertEquals("snapshot", browser.aiActivity.value[tab.id])
+        browser.setControl(tab.id, Control.USER) // from a worker thread: posted to main (F-10)
+        withTimeout(5_000) { browser.tabs.first { l -> l.any { it.id == tab.id && it.control == Control.USER } } }
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val waiting = async(Dispatchers.Default) {
+            browser.acquireAiTab("s1", tab.id, "click", onUserControl = { events += "user $it" }, onResumed = { events += "resumed" })
+        }
+        withTimeout(5_000) { while (events.isEmpty()) delay(50) }
+        assertFalse(waiting.isCompleted)
+        browser.setControl(tab.id, Control.AI)
+        assertEquals(tab.id, withTimeout(5_000) { waiting.await() }.id)
+        assertEquals(listOf("user ${tab.id}", "resumed"), events.toList())
+        assertEquals("click", browser.aiActivity.value[tab.id])
+        browser.clearAiActivity("s1")
+        withTimeout(5_000) { browser.aiActivity.first { tab.id !in it } }
+    }
+
     /** Chat request bodies sent to the fake model so far. */
     private fun modelRequests(): List<String> {
         val out = mutableListOf<String>()
@@ -324,6 +393,10 @@ class ToolFlowE2eTest {
             "/start" to """<!doctype html><title>Start</title><a id="go" href="/next">Next page</a>
                 <p id="c"></p><script>document.getElementById('c').textContent = 'cookie: ' + document.cookie</script>""",
             "/next" to "<!doctype html><title>Next</title><p>Page /next body text</p>",
+            "/login" to """<!doctype html><title>Login</title><input id="user"><input id="pw" type="password">
+                <iframe id="f" src="data:text/html,<button>Pay</button>" style="width:300px;height:80px"></iframe>""",
+            "/danger" to """<!doctype html><title>Danger</title><button id="del" onclick="this.textContent='gone'">Delete account</button>
+                <script>document.getElementById('del').focus()</script>""",
             "/form" to """<!doctype html><title>Form</title>
                 <button id="plain" onclick="this.textContent='pressed'">Show more</button>
                 <form method="post" action="/submit"><input id="q" name="q"><button id="send" type="submit">Send</button></form>

@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.MainThread
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -36,8 +37,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Owns every WebView tab (public surface, architecture 7.1, 10.2). Main thread only, except the suspend
- * functions, which switch to Main themselves. WebViews outlive Activities: they live in the host container
+ * Owns every WebView tab (public surface, architecture 7.1, 10.2). Threads (F-10): methods without a result
+ * and suspend functions may be called from any thread; methods that return a tab, id or WebView are
+ * [MainThread] (lint WrongThread checks callers). StateFlows may be read anywhere. WebViews outlive Activities: they live in the host container
  * at the Activity root ([attachHost], Phase 0 spike (b)) and ui.browser.BrowserSurface borrows them
  * ([unpark] / [park]). Never calls pauseTimers()/onPause().
  */
@@ -107,9 +109,11 @@ class BrowserEngine @Inject constructor(
 
     // ---------- tabs
 
+    @MainThread
     fun openUserTab(url: String): Int = open(Owner.User, url)
 
     /** Throws [PageError] at [MAX_TABS]. */
+    @MainThread
     fun openAiTab(sessionId: String, url: String?): Int = open(Owner.Ai(sessionId), url).also { defaultAiTab[sessionId] = it }
 
     private fun open(owner: Owner, url: String?): Int {
@@ -125,12 +129,14 @@ class BrowserEngine @Inject constructor(
 
     /** B-04 hand a tab to the AI or take it back. */
     fun setOwner(tabId: Int, owner: Owner) {
-        val tab = byId[tabId] ?: return
-        tab.owner = owner
-        tab.control = Control.AI
-        defaultAiTab.values.removeAll { it == tabId }
-        if (owner is Owner.Ai) defaultAiTab[owner.sessionId] = tabId
-        publish()
+        onMain {
+            val tab = byId[tabId] ?: return@onMain
+            tab.owner = owner
+            tab.control = Control.AI
+            defaultAiTab.values.removeAll { it == tabId }
+            if (owner is Owner.Ai) defaultAiTab[owner.sessionId] = tabId
+            publish()
+        }
     }
 
     /**
@@ -138,42 +144,45 @@ class BrowserEngine @Inject constructor(
      * the run loop calls it from a worker (handoff), and [publish] reads WebView state, which is main-only.
      */
     fun setControl(tabId: Int, control: Control) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            main.post { setControl(tabId, control) }
-            return
+        onMain {
+            byId[tabId]?.control = control
+            publish()
         }
-        byId[tabId]?.control = control
-        publish()
     }
 
     fun close(tabId: Int) {
-        val tab = byId.remove(tabId) ?: return
-        defaultAiTab.values.removeAll { it == tabId }
-        tab.cancelPrompts()
-        (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
-        tab.webView.destroy()
-        _aiActivity.value -= tabId
-        if (_highlight.value?.tabId == tabId) _highlight.value = null
-        publish()
+        onMain {
+            val tab = byId.remove(tabId) ?: return@onMain
+            defaultAiTab.values.removeAll { it == tabId }
+            tab.cancelPrompts()
+            (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
+            tab.webView.destroy()
+            _aiActivity.value -= tabId
+            if (_highlight.value?.tabId == tabId) _highlight.value = null
+            publish()
+        }
     }
 
     /** For ui.browser.BrowserSurface and tools. Throws NoSuchElementException for a closed tab. */
+    @MainThread
     fun tab(tabId: Int): BrowserTab = byId[tabId] ?: throw NoSuchElementException("tab $tabId")
 
-    fun navigate(tabId: Int, url: String) { byId[tabId]?.load(url) }
-    fun goBack(tabId: Int) { byId[tabId]?.goBack() }
-    fun goForward(tabId: Int) { byId[tabId]?.goForward() }
-    fun reload(tabId: Int) { byId[tabId]?.reload() }
+    fun navigate(tabId: Int, url: String) = onMain { byId[tabId]?.load(url) }
+    fun goBack(tabId: Int) = onMain { byId[tabId]?.goBack() }
+    fun goForward(tabId: Int) = onMain { byId[tabId]?.goForward() }
+    fun reload(tabId: Int) = onMain { byId[tabId]?.reload() }
 
     /** B-07. */
     fun clearData(cookies: Boolean, cache: Boolean, storage: Boolean) {
-        if (cookies) CookieManager.getInstance().run { removeAllCookies(null); flush() }
-        if (storage) WebStorage.getInstance().deleteAllData()
-        if (cache) {
-            // clearCache is per-process; any WebView will do.
-            val w = byId.values.firstOrNull()?.webView ?: WebView(context)
-            w.clearCache(true)
-            if (byId.isEmpty()) w.destroy()
+        onMain {
+            if (cookies) CookieManager.getInstance().run { removeAllCookies(null); flush() }
+            if (storage) WebStorage.getInstance().deleteAllData()
+            if (cache) {
+                // clearCache is per-process; any WebView will do.
+                val w = byId.values.firstOrNull()?.webView ?: WebView(context)
+                w.clearCache(true)
+                if (byId.isEmpty()) w.destroy()
+            }
         }
     }
 
@@ -187,6 +196,7 @@ class BrowserEngine @Inject constructor(
      * WebView stays attached there at real size so timers, trusted taps and screenshots work while the panel
      * is closed (Phase 0 spike (b)).
      */
+    @MainThread
     fun attachHost(activity: Activity, container: FrameLayout) {
         host = container
         hostActivity = activity
@@ -197,6 +207,7 @@ class BrowserEngine @Inject constructor(
     }
 
     /** MainActivity.onDestroy: keep the WebViews, drop the Activity. */
+    @MainThread
     fun detachHost(activity: Activity) {
         if (hostActivity !== activity) return
         byId.values.forEach { tab ->
@@ -208,6 +219,7 @@ class BrowserEngine @Inject constructor(
     }
 
     /** BrowserSurface takes the WebView into its panel. */
+    @MainThread
     fun unpark(tabId: Int): WebView {
         val w = tab(tabId).webView
         (w.parent as? ViewGroup)?.removeView(w)
@@ -217,11 +229,13 @@ class BrowserEngine @Inject constructor(
 
     /** BrowserSurface gives the WebView back to the host container. */
     fun park(tabId: Int) {
-        val t = byId[tabId] ?: return
-        val w = t.webView
-        if (t.refreshThumbnail()) publish() // last frame the user saw
-        (w.parent as? ViewGroup)?.removeView(w)
-        parkInHost(w)
+        onMain {
+            val t = byId[tabId] ?: return@onMain
+            val w = t.webView
+            if (t.refreshThumbnail()) publish() // last frame the user saw
+            (w.parent as? ViewGroup)?.removeView(w)
+            parkInHost(w)
+        }
     }
 
     /**
@@ -236,30 +250,43 @@ class BrowserEngine @Inject constructor(
     // ---------- AI access (architecture 6.4: ToolContext.aiTab)
 
     /**
-     * Resolves the tab an AI tool acts on: [tabId] or the session's default AI tab (created when missing),
-     * owned by this session, not on a sensitive site (B-03, B-04, B-S3, B-S6), and under AI control. When the
-     * user holds control, calls [onUserControl] (the loop shows Pause.UserControl) and waits for it to come back
-     * (B-09 ③). Marks [toolName] as the tab's AI activity until [clearAiActivity]. Throws [PageError] when denied.
+     * The one way the run loop gets the tab an AI tool acts on (F-02): [tabId] or the session's default AI tab
+     * (created when missing), owned by this session, not on a sensitive site (B-03, B-04, B-S3, B-S6), under AI
+     * control. While the user holds control it calls [onUserControl] (the loop shows Pause.UserControl), waits for
+     * control to come back (B-09 ③), calls [onResumed] and checks again. Marks [toolName] as the tab's AI activity
+     * (B-09 ②) until [clearAiActivity]. Any thread. Throws [PageError] when denied.
      */
-    suspend fun acquireAiTab(sessionId: String, tabId: Int?, toolName: String? = null, onUserControl: suspend (Int) -> Unit = {}): BrowserTab {
+    suspend fun acquireAiTab(
+        sessionId: String,
+        tabId: Int?,
+        toolName: String,
+        onUserControl: suspend (tabId: Int) -> Unit = {},
+        onResumed: suspend () -> Unit = {},
+    ): BrowserTab {
         while (true) {
             val tab = withContext(Dispatchers.Main.immediate) { aiTabFor(sessionId, tabId) }
             if (tab.control == Control.AI) {
                 withContext(Dispatchers.Main.immediate) {
                     defaultAiTab[sessionId] = tab.id
-                    if (toolName != null) _aiActivity.value += (tab.id to toolName)
+                    _aiActivity.value += (tab.id to toolName)
                 }
                 return tab
             }
             onUserControl(tab.id)
-            tabs.first { list -> list.none { it.id == tab.id && it.control == Control.USER } }
+            try {
+                tabs.first { list -> list.none { it.id == tab.id && it.control == Control.USER } }
+            } finally {
+                onResumed()
+            }
         }
     }
 
     /** The tab tools use when tabId is omitted, if it is still open and owned by the session. */
+    @MainThread
     fun currentAiTab(sessionId: String): Int? = defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
 
     /** Ownership only (no sensitive-URL or control check): close_tab and request_handoff. */
+    @MainThread
     fun ownedAiTab(sessionId: String, tabId: Int?): BrowserTab {
         val id = tabId ?: defaultAiTab[sessionId] ?: throw PageError("You have no open tab.")
         val tab = byId[id] ?: throw PageError("Tab $id does not exist. Use get_tabs.")
@@ -267,7 +294,8 @@ class BrowserEngine @Inject constructor(
         return tab
     }
 
-    /** Main thread. [acquireAiTab] without the control wait: default tab (created when missing), ownership, B-S3. */
+    /** [acquireAiTab] without the control wait: default tab (created when missing), ownership, B-S3. */
+    @MainThread
     fun aiTabFor(sessionId: String, tabId: Int?): BrowserTab {
         val id = tabId
             ?: defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
@@ -282,7 +310,7 @@ class BrowserEngine @Inject constructor(
 
     /** End of a tool call: clears the B-09 ② "AI is operating" state for the session's tabs. */
     fun clearAiActivity(sessionId: String) {
-        main.post {
+        onMain {
             val mine = byId.values.filter { it.owner == Owner.Ai(sessionId) }.map { it.id }.toSet()
             _aiActivity.value = _aiActivity.value.filterKeys { it !in mine }
         }
@@ -299,14 +327,21 @@ class BrowserEngine @Inject constructor(
     // ---------- prompts
 
     fun answerDialog(promptId: Long, accept: Boolean, text: String? = null) {
-        byId.values.firstOrNull { it.dialog.value?.id == promptId }?.answerDialog(accept, text)
+        onMain {
+            byId.values.firstOrNull { it.dialog.value?.id == promptId }?.answerDialog(accept, text)
+        }
     }
 
-    fun answerFileChooser(promptId: Long, uris: List<Uri>?) = promptTab(promptId)?.answerFileChooser(promptId, uris)
-    fun answerPermission(promptId: Long, grant: Boolean) = promptTab(promptId)?.answerPermission(promptId, grant)
-    fun answerDownload(promptId: Long, allow: Boolean) = promptTab(promptId)?.answerDownload(promptId, allow)
+    fun answerFileChooser(promptId: Long, uris: List<Uri>?) = onMain { promptTab(promptId)?.answerFileChooser(promptId, uris) }
+    fun answerPermission(promptId: Long, grant: Boolean) = onMain { promptTab(promptId)?.answerPermission(promptId, grant) }
+    fun answerDownload(promptId: Long, allow: Boolean) = onMain { promptTab(promptId)?.answerDownload(promptId, allow) }
 
     private fun promptTab(promptId: Long): BrowserTab? = _prompts.value.firstOrNull { it.id == promptId }?.let { byId[it.tabId] }
+
+    /** F-10: methods without a result may be called from any thread; WebView work then runs on main. */
+    private fun onMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block() else main.post(block)
+    }
 
     // ---------- BrowserTab.Events
 

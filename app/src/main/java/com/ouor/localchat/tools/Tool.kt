@@ -57,7 +57,8 @@ interface ToolContext {
 
     /**
      * The AI tab to act on, after ownership, sensitive-URL and control checks (architecture 6.4).
-     * Implement with [BrowserEngine.aiTabAccess] + [BrowserEngine.awaitAiControl]; throws [ToolError] when denied.
+     * Implement with [BrowserEngine.acquireAiTab] (one place for the checks, the control wait and B-09 ②);
+     * throws when denied.
      */
     suspend fun aiTab(tabIdArg: Int?): BrowserTab
 

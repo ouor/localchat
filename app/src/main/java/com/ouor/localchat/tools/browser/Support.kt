@@ -2,9 +2,12 @@ package com.ouor.localchat.tools.browser
 
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.safety.ElementInfo
+import com.ouor.localchat.browser.safety.IrreversibleAction
+import com.ouor.localchat.browser.safety.SensitiveFields
 import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.tools.ApprovalRequest
 import com.ouor.localchat.tools.ParamsBuilder
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
@@ -52,6 +55,20 @@ internal fun ToolContext.checkedUrl(raw: String): String {
 
 internal fun sensitiveMessage(host: String) =
     "$host is a sensitive site (banking, payment, email, sign-in, government ...). The AI may not open or read it; ask the user to do this part."
+
+/** B-S1 for every input tool (SE 15): never into password/OTP/card fields or opaque frames. */
+internal fun guardInput(target: ElementInfo?, scriptSensitive: Boolean) {
+    if (target != null && SensitiveFields.refusesInput(target, scriptSensitive)) {
+        throw ToolError(
+            "Refused: ${target.label()} is a password, one-time-code or card field, or a frame whose content cannot be " +
+                "checked. Only the user may fill it; use request_handoff.",
+        )
+    }
+}
+
+/** B-S2 for every activating tool (SE 15): asks SC-13 when [reason] is set; false when the user denied. */
+internal suspend fun ToolContext.guardActivate(tool: String, tab: BrowserTab, reason: IrreversibleAction.Reason?, what: String): Boolean =
+    reason == null || requireApproval(ApprovalRequest(tool, what, tab.url, reason = reason))
 
 internal fun pageLine(tab: BrowserTab) = "Page: ${tab.title.ifBlank { "(untitled)" }} — ${tab.url}"
 

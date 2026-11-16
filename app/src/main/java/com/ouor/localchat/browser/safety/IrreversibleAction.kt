@@ -18,6 +18,9 @@ object IrreversibleAction {
 
         /** Typing into a page served over plain http (team decision 1). */
         INSECURE_INPUT,
+
+        /** Clicking a frame whose (cross-origin) content cannot be checked, e.g. a payment widget. */
+        FRAME,
     }
 
     private val EN = listOf(
@@ -31,22 +34,33 @@ object IrreversibleAction {
     )
     private val enRegex = Regex("\\b(" + EN.joinToString("|") { Regex.escape(it).replace(" ", "\\s+") } + ")\\b", RegexOption.IGNORE_CASE)
 
-    /** Longer text is page content (an article link), not an action label. */
+    /** Only the start of a label is checked: a long name is page content, but a page must not hide "Pay" by padding. */
     private const val MAX_LABEL = 60
 
     private val CLICKABLE_ROLES = setOf("button", "link", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "option")
 
     fun reasonForClick(e: ElementInfo): Reason? {
+        if (SensitiveFields.isFrame(e)) return Reason.FRAME
         if (isSubmitControl(e) && e.formMethod == "post") return Reason.POST_FORM
-        val label = e.name?.trim().orEmpty()
+        val label = e.name?.trim().orEmpty().take(MAX_LABEL)
         val actionable = e.role in CLICKABLE_ROLES || e.tag == "button" || e.tag == "a" || e.tag == "input"
-        if (actionable && label.length in 1..MAX_LABEL && hasRiskyKeyword(label)) return Reason.RISKY_KEYWORD
+        if (actionable && label.isNotEmpty() && hasRiskyKeyword(label)) return Reason.RISKY_KEYWORD
         return null
     }
 
     /** Enter in a POST form submits it; Enter elsewhere is free. */
     fun reasonForEnter(focused: ElementInfo?): Reason? =
         if (focused?.formMethod == "post" && focused.tag != "textarea") Reason.POST_FORM else null
+
+    /**
+     * keyboard: Enter and Space activate the focused control like a click (SE 8), so the click rule applies too.
+     * Other keys activate nothing.
+     */
+    fun reasonForKey(enter: Boolean, space: Boolean, focused: ElementInfo?): Reason? = when {
+        focused == null || !(enter || space) -> null
+        enter -> reasonForEnter(focused) ?: reasonForClick(focused)
+        else -> reasonForClick(focused)
+    }
 
     fun hasRiskyKeyword(label: String): Boolean = enRegex.containsMatchIn(label) || KO.any { it in label }
 

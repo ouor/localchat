@@ -493,7 +493,7 @@
       else break;
     }
     if (!el || el.localName === 'body' || el.localName === 'html') return { info: null };
-    return { info: info(el) };
+    return { info: info(el), sensitive: isSensitive(el) };
   }
 
   function state() {
