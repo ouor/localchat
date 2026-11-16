@@ -39,6 +39,7 @@
     <string name="ui_drop_hint">Images, PDF, documents, code · 64 MB per file</string>
     <string name="ui_err_action_change_key">Change key</string>
     <string name="ui_err_action_model_settings">Model settings</string>
+    <string name="ui_err_action_provider_settings">Provider settings</string>
     <string name="ui_err_action_retry">Try again</string>
     <string name="ui_err_action_top_up">Top up</string>
     <string name="ui_err_auth_title">Check your API key</string>

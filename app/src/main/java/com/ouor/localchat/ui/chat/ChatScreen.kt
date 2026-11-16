@@ -229,6 +229,8 @@ internal fun ChatScreen(
                                                 ErrorAction.TopUp -> reply.body.model?.let { nav.editEndpoint(it.endpointId) }
                                                 ErrorAction.OpenModelSettings -> reply.body.model?.let { nav.modelDetail(it.endpointId, it.modelId) }
                                                 ErrorAction.SummarizeNow -> chat.compactNow()
+                                                ErrorAction.ChooseModel -> { picker = true }
+                                                ErrorAction.OpenProvider -> reply.body.model?.let { nav.editEndpoint(it.endpointId) }
                                             }
                                         },
                                     )
