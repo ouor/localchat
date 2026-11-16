@@ -35,6 +35,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonPrimitive
@@ -496,6 +497,42 @@ class AgentLoopTest {
         assertEquals(List(10) { ToolCallState.DONE } + List(2) { ToolCallState.CANCELLED }, reply.blocks.filterIsInstance<ToolCallBlock>().map { it.state })
         assertEquals(12, h.llm.requests[1].messages.count { it.role == "tool" })
         assertEquals(ReplyStatus.DONE, reply.status)
+    }
+
+    @Test
+    fun `two sends at once leave no orphan PENDING branch (AN 5, SE 23)`() = runTest {
+        val models = FakeModelPort()
+        val h = Harness(this, models = models)
+        h.llm.text("a1")
+        val sid = h.sendNew("q1")
+        advanceUntilIdle()
+        models.resolveDelayMs = 10
+        h.llm.scripts.addLast { awaitCancellation() }
+        val first = async { runCatching { h.engine.send(sid, draft("q2"), GenOptions(), TEST_MODEL) } }
+        val second = async { runCatching { h.engine.send(sid, draft("q3"), GenOptions(), TEST_MODEL) } }
+        advanceTimeBy(1_000)
+        assertTrue(first.await().isSuccess)
+        assertEquals(ChatRejected.Reason.RUN_ACTIVE, (second.await().exceptionOrNull() as ChatRejected).reason)
+        assertFalse(h.store.messages.values.any { (it.body as? MessageBody.User)?.text == "q3" })
+        h.engine.stopAll()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `the run uses its own reply's ancestors even if the user selects another branch (AN 6)`() = runTest {
+        val h = Harness(this)
+        h.llm.text("a1")
+        val sid = h.sendNew("q1")
+        advanceUntilIdle()
+        val firstUser = h.store.messages.values.first { it.body is MessageBody.User }
+        h.llm.text("a2")
+        h.engine.send(sid, draft("q2"), GenOptions(), TEST_MODEL)
+        // Before the run starts, the user switches the root to an unrelated branch.
+        h.store.sessions[sid] = h.store.sessions.getValue(sid).copy(rootSelectedId = "elsewhere")
+        h.store.messages["elsewhere"] = firstUser.copy(id = "elsewhere", body = MessageBody.User("other branch"), createdAt = 999)
+        advanceUntilIdle()
+        val users = h.llm.requests.last().messages.filter { it.role == "user" }.map { it.content!!.jsonPrimitive.content }
+        assertEquals(listOf("q1", "q2"), users)
     }
 
     @Test

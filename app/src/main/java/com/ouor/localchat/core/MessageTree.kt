@@ -18,6 +18,15 @@ data class Selection(val parentId: String?, val childId: String)
  */
 object MessageTree {
 
+    /** Root..parent of [node], following parentId only: independent of what the user has selected (AN 6). */
+    fun ancestors(node: MessageNode, nodes: List<MessageNode>): List<MessageNode> {
+        val byId = nodes.associateBy { it.id }
+        val seen = HashSet<String>()
+        return generateSequence(node.parentId?.let(byId::get)) { n -> n.parentId?.let(byId::get) }
+            .takeWhile { seen.add(it.id) } // a corrupt cycle cannot loop forever
+            .toList().asReversed()
+    }
+
     /**
      * Visible path from the root. A missing or dangling selection falls back to the newest child,
      * so a half-written branch (node saved, pointer not) still shows up.

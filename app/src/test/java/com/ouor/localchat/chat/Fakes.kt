@@ -133,8 +133,12 @@ fun caps(window: Int? = 64_000, tools: Boolean = true) = ModelCapabilities(
 
 class FakeModelPort(var caps: ModelCapabilities = caps()) : ModelPort {
     val used = mutableListOf<ModelRef>()
-    override suspend fun resolve(ref: ModelRef) =
-        ResolvedModel(ref, LlmTarget("http://fake/v1", null, 0, true), caps)
+    /** Virtual delay in resolve, to let two sends interleave. */
+    var resolveDelayMs = 0L
+    override suspend fun resolve(ref: ModelRef): ResolvedModel {
+        if (resolveDelayMs > 0) kotlinx.coroutines.delay(resolveDelayMs)
+        return ResolvedModel(ref, LlmTarget("http://fake/v1", null, 0, true), caps)
+    }
     override suspend fun markUsed(ref: ModelRef) { used += ref }
 }
 

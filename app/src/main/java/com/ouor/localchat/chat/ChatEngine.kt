@@ -24,6 +24,8 @@ import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.storage.SettingsStore
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.jsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -70,8 +72,7 @@ class ChatEngine @Inject constructor(
     val runs: StateFlow<Map<String, RunState>> get() = registry.runs
 
     /** Sends [draft]; creates the session when [sessionId] is null. Returns the session id. */
-    suspend fun send(sessionId: String?, draft: Draft, options: GenOptions, model: ModelRef): String {
-        recovery.awaitDone()
+    suspend fun send(sessionId: String?, draft: Draft, options: GenOptions, model: ModelRef): String = starting {
         if (draft.text.isBlank() && draft.attachmentIds.isEmpty()) throw ChatRejected(ChatRejected.Reason.EMPTY)
         if (sessionId != null) checkIdle(sessionId)
         requireModel(model)
@@ -90,12 +91,11 @@ class ChatEngine @Inject constructor(
         val reply = pending(session.id, model, options, now + 1)
         insertAndStart(session.id, tail?.id, listOf(user, reply), model)
         store.deleteDraft(draft.key)
-        return session.id
+        session.id
     }
 
     /** M-04: new sibling reply under the same user message. */
-    suspend fun regenerate(assistantId: String, model: ModelRef) {
-        recovery.awaitDone()
+    suspend fun regenerate(assistantId: String, model: ModelRef) = starting {
         val (old, body) = assistant(assistantId)
         if (!MessageTree.canRegenerate(body)) throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         checkIdle(old.sessionId)
@@ -104,8 +104,7 @@ class ChatEngine @Inject constructor(
     }
 
     /** M-05: new sibling question plus a new reply. */
-    suspend fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) {
-        recovery.awaitDone()
+    suspend fun editAndResend(userId: String, text: String, attachmentIds: List<String>, model: ModelRef) = starting {
         val old = store.node(userId)?.takeIf { it.body is MessageBody.User }
             ?: throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         if (text.isBlank() && attachmentIds.isEmpty()) throw ChatRejected(ChatRejected.Reason.EMPTY)
@@ -119,13 +118,23 @@ class ChatEngine @Inject constructor(
     }
 
     /** M-03: continues the same reply (only when MessageTree.canContinue). */
-    suspend fun continueReply(assistantId: String) {
-        recovery.awaitDone()
+    suspend fun continueReply(assistantId: String) = starting {
         val (node, body) = assistant(assistantId)
         if (!MessageTree.canContinue(body)) throw ChatRejected(ChatRejected.Reason.NOT_ALLOWED)
         checkIdle(node.sessionId)
         body.model?.let { requireModel(it) } ?: throw ChatRejected(ChatRejected.Reason.MODEL_UNAVAILABLE)
         start(node, TurnRunner.Mode.CONTINUE)
+    }
+
+    private val startLock = Mutex()
+
+    /**
+     * Everything from the idle check to registry.start runs under one lock: two sends at once would both
+     * pass the check and the loser would leave a PENDING branch selected (AN 5, SE 23).
+     */
+    private suspend fun <T> starting(block: suspend () -> T): T {
+        recovery.awaitDone()
+        return startLock.withLock { block() }
     }
 
     /** M-02: cancels the session's run; partial content is saved as STOPPED. */

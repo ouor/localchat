@@ -118,8 +118,8 @@ class TurnRunner @Inject constructor(
                 publish(body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.BAD_REQUEST, message = "Model unavailable")))
                 return
             }
-            val session = store.session(sessionId) ?: return
-            var path = MessageTree.path(session.rootSelectedId, store.nodes(sessionId)).takeWhile { it.id != node.id }
+            store.session(sessionId) ?: return // deleted meanwhile
+            var path = MessageTree.ancestors(node, store.nodes(sessionId))
             val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
                 ?: SystemPrompt.build(clock.now(), ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
