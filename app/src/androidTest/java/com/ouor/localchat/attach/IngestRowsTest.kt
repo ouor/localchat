@@ -52,4 +52,18 @@ class IngestRowsTest {
         assertEquals(PrepState.Failed(PrepFailure.READ_FAILED), fresh.retry(id).toList().last().state)
         assertEquals(PrepState.Failed(PrepFailure.READ_FAILED), dao.get(id)!!.toModel().state)
     }
+
+    @Test
+    fun parserCrashesEndAsFailed() {
+        val ingest = AttachmentIngest(context, files, dao, Clock.System)
+        val doc = com.ouor.localchat.core.model.Attachment(
+            "crash1", "broken.pdf", "application/pdf", 1, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
+            PrepState.Preparing, hasOriginal = true, createdAt = 0,
+        )
+        files.text(doc.id).writeText("partial")
+        assertEquals(PrepState.Failed(PrepFailure.EXTRACT_FAILED), ingest.guarded(doc) { throw NullPointerException() }.state)
+        assertEquals(false, files.text(doc.id).exists())
+        val image = doc.copy(id = "crash2", kind = com.ouor.localchat.core.model.AttachmentKind.IMAGE)
+        assertEquals(PrepState.Failed(PrepFailure.IMAGE_DECODE), ingest.guarded(image) { throw OutOfMemoryError() }.state)
+    }
 }

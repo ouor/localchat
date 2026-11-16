@@ -110,7 +110,7 @@ class AttachmentIngest @Inject constructor(
         return prepare(a.copy(size = copied.first, sha256 = copied.second))
     }
 
-    private fun prepare(a: Attachment): Attachment = try {
+    private fun prepare(a: Attachment): Attachment = guarded(a) {
         if (a.kind == AttachmentKind.IMAGE) {
             val (w, h) = ImageDownscaler.downscale(files.original(a.id), files.requestImage(a.id))
             a.copy(state = PrepState.Ready, width = w, height = h)
@@ -118,14 +118,25 @@ class AttachmentIngest @Inject constructor(
             extractText(a)
             a.copy(state = PrepState.Ready)
         }
+    }
+
+    /** Any failure of [work] ends as FAILED, never as a row stuck in PREPARING (AN 9). */
+    internal fun guarded(a: Attachment, work: () -> Attachment): Attachment = try {
+        work()
     } catch (e: ExtractException) {
         files.text(a.id).delete()
         a.failed(e.code)
-    } catch (e: IOException) {
-        // ImageDecoder.DecodeException is an IOException too.
+    } catch (e: Exception) {
+        // IOException (ImageDecoder.DecodeException too) and the NPE/IAE/ClassCast that PDFBox and SAX throw on broken files.
+        decodeFailed(a)
+    } catch (e: OutOfMemoryError) {
+        decodeFailed(a)
+    }
+
+    private fun decodeFailed(a: Attachment): Attachment {
         files.requestImage(a.id).delete()
         files.text(a.id).delete()
-        a.failed(if (a.kind == AttachmentKind.IMAGE) PrepFailure.IMAGE_DECODE else PrepFailure.EXTRACT_FAILED)
+        return a.failed(if (a.kind == AttachmentKind.IMAGE) PrepFailure.IMAGE_DECODE else PrepFailure.EXTRACT_FAILED)
     }
 
     private fun extractText(a: Attachment) {
