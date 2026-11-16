@@ -11,8 +11,11 @@ plugins {
     alias(libs.plugins.aboutlibraries)
 }
 
-// Release signing secrets stay out of git (signing/SIGNING.md); without them the release APK is unsigned.
+// Release signing secrets stay out of git (signing/SIGNING.md). Without them release packaging fails,
+// unless -PallowUnsignedRelease=true opts into an unsigned APK for local build checks (FB2 sec M1 / arch M2).
 val ksFile = rootProject.file("signing/keystore.properties")
+val releaseSigned = ksFile.exists() && rootProject.file("signing/release.p12").exists()
+val allowUnsignedRelease = providers.gradleProperty("allowUnsignedRelease").orNull == "true"
 val ksProps = Properties().apply { ksFile.takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 
 android {
@@ -41,7 +44,7 @@ android {
 
     buildTypes {
         release {
-            if (ksFile.exists()) signingConfig = signingConfigs.getByName("release")
+            if (releaseSigned) signingConfig = signingConfigs.getByName("release")
             // R8 shrink/optimize + resource shrinking (needs android.r8.gradual.support); keep rules in src/main/keepRules.
             optimization {
                 enable = true
@@ -66,6 +69,18 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_21
+    }
+}
+
+if (!releaseSigned && !allowUnsignedRelease) {
+    // Fails only when a release APK/AAB is packaged; debug, androidTest and unit-test builds never reach these tasks.
+    tasks.configureEach {
+        if (name == "packageRelease" || name == "signReleaseBundle") doFirst {
+            throw GradleException(
+                "Release signing key missing (signing/keystore.properties + signing/release.p12, see signing/SIGNING.md). " +
+                    "Ask the key owner; for an unsigned local check only, pass -PallowUnsignedRelease=true."
+            )
+        }
     }
 }
 

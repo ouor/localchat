@@ -57,6 +57,7 @@ import com.ouor.localchat.ui.components.LcButton
 import com.ouor.localchat.ui.components.LcCheckbox
 import com.ouor.localchat.ui.components.LcDialog
 import com.ouor.localchat.ui.components.LcIconButton
+import com.ouor.localchat.ui.components.EndAnchoredMenu
 import com.ouor.localchat.ui.components.LcSelectMenu
 import com.ouor.localchat.ui.components.LcSwitch
 import com.ouor.localchat.ui.components.LcTextField
@@ -115,14 +116,12 @@ private fun Page(title: String, onBack: () -> Unit, content: @Composable () -> U
 
 /** A row that opens an [LcSelectMenu] anchored to it. */
 @Composable
-private fun SelectRow(title: String, value: String, options: List<MenuOption>, selected: Int, divider: Boolean = false, subtitle: String? = null, onSelect: (Int) -> Unit) {
+internal fun SelectRow(title: String, value: String, options: List<MenuOption>, selected: Int, divider: Boolean = false, subtitle: String? = null, onSelect: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         SettingsRow(title, subtitle = subtitle, value = value, divider = divider, onClick = { open = true })
         // FB2-1: the value sits at the row's right edge, so the menu opens there too.
-        Box(Modifier.align(Alignment.BottomEnd)) {
-            LcSelectMenu(open, { open = false }, options, selected, { open = false; onSelect(it) })
-        }
+        EndAnchoredMenu { LcSelectMenu(open, { open = false }, options, selected, { open = false; onSelect(it) }) }
     }
 }
 

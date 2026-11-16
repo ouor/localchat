@@ -8,7 +8,7 @@ import java.net.URI
  * can be switched off as a whole (FB2-2); [user] is AppSettings.userSensitiveDomains. A domain matches itself and
  * every subdomain.
  */
-class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = emptyList()) {
+class SensitiveUrls(builtIn: Collection<String>, user: Collection<String>) {
 
     private val domains: Set<String> = (builtIn + user).mapNotNull(::normalize).toSet()
 
@@ -18,10 +18,6 @@ class SensitiveUrls(builtIn: Collection<String>, user: Collection<String> = empt
         return generateSequence(host) { h -> h.substringAfter('.', "").takeIf { it.isNotEmpty() } }
             .any { it in domains }
     }
-
-    /** Call on the built-in-only instance. [builtIn] false (FB2-2) drops it; user domains and fail-closed stay. */
-    fun withUser(user: Collection<String>, builtIn: Boolean = true): SensitiveUrls =
-        SensitiveUrls(if (builtIn) domains else emptyList(), user)
 
     companion object {
         /** In every refusal for a sensitive site; chat's step reason looks for it (BUG-10). */

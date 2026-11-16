@@ -1,6 +1,8 @@
 package com.ouor.localchat.browser.safety
 
+import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.safety.IrreversibleAction.Reason
+import com.ouor.localchat.core.model.AppSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -50,15 +52,15 @@ class SafetyTest {
     }
 
     @Test
-    fun `built-in list off keeps user domains and fail-closed (FB2-2)`() {
-        val base = SensitiveUrls(builtIn)
-        val off = base.withUser(listOf("*.Corp.Example"), builtIn = false)
+    fun `settings to engine - built-in list off keeps user domains and fail-closed (FB2-2)`() {
+        val user = AppSettings(userSensitiveDomains = listOf("*.Corp.Example"))
+        val off = BrowserEngine.sensitiveRule(builtIn, user.copy(builtInSensitiveEnabled = false))
         assertFalse(off.isSensitive("https://www.paypal.com/"))
         assertFalse(off.isSensitive("https://www.gov.kr/portal"))
         assertTrue(off.isSensitive("https://wiki.corp.example/page"))
         assertTrue(off.isSensitive("https://bad host/x"))
         assertFalse(off.isSensitive("about:blank"))
-        val on = base.withUser(listOf("*.Corp.Example"))
+        val on = BrowserEngine.sensitiveRule(builtIn, user)
         assertTrue(on.isSensitive("https://www.paypal.com/"))
         assertTrue(on.isSensitive("https://wiki.corp.example/page"))
         assertTrue(on.isSensitive("https://bad host/x"))
