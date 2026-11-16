@@ -1,5 +1,10 @@
 package com.ouor.localchat.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,12 +14,15 @@ import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.Shots
 import com.ouor.localchat.ui.components.SettingsGroup
+import com.ouor.localchat.ui.theme.LcTheme
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Rule
 import org.junit.Test
@@ -32,7 +40,13 @@ class BuiltInSensitiveRowTest {
     private fun title() = rule.onNodeWithText(ctx.getString(R.string.fb2_s_off_title))
 
     @Test fun offAsksCancelKeepsOnConfirmTurnsOff() {
-        rule.setContent { LocalchatTheme(true) { SettingsGroup { BuiltInSensitiveRow(enabled, 156) { enabled = it } } } }
+        rule.setContent {
+            LocalchatTheme(true) {
+                Column(Modifier.fillMaxSize().background(LcTheme.colors.surface).statusBarsPadding().padding(top = 16.dp)) {
+                    SettingsGroup { BuiltInSensitiveRow(enabled, 156) { enabled = it } }
+                }
+            }
+        }
         switch().assertIsOn()
         rule.onNodeWithText(ctx.resources.getQuantityString(R.plurals.fb2_s_builtin_on, 156, 156)).assertExists()
         Shots.save("fb2-s-on")
