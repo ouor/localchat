@@ -175,6 +175,7 @@ class ChatScreenTest {
         var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("buy it", reply(""), live = true)), runPhase = RunPhase.Streaming))
         rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
         val chooseModel = ctx.getString(R.string.ui_choose_model)
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick() // a chat in progress folds them
         rule.onNodeWithText(chooseModel, substring = true, useUnmergedTree = true).performClick()
         rule.waitForIdle()
         rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(2) // chip + sheet title
