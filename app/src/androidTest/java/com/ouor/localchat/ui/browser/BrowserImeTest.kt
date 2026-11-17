@@ -7,6 +7,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -46,9 +49,10 @@ class BrowserImeTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
     private var web: WebView? = null
+    private var s by mutableStateOf(BrowserUiState())
 
     private val actions = object : BrowserActions {
-        override fun setPanel(p: PanelState) {}
+        override fun setPanel(p: PanelState) { s = s.copy(panel = p) }
         override fun select(id: Int) {}
         override fun showTabs(v: Boolean) {}
         override fun close(id: Int) {}
@@ -87,20 +91,43 @@ class BrowserImeTest {
 
     private fun pageBounds(): Rect = rule.onNodeWithTag(PAGE_TAG).fetchSemanticsNode().boundsInRoot
 
-    @Test fun keyboardKeepsTheFieldAndControlsAboveIt() {
+    /** Handoff on a user-controlled AI tab, panel at [panel], showing [html]. */
+    private fun open(panel: PanelState, html: String) {
         rule.runOnUiThread {
             rule.activity.enableEdgeToEdge()
             @Suppress("DEPRECATION") rule.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            web = WebView(rule.activity)
+            web = com.ouor.localchat.browser.WebViewFactory.create(rule.activity) // the app's settings (wide viewport, zoom)
         }
         val tab = TabInfo(1, "Login", "https://login.example/", Owner.Ai("A"), Control.USER, loading = false)
-        val s = BrowserUiState(PanelState.Half, listOf(tab), sessionId = "A", running = true, handoff = Pause.Handoff(1, "로그인이 필요합니다"))
+        s = BrowserUiState(panel, listOf(tab), sessionId = "A", running = true, handoff = Pause.Handoff(1, "로그인이 필요합니다"))
         rule.setContent { LocalchatTheme(false) { Box(Modifier.fillMaxSize()) { BrowserOverlay(s, actions) } } }
         rule.waitForIdle()
-        rule.runOnUiThread { web!!.loadDataWithBaseURL(null, page, "text/html", "utf-8", null) } // loaded once on screen
+        rule.runOnUiThread { web!!.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) } // loaded once on screen
         rule.waitUntil(10_000) { rule.runOnUiThread<Boolean> { web?.progress == 100 } }
         Thread.sleep(1000) // first frame of the page
         rule.waitForIdle()
+    }
+
+    /** Runs [script] in the page and returns its JSON result. */
+    private fun js(script: String): String {
+        val done = java.util.concurrent.CountDownLatch(1)
+        var out = ""
+        rule.runOnUiThread { web!!.evaluateJavascript(script) { out = it; done.countDown() } }
+        assertTrue("script answered", done.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        return out
+    }
+
+    private fun closeKeyboard() {
+        rule.runOnUiThread {
+            WindowCompat.getInsetsController(rule.activity.window, rule.activity.window.decorView).hide(WindowInsetsCompat.Type.ime())
+        }
+        rule.waitUntil(10_000) { imeBottom() == 0 }
+        Thread.sleep(800)
+        rule.waitForIdle()
+    }
+
+    @Test fun keyboardKeepsTheFieldAndControlsAboveIt() {
+        open(PanelState.Half, page)
         val before = giveBack()
         val pageBefore = pageBounds()
         Shots.save("fb4-u2-1-half")
@@ -133,14 +160,55 @@ class BrowserImeTest {
         assertEquals(handleTop, handle.fetchSemanticsNode().boundsInRoot.top, 1f)
 
         // Keyboard closed: everything is back where it was.
-        rule.runOnUiThread {
-            WindowCompat.getInsetsController(rule.activity.window, rule.activity.window.decorView).hide(WindowInsetsCompat.Type.ime())
-        }
-        rule.waitUntil(10_000) { imeBottom() == 0 }
-        Thread.sleep(800)
-        rule.waitForIdle()
+        closeKeyboard()
         Shots.save("fb4-u2-3-closed")
         assertEquals(before, giveBack())
         assertEquals(pageBefore, pageBounds())
+    }
+
+    /**
+     * A search page centred in the viewport like html.duckduckgo.com (QA F1): when the keyboard shrinks the page, the
+     * centred block re-lays out and its field lands below the visible page unless the page scrolls to it again.
+     */
+    private val centredPage = """<html><head><meta name="viewport" content="width=device-width"></head>
+        <body style="margin:0"><div style="min-height:100vh;display:flex;flex-direction:column;justify-content:center">
+        <div style="height:200px;background:#e8f0fe"></div>
+        <input id="f" style="display:block;width:100%;height:48px;font-size:18px;box-sizing:border-box" placeholder="search">
+        </div></body></html>"""
+
+    @Test fun fullKeyboardScrollsTheFocusedFieldIntoView() { // FB4 QA F1
+        open(PanelState.Full, centredPage)
+        val scale = pageBounds().width / js("innerWidth").toFloat()
+        val fieldTop = js("document.getElementById('f').getBoundingClientRect().top").toFloat()
+        rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, (fieldTop + 24f) * scale)) }
+        rule.waitUntil(10_000) { imeBottom() > 0 }
+        Thread.sleep(1200) // keyboard animation + page resize
+        rule.waitForIdle()
+        Shots.save("fb4-u3-f1-full-keyboard")
+        assertEquals("the field has focus", "\"f\"", js("document.activeElement.id"))
+        val r = js("(function(){var r=document.getElementById('f').getBoundingClientRect();return [r.top,r.bottom,innerHeight].join(',')})()")
+            .trim('"').split(',').map { it.toFloat() }
+        assertTrue("field inside the visible page: top ${r[0]}, bottom ${r[1]}, viewport ${r[2]}", r[0] >= 0f && r[1] <= r[2] + 1f) // innerHeight is whole CSS px
+        closeKeyboard()
+    }
+
+    @Test fun fullKeyboardHandleFollowsTheFinger() { // FB4 QA F4
+        open(PanelState.Full, page)
+        rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, bottom - 20f)) }
+        rule.waitUntil(10_000) { imeBottom() > 0 }
+        Thread.sleep(800)
+        rule.waitForIdle()
+        val handle = rule.onNodeWithContentDescription(rule.activity.getString(R.string.fb_e4_handle_cd))
+        val handleTop = handle.fetchSemanticsNode().boundsInRoot.top
+        handle.performTouchInput { down(center) }
+        repeat(30) { handle.performTouchInput { moveBy(Offset(0f, 10f)) }; rule.waitForIdle() }
+        val moved = handle.fetchSemanticsNode().boundsInRoot.top - handleTop
+        Shots.save("fb4-u3-f4-full-drag")
+        // 300px down: past the touch slop the handle follows (it was a dead zone as tall as the keyboard, ~1270px here).
+        assertTrue("handle moved $moved px for a 300 px drag", moved >= 120f)
+        handle.performTouchInput { up() }
+        rule.waitForIdle()
+        Thread.sleep(800)
+        rule.waitForIdle()
     }
 }

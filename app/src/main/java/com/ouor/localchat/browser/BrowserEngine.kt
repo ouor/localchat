@@ -446,7 +446,7 @@ class BrowserEngine @Inject constructor(
     }
 
     override fun onUserTouch(tab: BrowserTab) {
-        if (tab.owner is Owner.Ai) _userTouches.tryEmit(tab.id)
+        if (TabRules.asksToTakeOver(tab.owner, tab.control)) _userTouches.tryEmit(tab.id)
     }
 
     override fun onExternalLink(tab: BrowserTab, uri: Uri) {

@@ -104,6 +104,7 @@ import com.ouor.localchat.ui.theme.endpointDotColor
 import kotlinx.coroutines.launch
 import com.ouor.localchat.ui.browser.BrowserActions
 import com.ouor.localchat.ui.browser.BrowserOverlay
+import com.ouor.localchat.ui.browser.PanelState
 import com.ouor.localchat.ui.browser.BrowserPeek
 import com.ouor.localchat.ui.browser.BrowserUiState
 import com.ouor.localchat.ui.components.IconButtonSize
@@ -266,6 +267,11 @@ internal fun ChatScreen(
     if (chat.sessionId == null) androidx.compose.runtime.SideEffect { NewChatOptions.pending = userOpen }
     val inputFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     if (carried?.focus == true) LaunchedEffect(Unit) { inputFocus.requestFocus() }
+    // QA F1/O2: a browser panel at Half or Full covers the input, so the input lets go of focus and its keyboard closes;
+    // otherwise that invisible input's keyboard shrinks the panel and hides the page field the user is asked to fill.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val panelCovers = browserState.current != null && browserState.panel >= PanelState.Half
+    LaunchedEffect(panelCovers) { if (panelCovers) focusManager.clearFocus() }
     var openFor by rememberSaveable { mutableStateOf(chat.sessionId) }
     if (openFor != chat.sessionId) {
         if (openFor != null) userOpen = null

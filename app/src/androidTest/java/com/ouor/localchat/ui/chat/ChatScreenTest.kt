@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -518,6 +519,17 @@ class ChatScreenTest {
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder)).assertIsFocused()
         android.util.Log.i("ChatScreenTest", "H6 ime before=$imeBefore after=${ime()}")
         if (imeBefore) assertTrue("keyboard stays up", ime())
+    }
+
+    @Test fun panelCoveringTheInputTakesItsFocus() { // FB4 QA F1: the hidden input's keyboard must not shrink the page
+        var bs by mutableStateOf(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))), ComposerUiState(), bs, chat, composer, browser, nav) } }
+        val input = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder))
+        input.performClick()
+        input.assertIsFocused()
+        bs = bs.copy(panel = PanelState.Full)
+        rule.waitForIdle()
+        input.assertIsNotFocused()
     }
 
     @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel

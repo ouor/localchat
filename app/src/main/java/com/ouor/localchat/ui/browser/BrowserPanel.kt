@@ -28,6 +28,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.testTag
@@ -206,15 +209,24 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             val drag = remember { MutableInteractionSource() }
             // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows), so a focused page
             // field and the panel's controls stay above it; it settles back when the keyboard closes (P-STABLE keyboard
-            // exception). Drawn at max(0, offset - ime), continuous while dragged or animated (FB4 fix M1). Height and
+            // exception). The rise is that of the anchor the panel last settled on, so a drag follows the finger from the
+            // first pixel: from Half it was already risen (FB4 fix M1), from Full it rises nothing (QA F4, no dead zone).
+            // Leaving Full with the keyboard up closes the keyboard, so landing on Half adds no rise (no jump). Height and
             // bottom padding follow the keyboard's target, not its animation, so the page resizes once per open/close (m2).
             val density = LocalDensity.current
             val ime = WindowInsets.ime // read only in the offset lambda: placement, not recomposition, each frame
             val imeTarget = WindowInsets.imeAnimationTarget
             val keyboard = imeTarget.getBottom(density).toFloat()
+            val settledAt by remember { derivedStateOf { state.anchors.positionOf(state.settledValue) } }
+            val view = LocalView.current
+            LaunchedEffect(state) {
+                snapshotFlow { state.settledValue == PanelState.Full && state.offset > 1f }.collect { leaving ->
+                    if (leaving) ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime())
+                }
+            }
             Column(
                 Modifier.fillMaxWidth().height(with(density) { (h - top + minOf(top, keyboard)).toDp() })
-                    .offset { IntOffset(0, (state.offset - minOf(state.offset, ime.getBottom(this).toFloat())).roundToInt()) }
+                    .offset { IntOffset(0, (state.offset - minOf(settledAt, ime.getBottom(this).toFloat())).coerceAtLeast(0f).roundToInt()) }
                     .background(LcTheme.colors.surfaceRaised).windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
             ) {
                 BrowserPanelFrame(
@@ -260,7 +272,8 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                     }
                 }
             }
-            if (s.touchedAiTab == t.id) LcSnackbar(
+            // QA F2: only while the AI controls the tab; in a handoff (the user already controls it) it never covers the banner.
+            if (s.touchedAiTab == t.id && t.control == Control.AI) LcSnackbar(
                 stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
                 icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
             )
@@ -305,7 +318,13 @@ private fun PanelHandle(panel: PanelState, drag: MutableInteractionSource, actio
 /** Test tag of the page area (P-STABLE bounds tests). */
 internal const val PAGE_TAG = "browser-page"
 
+/** The page's focused element (inside open shadow roots too), scrolled into view only if it is out of view. */
+private const val SCROLL_FOCUSED_INTO_VIEW =
+    "(function(){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;" +
+        "if(e&&e!==document.body&&e.scrollIntoView)e.scrollIntoView({block:'nearest'});})()"
+
 /** Engine-owned WebView + highlight overlay (api-spec ui.browser.BrowserSurface). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
@@ -313,6 +332,16 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
             val view = remember(tabId) { actions.webView(tabId) }
             if (view != null) AndroidView(factory = { view }, Modifier.fillMaxSize(), onRelease = { actions.park(tabId) })
             else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
+            // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
+            // page shrinks; the panel may shrink first. Once the page has its keyboard-time height, bring the focused
+            // field (if any) back into view. Scrolling only; nothing is read from the page.
+            val keyboardUp = WindowInsets.imeAnimationTarget.getBottom(LocalDensity.current) > 0
+            LaunchedEffect(view, constraints.maxHeight, keyboardUp) {
+                if (view != null && keyboardUp) {
+                    kotlinx.coroutines.delay(200) // the renderer takes the new size first
+                    view.evaluateJavascript(SCROLL_FOCUSED_INTO_VIEW, null)
+                }
+            }
         }
         val h = highlight?.takeIf { it.tabId == tabId && it.cssViewportWidth > 0f }
         val scale = h?.let { constraints.maxWidth / it.cssViewportWidth } ?: 1f

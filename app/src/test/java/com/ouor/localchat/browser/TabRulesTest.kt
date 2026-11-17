@@ -41,4 +41,10 @@ class TabRulesTest {
         assertArrayEquals(intArrayOf(0, 0, 48, 48), TabRules.cropBox(CssRect(-10f, -10f, 10f, 10f), 2f, 1080, 2000))
         assertNull(TabRules.cropBox(CssRect(0f, 5000f, 10f, 10f), 2f, 1080, 2000)) // off screen
     }
+
+    @Test fun `a touch asks to take control only of an AI tab the AI controls`() { // FB4 QA F2
+        assertEquals(true, TabRules.asksToTakeOver(Owner.Ai("A"), Control.AI))
+        assertEquals(false, TabRules.asksToTakeOver(Owner.Ai("A"), Control.USER)) // handoff / already taken over
+        assertEquals(false, TabRules.asksToTakeOver(Owner.User, Control.AI))
+    }
 }
