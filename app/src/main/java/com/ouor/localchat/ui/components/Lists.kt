@@ -233,11 +233,16 @@ fun ConnectionStatus(state: ConnectionUi?, onRecheck: () -> Unit, onSaveAnyway: 
     val recheck = state is ConnectionUi.Error || (state == ConnectionUi.Checking && lastSettled is ConnectionUi.Error)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LcButton(
-                stringResource(if (recheck) R.string.ui_conn_recheck else R.string.ui_check_connection), onRecheck,
-                variant = ButtonVariant.Outline, size = ButtonSize.Sm, enabled = enabled, loading = state == ConnectionUi.Checking,
-            )
-            if (state is ConnectionUi.Error && onSaveAnyway != null) LcButton(stringResource(R.string.ui_conn_save_anyway), onSaveAnyway, variant = ButtonVariant.Text, size = ButtonSize.Sm)
+            // FB4 U-5: as wide as its widest form (either label with the spinner), so checking never resizes it.
+            val labels = listOf(stringResource(R.string.ui_check_connection), stringResource(R.string.ui_conn_recheck))
+            StableSlot({ labels.forEach { LcButton(it, {}, variant = ButtonVariant.Outline, size = ButtonSize.Sm, loading = true) } }) {
+                LcButton(
+                    labels[if (recheck) 1 else 0], onRecheck, Modifier.matchParentSize(),
+                    variant = ButtonVariant.Outline, size = ButtonSize.Sm, enabled = enabled, loading = state == ConnectionUi.Checking,
+                )
+            }
+            // FB4 U-5: stays (disabled) while a re-check after a failure runs, instead of vanishing until it ends.
+            if (recheck && onSaveAnyway != null) LcButton(stringResource(R.string.ui_conn_save_anyway), onSaveAnyway, variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = state is ConnectionUi.Error)
         }
         // Exactly one body line at any font scale, a long reason ellipsized (TalkBack still reads it whole), so
         // nothing below moves. The invisible "checking" text holds that line's height: at a large font a line in a CJK

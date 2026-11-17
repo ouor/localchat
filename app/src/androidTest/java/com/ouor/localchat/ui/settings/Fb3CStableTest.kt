@@ -284,12 +284,41 @@ class Fb3CStableTest {
         val recheck = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box()
         ui = ConnectionUi.Checking
         rule.waitForIdle()
-        val checking = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box() // same label; the spinner widens it (as M11)
-        assertEquals(recheck.left, checking.left)
-        assertEquals(recheck.top, checking.top)
+        val checking = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box() // same label and, since FB4 U-5, same width
+        assertEquals(recheck, checking)
         ui = ConnectionUi.Ok(3)
         rule.waitForIdle()
         rule.onNodeWithText(ctx.getString(R.string.ui_check_connection)).assertExists()
+    }
+
+    @Test fun fb4_u5_checkingKeepsTheButtonWidthAndSaveAnyway() = u5(1f)
+
+    @Test fun fb4_u5_at200Percent() = u5(2f)
+
+    private fun u5(fontScale: Float) {
+        var ui by mutableStateOf<ConnectionUi?>(null)
+        show(fontScale) { ConnectionStatus(ui, {}, {}) }
+        val check = { rule.onNodeWithText(ctx.getString(R.string.ui_check_connection)) }
+        val recheck = { rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)) }
+        val anyway = { rule.onNodeWithText(ctx.getString(R.string.ui_conn_save_anyway)) }
+        val button = check().box()
+        ui = ConnectionUi.Checking
+        rule.waitForIdle()
+        assertEquals(button, check().box()) // the spinner fits in the reserved width
+        ui = ConnectionUi.Error("401 · bad key")
+        rule.waitForIdle()
+        assertEquals(button, recheck().box())
+        val save = anyway().box()
+        // Re-check after a failure: the button keeps its size and [그래도 저장] stays (disabled) instead of blinking out.
+        ui = ConnectionUi.Checking
+        rule.waitForIdle()
+        assertEquals(button, recheck().box())
+        anyway().assertIsNotEnabled()
+        assertEquals(save, anyway().box())
+        ui = ConnectionUi.Error("network")
+        rule.waitForIdle()
+        anyway().assertIsEnabled()
+        assertEquals(save, anyway().box())
     }
 
     @Test fun fix_m4_removedDomainSaysSoToTalkBack() { // FB3 fix ui m4
