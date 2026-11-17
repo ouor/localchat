@@ -19,7 +19,7 @@ internal class StreamAssembler {
     var hasContent = false
         private set
 
-    /** Text, refusal or a tool call arrived, i.e. the reply is not empty. */
+    /** Visible text, refusal or a tool call arrived, i.e. the reply is not empty (markup alone leaves it empty). */
     var hasAnswer = false
         private set
 
@@ -27,6 +27,9 @@ internal class StreamAssembler {
     private var thinkMode = ThinkMode.DETECT
     private val held = StringBuilder()
     private val answer = AnswerFilter()
+    /** FB3 QA M1 review: reasoning may hold the tool-call markup too. */
+    private val thought = AnswerFilter()
+    private var thoughtField = ""
 
     fun accept(chunk: ChatChunk): List<LlmEvent> {
         chunk.usage?.let { usage = Usage(it.promptTokens, it.completionTokens, it.promptCacheHitTokens ?: it.promptTokensDetails?.cachedTokens) }
@@ -65,6 +68,7 @@ internal class StreamAssembler {
             if (thinkMode == ThinkMode.THINK) reasoning(out, rest, THINK_TAG) else text(out, rest)
         }
         thinkMode = ThinkMode.BODY
+        endThought(out)
         visible(out, answer.flush())
         return out
     }
@@ -81,17 +85,27 @@ internal class StreamAssembler {
     private fun reasoning(out: MutableList<LlmEvent>, text: String, field: String) {
         if (text.isEmpty()) return
         hasContent = true
-        out += LlmEvent.ReasoningDelta(text, field)
+        thoughtField = field
+        thought.feed(text).takeIf { it.isNotEmpty() }?.let { out += LlmEvent.ReasoningDelta(it, field) }
+    }
+
+    /** Releases reasoning held at a possible markup start, before the answer begins or at the end. */
+    private fun endThought(out: MutableList<LlmEvent>) {
+        thought.flush().takeIf { it.isNotEmpty() }?.let { out += LlmEvent.ReasoningDelta(it, thoughtField) }
     }
 
     private fun text(out: MutableList<LlmEvent>, text: String) {
         if (text.isEmpty()) return
-        hasContent = true; hasAnswer = true
+        hasContent = true
+        endThought(out)
         visible(out, answer.feed(text))
     }
 
+    /** FB3 QA M1 review: only text that passed the filter makes the reply non-empty; markup alone is EmptyResponse. */
     private fun visible(out: MutableList<LlmEvent>, text: String) {
-        if (text.isNotEmpty()) out += LlmEvent.TextDelta(text)
+        if (text.isEmpty()) return
+        hasAnswer = true
+        out += LlmEvent.TextDelta(text)
     }
 
     /** Splits a leading `<think>…</think>` (Qwen3/R1 style local servers) into reasoning. */

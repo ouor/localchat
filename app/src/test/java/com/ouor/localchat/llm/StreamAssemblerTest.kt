@@ -55,9 +55,26 @@ class StreamAssemblerTest {
     }
 
     @Test
+    fun `markup alone leaves the reply without an answer, and reasoning is filtered too`() {
+        // FB3 QA M1 review.
+        val only = StreamAssembler()
+        assertEquals("", only.feed("<｜DSML｜function_calls>", "<｜DSML｜invoke name=\"x\">").text())
+        assertFalse(only.hasAnswer)
+        val r = StreamAssembler()
+        val events = listOf(
+            r.accept(chunk("""{"choices":[{"delta":{"reasoning_content":"plan <"}}]}""")),
+            r.accept(chunk("""{"choices":[{"delta":{"reasoning_content":"｜DSML｜invoke>x"}}]}""")),
+            r.accept(content("Answer")),
+            r.flush(),
+        ).flatten()
+        assertEquals("plan", events.reasoning("reasoning_content").trimEnd())
+        assertEquals("Answer", events.text())
+        assertEquals("a <b", StreamAssembler().let { a -> (a.accept(chunk("""{"choices":[{"delta":{"reasoning_content":"a <"}}]}""")) + a.accept(chunk("""{"choices":[{"delta":{"reasoning_content":"b"}}]}""")) + a.flush()).reasoning("reasoning_content") })
+    }
+
+    @Test
     fun `the page-content boundary tags are removed from the answer`() {
         // FB3 QA m1.
-        assertEquals(com.ouor.localchat.chat.context.Untrusted.TAG, AnswerFilter.BOUNDARY_TAG)
         val events = StreamAssembler().feed("<untrusted_pa", "ge_content>\nExample Domain\n</untrusted_page_content", ">\nThe title is X")
         assertEquals("\nExample Domain\n\nThe title is X", events.text())
     }

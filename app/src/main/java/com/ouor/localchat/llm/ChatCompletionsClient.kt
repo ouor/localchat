@@ -203,6 +203,11 @@ class ChatCompletionsClient internal constructor(
             (body.thinking == Thinking.ENABLED || (side && body.thinking != null)) && named(message, "thinking") -> body.copy(thinking = null)
             body.maxTokens != null && (named(message, "max_tokens") || named(message, "max_completion_tokens")) ->
                 body.copy(maxTokens = null)
+            // FB3 QA M1: tool_choice only rides on tools listed for the history, so both go and the retry is toolless.
+            body.toolChoice != null && named(message, "tool_choice") -> {
+                java.util.logging.Logger.getLogger("localchat").warning("tool_choice rejected; retrying without tools")
+                body.copy(tools = null, toolChoice = null)
+            }
             else -> null
         }
     }
