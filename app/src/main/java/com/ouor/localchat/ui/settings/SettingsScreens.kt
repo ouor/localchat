@@ -297,8 +297,9 @@ internal fun SensitiveDomainRows(domains: List<String>, onChange: (List<String>)
         val gone = d !in domains
         // FB3 fix ui m4: TalkBack says a greyed row is removed, not just dimmed.
         SettingsRow(d, divider = true, enabled = !gone, modifier = if (gone) Modifier.semantics { stateDescription = removedState } else Modifier) {
+            // FB3 QA M2: keep d in [removed] until the saved list has it again. Dropping it here left a frame without
+            // the row (the save is async), so at the bottom of the page the scroll clamped and the list jumped a row.
             if (gone) LcButton(stringResource(R.string.fb3_c_undo), {
-                removed -= d
                 onChange(domains.toMutableList().apply { add(rows.take(i).count { it in domains }, d) })
             }, variant = ButtonVariant.Text, size = ButtonSize.Sm)
             else LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_delete), { removed[d] = i; onChange(domains - d) }, size = IconButtonSize.Sm)
