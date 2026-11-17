@@ -978,8 +978,8 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `with no tools sent, a reply of only markup is asked once more and then is the empty-response error`() = runTest {
-        // FB4 E-2: AnswerFilter turns DSML-only text into EmptyResponse.
+    fun `with no tools sent, a reply that comes back empty, as markup only does, is asked once more and then is the empty-response error`() = runTest {
+        // FB4 E-2. DSML through the real AnswerFilter: ToolsOffServerTest.
         lateinit var h: Harness
         val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, ctx -> h.engine.narrowRun(ctx.sessionId, GenOptions()); ToolOutcome("clicked") }
         h = Harness(this, tools = listOf(click), models = FakeModelPort(caps(tools = true)))
@@ -1008,6 +1008,26 @@ class AgentLoopTest {
         assertEquals(ReplyStatus.DONE, reply.status)
         assertEquals("Here is the answer.", reply.blocks.filterIsInstance<TextBlock>().single().text)
         assertTrue(reply.blocks.none { it is ToolCallBlock && it.callId == "c3" })
+        // FB4 eng M1: the usual DONE path, so the first turn still gets its title.
+        assertEquals(1, h.llm.completeRequests.size)
+    }
+
+    @Test
+    fun `calls without text to a toolless request end like an empty reply, keeping the reasoning already shown`() = runTest {
+        // FB4 eng m5: only the calls go; the reasoning stays, as with Failed(EmptyResponse).
+        lateinit var h: Harness
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, ctx -> h.engine.narrowRun(ctx.sessionId, GenOptions()); ToolOutcome("clicked") }
+        h = Harness(this, tools = listOf(click), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        h.llm.events(call("c2", "click"), finished("tool_calls"))
+        h.llm.events(LlmEvent.ReasoningDelta("first try", "reasoning_content"), call("c3", "click"), finished("tool_calls"))
+        h.llm.events(LlmEvent.ReasoningDelta("second try", "reasoning_content"), call("c4", "click"), finished("tool_calls"))
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        assertEquals(ChatErrorKind.EMPTY_RESPONSE, reply.error!!.kind)
+        assertEquals(listOf("second try"), reply.blocks.filterIsInstance<com.ouor.localchat.core.model.ThinkingBlock>().map { it.text })
+        assertTrue(reply.blocks.none { it is ToolCallBlock && (it.callId == "c3" || it.callId == "c4") })
     }
 
     @Test

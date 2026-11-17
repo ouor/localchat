@@ -243,23 +243,24 @@ class TurnRunner @Inject constructor(
                     }
                     is LlmEvent.Finished -> {
                         val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.key }.toSet()
-                        val calls = body.blocks.filterIsInstance<ToolCallBlock>().filter { it.step == step && it.key !in answered }
-                        // FB4 E-2: calls to a request that offered no tool (a server ignoring tool_choice "none") are no
-                        // answer either: asked once more like an empty reply, then the run ends instead of looping to the limit.
+                        var calls = body.blocks.filterIsInstance<ToolCallBlock>().filter { it.step == step && it.key !in answered }
+                        // FB4 E-2: calls to a request that sent no tools at all (a server ignoring tool_choice "none", or one
+                        // making up calls in a run that never listed tools) are dropped: text beside them is the answer;
+                        // without text the step is no answer, asked once more like an empty reply, then the run ends.
                         if (stepTools.isEmpty() && calls.isNotEmpty()) {
-                            val answer = body.blocks.any { it is TextBlock && it.step == step && it.text.isNotBlank() }
-                            if (answer) {
-                                publish(body.copy(blocks = body.blocks - calls.toSet(), steps = step + 1, status = ReplyStatus.DONE))
+                            publish(body.copy(blocks = body.blocks - calls.toSet()))
+                            if (body.blocks.none { it is TextBlock && it.step == step && it.text.isNotBlank() }) {
+                                val retry = policy.onCallsWithoutTools(shape)
+                                if (retry != null) {
+                                    policy = retry
+                                    publish(body.copy(blocks = before))
+                                    continue
+                                }
+                                // Like an empty reply's error: reasoning already shown stays.
+                                publish(body.copy(status = ReplyStatus.ERROR, error = LlmError.EmptyResponse.toChatError()))
                                 return
                             }
-                            val retry = policy.onCallsWithoutTools(shape)
-                            if (retry != null) {
-                                policy = retry
-                                publish(body.copy(blocks = before))
-                                continue
-                            }
-                            publish(body.copy(blocks = before, status = ReplyStatus.ERROR, error = LlmError.EmptyResponse.toChatError()))
-                            return
+                            calls = emptyList()
                         }
                         publish(body.copy(steps = step + 1))
                         if (body.refusal || calls.isEmpty()) {
