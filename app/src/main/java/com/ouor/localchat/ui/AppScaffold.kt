@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.activity.compose.BackHandler
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
@@ -118,11 +120,20 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
                 if (wide) {
                     AdaptiveScaffold(list = drawerContent, main = content)
                 } else {
-                    ModalNavigationDrawer(drawerContent = drawerContent, drawerState = drawer, gesturesEnabled = drawer.isOpen) { content() }
+                    CompactDrawer(drawer, drawerContent, content)
                 }
             }
         }
     }
+}
+
+/** Compact-width session drawer. FB3 QA M3: system back closes an open drawer instead of leaving the app. */
+@Composable
+internal fun CompactDrawer(drawer: DrawerState, drawerContent: @Composable () -> Unit, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    ModalNavigationDrawer(drawerContent = drawerContent, drawerState = drawer, gesturesEnabled = drawer.isOpen) { content() }
+    // Composed when the drawer opens, so it is the newest back callback and wins over the screen's (browser panel).
+    if (drawer.targetValue == DrawerValue.Open) BackHandler { scope.launch { drawer.close() } }
 }
 
 /**
