@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.drop
@@ -234,7 +235,11 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                         layout(p.width, p.height) { p.place(0, 0) }
                     }
                     .offset { IntOffset(0, (state.offset - minOf(settledAt, ime.getBottom(this).toFloat())).coerceAtLeast(0f).roundToInt()) }
-                    .background(LcTheme.colors.surfaceRaised).windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
+                    .background(LcTheme.colors.surfaceRaised)
+                    // QA O5: the panel is a hit target over its whole area, so a tap on a gap (banner, handle row) never
+                    // reaches the chat behind it; it consumes nothing, so its children keep their own gestures.
+                    .pointerInput(Unit) {}
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
             ) {
                 BrowserPanelFrame(
                     toolbar = {
