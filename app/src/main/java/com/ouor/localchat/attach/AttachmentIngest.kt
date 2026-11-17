@@ -254,7 +254,7 @@ object PrepFailure {
 
     /** FB4 E-4: each failure reason among [attachments] with how many failed for it, in first-seen order. */
     fun counts(attachments: List<Attachment>): Map<String, Int> =
-        attachments.mapNotNull { (it.state as? PrepState.Failed)?.reason }.groupingBy { it }.eachCount()
+        attachments.mapNotNull { (it.state as? PrepState.Failed)?.reason }.groupingBy { it }.eachCountTo(LinkedHashMap())
 }
 
 data class ValidationResult(val issues: List<ValidationIssue>) {
