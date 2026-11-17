@@ -189,7 +189,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             snapshotFlow { state.settledValue }.collect { if (it != PanelState.Full) cover((h - state.anchors.positionOf(it)).roundToInt().coerceAtLeast(0)) }
         }
         DisposableEffect(Unit) { onDispose { cover(0) } }
-        BackHandler(s.panel >= PanelState.Half) { actions.setPanel(s.panel.down()) }
+        BackHandler(s.panel >= PanelState.Half && !com.ouor.localchat.ui.LocalDrawerOpen.current) { actions.setPanel(s.panel.down()) }
 
         // Stay composed until a drag to the bottom settles; removing the drag node mid-gesture would cancel the settle.
         val shown by remember(h) { derivedStateOf { state.offset < h - 0.5f || state.settledValue != PanelState.Peek } }
