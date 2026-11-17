@@ -39,6 +39,15 @@ class BrowserUiStateTest {
         assertEquals(true, slots.all { it.thumbnail == null })
     }
 
+    @Test fun `handing the tab back keeps the panel height the user chose`() { // FB4 U-3
+        val handoff = com.ouor.localchat.chat.run.Pause.Handoff(2, "login")
+        for (p in listOf(PanelState.Full, PanelState.Half)) {
+            val after = BrowserUiState(panel = p, tabs = listOf(mine), sessionId = "A", handoff = handoff).handedBack()
+            assertEquals(p, after.panel)
+            assertNull(after.handoff)
+        }
+    }
+
     @Test fun `a prompt of a tab outside the visible list never reaches the panel`() {
         // The engine hands the panel visibleTabs only (hidden link-prefetch tabs filtered there, FB3 arch M1).
         val download = com.ouor.localchat.browser.BrowserPrompt.Download(1, 9, "https://e.com/f", "f", "a/b", 1)
