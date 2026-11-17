@@ -25,6 +25,6 @@ object ToolResultTrimmer {
     fun cut(content: String): String {
         if (content.length <= LIMIT) return content
         val removed = content.length - HEAD - TAIL
-        return content.take(HEAD) + "…[중략 ${removed}자]…" + content.takeLast(TAIL)
+        return content.take(HEAD) + "…[${removed} characters omitted]…" + content.takeLast(TAIL)
     }
 }

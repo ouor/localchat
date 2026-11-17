@@ -64,7 +64,7 @@ class PureLogicTest {
     fun `trimmer keeps short and latest results`() {
         assertEquals("short", ToolResultTrimmer.cut("short"))
         val cut = ToolResultTrimmer.cut("a".repeat(1500) + "b".repeat(1000) + "c".repeat(500))
-        assertEquals("a".repeat(1500) + "…[중략 1000자]…" + "c".repeat(500), cut)
+        assertEquals("a".repeat(1500) + "…[1000 characters omitted]…" + "c".repeat(500), cut)
         val big = "z".repeat(2500)
         val out = ToolResultTrimmer.trim(listOf(Triple("1", "page_text", big), Triple("2", "open_tab", big), Triple("3", "execute", big), Triple("4", "snapshot", big)))
         assertTrue(out.getValue("1").length < big.length)

@@ -147,7 +147,7 @@ class ContextAssemblerTest {
         val gone = doc.copy(id = "g", hasOriginal = false)
         val payloads = mapOf("i" to AttachmentPayload(img, imageDataUrl = "data:x"), "d" to AttachmentPayload(doc, text = "body"), "g" to AttachmentPayload(gone, text = "no"))
         val content = texts(input(listOf(user("u1", "see", listOf("i", "d", "g"))), attachments = payloads))[1].second
-        assertEquals("see\n\n[이미지: cat.png]\n\n파일: a.txt\n```\nbody\n```", content)
+        assertEquals("see\n\n[Image: cat.png]\n\nFile: a.txt\n```\nbody\n```", content)
     }
 
     @Test
@@ -208,7 +208,7 @@ class ContextAssemblerTest {
         val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "snapshot", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
         val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
         val sent = msgs.map { it.content!!.jsonPrimitive.content }
-        assertTrue(sent[0].contains("…[중략 1000자]…"))
+        assertTrue(sent[0].contains("…[1000 characters omitted]…"))
         assertEquals(big, sent[1])
         assertEquals(big, sent[2])
     }

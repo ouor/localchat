@@ -169,9 +169,10 @@ object ContextAssembler {
             if (!a.hasOriginal) continue
             if (a.kind == AttachmentKind.IMAGE) {
                 if (input.model.caps.imageInput.value && p.imageDataUrl != null) images += imagePart(p.imageDataUrl)
-                else texts += "[이미지: ${a.name}]"
+                else texts += "[Image: ${a.name}]"
             } else {
-                texts += if (p.text != null) "파일: ${a.name}\n```\n${p.text}\n```" else "[파일: ${a.name}]"
+                // Model-facing labels stay English: a Korean label made models answer English questions in Korean (v1.0.1 QA).
+                texts += if (p.text != null) "File: ${a.name}\n```\n${p.text}\n```" else "[File: ${a.name}]"
             }
         }
         val text = texts.joinToString("\n\n")

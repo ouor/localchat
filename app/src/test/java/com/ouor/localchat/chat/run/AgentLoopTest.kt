@@ -1172,7 +1172,7 @@ class AgentLoopTest {
         val user = h.store.messages.values.first { it.body is MessageBody.User }.body as MessageBody.User
         assertEquals(listOf("doc1"), user.attachmentIds)
         val sent = h.llm.requests.single().messages.last { it.role == "user" }.content!!.jsonPrimitive.content
-        assertTrue(sent.contains("파일: https://example.com/a"))
+        assertTrue(sent.contains("File: https://example.com/a"))
         assertTrue(sent.contains("<untrusted_page_content>\nPAGE 41"))
         assertNull(h.llm.requests.single().tools)
 
