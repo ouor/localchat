@@ -212,6 +212,8 @@ class ChatEngine @Inject constructor(
             // Ours after the call, or a browser/tools refusal before it (one shared phrase).
             content.contains(ToolExecutor.SENSITIVE) || content.contains(SensitiveUrls.REFUSAL) -> R.string.chat_step_fail_sensitive
             content == SystemPrompt.INTERRUPTED || content == SystemPrompt.ABORTED -> R.string.chat_step_fail_interrupted
+            // FB3 QA m2: the user's own switch, not an error (ui shows it neutral).
+            content == ToolExecutor.TOOL_OFF -> R.string.chat_step_turned_off
             else -> R.string.chat_step_fail_error
         }
     }

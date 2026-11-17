@@ -1009,6 +1009,8 @@ class AgentLoopTest {
         assertEquals(R.string.chat_step_fail_interrupted, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(SystemPrompt.INTERRUPTED, error = true))!!.failureRes)
         assertEquals(R.string.chat_step_fail_error, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result("boom", error = true))!!.failureRes)
         assertNull(h.engine.toolStep(block("navigate", ToolCallState.DENIED), result(SystemPrompt.DENIED, error = true))!!.failureRes)
+        // FB3 QA m2: a tool the user turned off is not "failed with an error".
+        assertEquals(R.string.chat_step_turned_off, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(ToolExecutor.TOOL_OFF, error = true))!!.failureRes)
     }
 
     @Test
