@@ -26,6 +26,7 @@ internal class StreamAssembler {
     private val calls = LinkedHashMap<Int, CallBuilder>()
     private var thinkMode = ThinkMode.DETECT
     private val held = StringBuilder()
+    private val answer = AnswerFilter()
 
     fun accept(chunk: ChatChunk): List<LlmEvent> {
         chunk.usage?.let { usage = Usage(it.promptTokens, it.completionTokens, it.promptCacheHitTokens ?: it.promptTokensDetails?.cachedTokens) }
@@ -64,6 +65,7 @@ internal class StreamAssembler {
             if (thinkMode == ThinkMode.THINK) reasoning(out, rest, THINK_TAG) else text(out, rest)
         }
         thinkMode = ThinkMode.BODY
+        visible(out, answer.flush())
         return out
     }
 
@@ -85,7 +87,11 @@ internal class StreamAssembler {
     private fun text(out: MutableList<LlmEvent>, text: String) {
         if (text.isEmpty()) return
         hasContent = true; hasAnswer = true
-        out += LlmEvent.TextDelta(text)
+        visible(out, answer.feed(text))
+    }
+
+    private fun visible(out: MutableList<LlmEvent>, text: String) {
+        if (text.isNotEmpty()) out += LlmEvent.TextDelta(text)
     }
 
     /** Splits a leading `<think>…</think>` (Qwen3/R1 style local servers) into reasoning. */
