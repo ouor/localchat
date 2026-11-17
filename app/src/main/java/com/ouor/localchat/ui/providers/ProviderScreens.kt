@@ -252,14 +252,17 @@ private fun SecureWindow() {
 
 @Composable
 internal fun UrlField(s: EndpointUiState, vm: EndpointFieldActions) {
+    val invalid = stringResource(R.string.ui_url_invalid)
+    val http = stringResource(R.string.ui_http_warning)
+    val hint = stringResource(R.string.fb3_c_url_hint)
     val (helper, tone) = when {
-        s.baseUrl.isNotBlank() && !s.urlValid -> stringResource(R.string.ui_url_invalid) to HelperTone.Error
-        s.isHttp -> stringResource(R.string.ui_http_warning) to HelperTone.Warn
-        else -> stringResource(R.string.fb3_c_url_hint) to HelperTone.Normal
+        s.baseUrl.isNotBlank() && !s.urlValid -> invalid to HelperTone.Error
+        s.isHttp -> http to HelperTone.Warn
+        else -> hint to HelperTone.Normal
     }
-    // P-STABLE M7: the helper line and the http row are always there (the row disabled unless http), so the
-    // fields and buttons below do not jump while the URL is typed.
-    LcTextField(s.baseUrl, vm::onUrl, label = "Base URL", kind = TextFieldKind.Url, helper = helper, helperTone = tone)
+    // P-STABLE M7: the helper slot (as tall as its longest message) and the http row are always there (the row
+    // disabled unless http), so the fields and buttons below do not jump while the URL is typed.
+    LcTextField(s.baseUrl, vm::onUrl, label = "Base URL", kind = TextFieldKind.Url, helper = helper, helperTone = tone, helperSlot = listOf(invalid, http, hint))
     Row(verticalAlignment = Alignment.CenterVertically) {
         LcCheckbox(s.allowHttp && s.isHttp, vm::onAllowHttp, enabled = s.isHttp)
         Text(stringResource(R.string.ui_allow_http), style = LcTheme.text.body, color = if (s.isHttp) LcTheme.colors.textPrimary else LcTheme.colors.textDisabled)

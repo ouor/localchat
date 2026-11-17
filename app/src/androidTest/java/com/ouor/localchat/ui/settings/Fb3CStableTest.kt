@@ -16,6 +16,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -70,8 +72,10 @@ class Fb3CStableTest {
     @get:Rule val rule = createComposeRule()
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
 
-    private fun show(content: @Composable () -> Unit) = rule.setContent {
-        LocalchatTheme(false) { Column(Modifier.fillMaxSize().background(LcTheme.colors.surface)) { content() } }
+    private fun show(fontScale: Float = 1f, content: @Composable () -> Unit) = rule.setContent {
+        DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(fontScale)) {
+            LocalchatTheme(false) { Column(Modifier.fillMaxSize().background(LcTheme.colors.surface)) { content() } }
+        }
     }
 
     private fun SemanticsNodeInteraction.box(): DpRect = getBoundsInRoot()
@@ -88,9 +92,13 @@ class Fb3CStableTest {
         override fun cancelEditKey() {}
     }
 
-    @Test fun m7_typingTheUrlDoesNotMoveWhatIsBelow() {
+    @Test fun m7_typingTheUrlDoesNotMoveWhatIsBelow() = m7(1f)
+
+    @Test fun m7_at200Percent() = m7(2f) // the http warning wraps to two lines here
+
+    private fun m7(fontScale: Float) {
         var url by mutableStateOf("")
-        show {
+        show(fontScale) {
             UrlField(EndpointUiState(isNew = true, baseUrl = url), NoActions)
             Box(Modifier.size(10.dp).testTag("below"))
         }
@@ -103,9 +111,13 @@ class Fb3CStableTest {
         }
     }
 
-    @Test fun m11_checkButtonStaysAndTurnsIntoRecheck() {
+    @Test fun m11_checkButtonStaysAndTurnsIntoRecheck() = m11(1f)
+
+    @Test fun m11_at200Percent() = m11(2f) // a body line is taller than the 24dp minimum here
+
+    private fun m11(fontScale: Float) {
         var ui by mutableStateOf<ConnectionUi?>(null)
-        show {
+        show(fontScale) {
             ConnectionStatus(ui, {}, {}, Modifier.testTag("status"))
             Box(Modifier.size(10.dp).testTag("below"))
         }
