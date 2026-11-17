@@ -139,8 +139,9 @@ private fun MarkdownBlock(
             var i = 0
             INLINE_TOKEN.findAll(node).forEach { m ->
                 append(node.substring(i, m.range.first))
-                val n = m.groupValues[2].toInt()
+                val n = m.groupValues[2].toIntOrNull() ?: 0
                 when {
+                    m.groupValues[1] == "j" -> Unit // JOINER: only there for the parser
                     m.groupValues[1] == "c" -> appendInlineContent("c$n", "[$n]")
                     mathOk.getOrElse(n) { false } -> appendInlineContent("m$n", "$" + parts.math[n] + "$")
                     else -> withStyle(codeStyle) { append("$" + parts.math[n] + "$") }
