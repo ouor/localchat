@@ -27,6 +27,23 @@ class AttachTest {
     }
 
     @Test
+    fun `failure counts list every reason of one message, not just the first (FB4 E-4)`() {
+        fun a(id: String, state: PrepState) = Attachment(id, "$id.x", "x/y", 1, AttachmentKind.DOCUMENT, state, true, createdAt = 0)
+        val list = listOf(
+            a("big", PrepState.Failed(PrepFailure.TOO_LARGE)),
+            a("ok", PrepState.Ready),
+            a("bin", PrepState.Failed(PrepFailure.UNSUPPORTED_TYPE)),
+            a("doc", PrepState.Failed(PrepFailure.LEGACY_OFFICE)),
+            a("bin2", PrepState.Failed(PrepFailure.UNSUPPORTED_TYPE)),
+        )
+        assertEquals(
+            listOf(PrepFailure.TOO_LARGE to 1, PrepFailure.UNSUPPORTED_TYPE to 2, PrepFailure.LEGACY_OFFICE to 1),
+            PrepFailure.counts(list).toList(),
+        )
+        assertTrue(PrepFailure.counts(listOf(a("ok", PrepState.Ready))).isEmpty())
+    }
+
+    @Test
     fun `validate checks count, readiness and image input`() {
         fun a(id: String, kind: AttachmentKind = AttachmentKind.DOCUMENT, state: PrepState = PrepState.Ready, original: Boolean = true) =
             Attachment(id, "$id.x", "x/y", 1, kind, state, original, createdAt = 0)

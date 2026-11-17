@@ -251,6 +251,10 @@ object PrepFailure {
 
     /** Retrying cannot fix this: the type, an old Office format or the size is the problem (FB2 QA Minor-2). */
     fun isFinal(reason: String) = reason == UNSUPPORTED_TYPE || reason == LEGACY_OFFICE || reason == TOO_LARGE
+
+    /** FB4 E-4: each failure reason among [attachments] with how many failed for it, in first-seen order. */
+    fun counts(attachments: List<Attachment>): Map<String, Int> =
+        attachments.mapNotNull { (it.state as? PrepState.Failed)?.reason }.groupingBy { it }.eachCount()
 }
 
 data class ValidationResult(val issues: List<ValidationIssue>) {
