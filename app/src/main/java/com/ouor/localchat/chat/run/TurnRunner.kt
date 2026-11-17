@@ -32,6 +32,7 @@ import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.llm.LlmError
+import com.ouor.localchat.llm.toChatError
 import com.ouor.localchat.llm.wire.WireMessage
 import kotlinx.serialization.json.JsonPrimitive
 import com.ouor.localchat.llm.LlmEvent
@@ -257,9 +258,25 @@ class TurnRunner @Inject constructor(
                         return
                     }
                     is LlmEvent.Finished -> {
-                        publish(body.copy(steps = step + 1))
                         val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.key }.toSet()
                         val calls = body.blocks.filterIsInstance<ToolCallBlock>().filter { it.step == step && it.key !in answered }
+                        // FB4 E-2: calls to a request that offered no tool (a server ignoring tool_choice "none") are no
+                        // answer either: asked once more like an empty reply, then the run ends instead of looping to the limit.
+                        if (stepTools.isEmpty() && calls.isNotEmpty()) {
+                            val answer = body.blocks.any { it is TextBlock && it.step == step && it.text.isNotBlank() }
+                            if (answer) {
+                                publish(body.copy(blocks = body.blocks - calls.toSet(), steps = step + 1, status = ReplyStatus.DONE))
+                                return
+                            }
+                            if (callsBlocked && !emptyRetried) {
+                                emptyRetried = true
+                                publish(body.copy(blocks = before))
+                                continue
+                            }
+                            publish(body.copy(blocks = before, status = ReplyStatus.ERROR, error = LlmError.EmptyResponse.toChatError()))
+                            return
+                        }
+                        publish(body.copy(steps = step + 1))
                         if (body.refusal || calls.isEmpty()) {
                             publish(body.copy(status = ReplyStatus.DONE))
                             if (mode == Mode.NEW && path.count { it.body is MessageBody.User } == 1) launchTitle(path, model)
