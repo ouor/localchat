@@ -322,7 +322,10 @@ internal fun ChatScreen(
                     // Centered as before; pushed down only as far as a banner would otherwise cover it (P-STABLE L1 keeps it put otherwise).
                     Welcome(cs, Modifier.fillMaxSize().layout { m, c ->
                         val p = m.measure(c.copy(minWidth = 0, minHeight = 0))
-                        layout(c.maxWidth, c.maxHeight) { p.place((c.maxWidth - p.width) / 2, maxOf((c.maxHeight - p.height) / 2, bannerPx)) }
+                        val y = maxOf((c.maxHeight - p.height) / 2, bannerPx)
+                        // Too short to fit below the banners (keyboard up, small window): left out rather than drawn
+                        // over the composer (FB3 review 7).
+                        layout(c.maxWidth, c.maxHeight) { if (y + p.height <= c.maxHeight) p.place((c.maxWidth - p.width) / 2, y) }
                     })
                 } else {
                     LazyColumn(Modifier.fillMaxSize().pointerInput(Unit) {
