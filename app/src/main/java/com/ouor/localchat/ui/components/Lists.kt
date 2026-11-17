@@ -10,7 +10,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -216,17 +220,21 @@ sealed interface ConnectionUi {
 }
 
 /**
- * SC-02 connection check. P-STABLE (M11): the button never leaves its place: a spinner inside while checking,
+ * SC-02 connection check. P-STABLE M11: the button never leaves its place: a spinner inside while checking,
  * "다시 확인" after a failure. The result line sits below it in a slot that is always there (one line reserved).
  * [state] null = not checked yet. [onSaveAnyway] null = no "그래도 저장" (a saved provider).
  */
 @Composable
 fun ConnectionStatus(state: ConnectionUi?, onRecheck: () -> Unit, onSaveAnyway: (() -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val c = LcTheme.colors
+    // FB3 fix ui m3: [다시 확인] keeps its label while the re-check runs (no label/width flip mid-check).
+    var lastSettled by remember { mutableStateOf<ConnectionUi?>(null) }
+    LaunchedEffect(state) { if (state != ConnectionUi.Checking) lastSettled = state }
+    val recheck = state is ConnectionUi.Error || (state == ConnectionUi.Checking && lastSettled is ConnectionUi.Error)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             LcButton(
-                stringResource(if (state is ConnectionUi.Error) R.string.ui_conn_recheck else R.string.ui_check_connection), onRecheck,
+                stringResource(if (recheck) R.string.ui_conn_recheck else R.string.ui_check_connection), onRecheck,
                 variant = ButtonVariant.Outline, size = ButtonSize.Sm, enabled = enabled, loading = state == ConnectionUi.Checking,
             )
             if (state is ConnectionUi.Error && onSaveAnyway != null) LcButton(stringResource(R.string.ui_conn_save_anyway), onSaveAnyway, variant = ButtonVariant.Text, size = ButtonSize.Sm)

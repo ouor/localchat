@@ -21,6 +21,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -45,14 +46,14 @@ import com.ouor.localchat.ui.components.ConnectionStatus
 import com.ouor.localchat.ui.components.ConnectionUi
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.components.SettingsRow
-import com.ouor.localchat.ui.providers.CONTEXT_PRESETS
+import com.ouor.localchat.ui.format.CONTEXT_PRESETS
 import com.ouor.localchat.ui.providers.CONTEXT_RANGE
 import com.ouor.localchat.ui.providers.CheckUi
 import com.ouor.localchat.ui.providers.EndpointFieldActions
 import com.ouor.localchat.ui.providers.EndpointUiState
 import com.ouor.localchat.ui.providers.KeySection
 import com.ouor.localchat.ui.providers.LimitRow
-import com.ouor.localchat.ui.providers.OUTPUT_PRESETS
+import com.ouor.localchat.ui.format.OUTPUT_PRESETS
 import com.ouor.localchat.ui.providers.OUTPUT_RANGE
 import com.ouor.localchat.ui.providers.UrlField
 import com.ouor.localchat.ui.theme.LcTheme
@@ -253,5 +254,42 @@ class Fb3CStableTest {
         rule.waitForIdle()
         assertEquals(listOf("a.example.com", "b.example.com", "c.example.com"), domains)
         assertEquals(secondX, rule.onAllNodesWithContentDescription(del)[1].box())
+    }
+
+    @Test fun fix_m2_limitValueStaysWhenTheWarningComes() { // FB3 fix ui M2
+        var server by mutableStateOf(262_144)
+        show { SettingsGroup { LimitRow("컨텍스트 창", Sourced(204_800, CapSource.USER), Sourced(server, CapSource.SERVER), CONTEXT_PRESETS, CONTEXT_RANGE, null, false) {} } }
+        val value = rule.onNodeWithText("200K", useUnmergedTree = true).box()
+        server = 131_072 // the server now says 128K: warns
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e3_limit_warn_gt_server, "128K"), useUnmergedTree = true).assertExists()
+        assertEquals(value, rule.onNodeWithText("200K", useUnmergedTree = true).box())
+    }
+
+    @Test fun fix_m3_recheckKeepsItsLabelWhileChecking() { // FB3 fix ui m3
+        var ui by mutableStateOf<ConnectionUi?>(ConnectionUi.Error("401 · bad key"))
+        show { ConnectionStatus(ui, {}, null) }
+        val recheck = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box()
+        ui = ConnectionUi.Checking
+        rule.waitForIdle()
+        val checking = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box() // same label; the spinner widens it (as M11)
+        assertEquals(recheck.left, checking.left)
+        assertEquals(recheck.top, checking.top)
+        ui = ConnectionUi.Ok(3)
+        rule.waitForIdle()
+        rule.onNodeWithText(ctx.getString(R.string.ui_check_connection)).assertExists()
+    }
+
+    @Test fun fix_m4_removedDomainSaysSoToTalkBack() { // FB3 fix ui m4
+        var domains by mutableStateOf(listOf("a.example.com", "b.example.com"))
+        show { SettingsGroup { SensitiveDomainRows(domains) { domains = it } } }
+        val removed = hasStateDescription(ctx.getString(R.string.fb3_c_removed))
+        rule.onNode(removed).assertDoesNotExist()
+        rule.onAllNodesWithContentDescription(ctx.getString(R.string.ui_delete))[0].performClick()
+        rule.waitForIdle()
+        rule.onNode(removed).assertExists()
+        rule.onNodeWithText(ctx.getString(R.string.fb3_c_undo)).performClick()
+        rule.waitForIdle()
+        rule.onNode(removed).assertDoesNotExist()
     }
 }

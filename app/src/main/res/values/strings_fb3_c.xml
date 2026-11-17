@@ -2,6 +2,7 @@
 <resources>
     <string name="fb3_c_url_hint">e.g. https://api.example.com/v1</string>
     <string name="fb3_c_password_again_hint">Enter the same password again</string>
+    <string name="fb3_c_removed">Removed</string>
     <string name="fb3_c_undo">Undo</string>
     <string name="fb3_c_restore_builtin_off">This backup has the built-in sensitive-site list turned off. Restoring turns it off on this device too; you can turn it back on in Settings › Agent and browser.</string>
 </resources>

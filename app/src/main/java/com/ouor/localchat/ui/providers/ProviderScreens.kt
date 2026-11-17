@@ -1,10 +1,14 @@
 package com.ouor.localchat.ui.providers
 
+import com.ouor.localchat.ui.format.CONTEXT_PRESETS
+import com.ouor.localchat.ui.format.OUTPUT_PRESETS
+import com.ouor.localchat.ui.format.limitLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -127,7 +131,7 @@ fun ProvidersRoute(vm: ProvidersViewModel, onBack: () -> Unit, onOpen: (String) 
 
 /** SC-02. New: preset chips + name/URL/key + check + save. Existing: key, models, connection, delete. */
 @Composable
-fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (String) -> Unit, onModel: (String, String) -> Unit) {
+internal fun EndpointRoute(vm: EndpointEditViewModel, onBack: () -> Unit, onSaved: (String) -> Unit, onModel: (String, String) -> Unit) {
     SecureWindow()
     val s by vm.state.collectAsStateWithLifecycle()
     val models by vm.models.collectAsStateWithLifecycle()
@@ -253,7 +257,7 @@ internal fun UrlField(s: EndpointUiState, vm: EndpointFieldActions) {
         s.isHttp -> stringResource(R.string.ui_http_warning) to HelperTone.Warn
         else -> stringResource(R.string.fb3_c_url_hint) to HelperTone.Normal
     }
-    // P-STABLE (M7): the helper line and the http row are always there (the row disabled unless http), so the
+    // P-STABLE M7: the helper line and the http row are always there (the row disabled unless http), so the
     // fields and buttons below do not jump while the URL is typed.
     LcTextField(s.baseUrl, vm::onUrl, label = "Base URL", kind = TextFieldKind.Url, helper = helper, helperTone = tone)
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -287,7 +291,7 @@ internal fun KeySection(s: EndpointUiState, vm: EndpointFieldActions, storedMode
             }
         }
         Column(pad) { Check(s, vm, onSaveAnyway = null, storedModels) }
-        // P-STABLE (L12): the new key is typed in a dialog, so the check area below does not move. The dialog
+        // P-STABLE L12: the new key is typed in a dialog, so the check area below does not move. The dialog
         // window inherits FLAG_SECURE from this screen (SecureFlagPolicy.Inherit).
         if (s.editingKey) LcDialog(
             stringResource(R.string.ui_replace_key), vm::cancelEditKey, stringResource(R.string.ui_save), vm::saveKey, confirmEnabled = s.key.isNotBlank(),
@@ -376,12 +380,13 @@ internal fun LimitRow(
         else -> stringResource(R.string.fb_e3_limit_auto_builtin, limitLabel(autoValue, presets))
     }
     val warn = limitWarning(v, context, auto, presets)?.let { warningText(it) }
-    // P-STABLE (L6): the warning is an icon in the row (its text in the menu and for TalkBack), not a caption
+    // P-STABLE L6: the warning is an icon in the row (its text in the menu and for TalkBack), not a caption
     // line under the row that pushed the next row down.
     Box {
         // Value goes in the FB-2 value slot so the label keeps priority at 200% font.
         SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
-            if (warn != null) Icon(Icons.Outlined.WarningAmber, warn, Modifier.size(18.dp), tint = c.warning)
+            // FB3 fix ui M2: the icon keeps its slot when there is no warning (invisible, no description), so the value never shifts.
+            Icon(Icons.Outlined.WarningAmber, warn, Modifier.size(18.dp).alpha(if (warn != null) 1f else 0f), tint = c.warning)
             SourceBadge(cap.source)
             Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
         }
@@ -427,7 +432,7 @@ internal fun LimitRow(
             title, { custom = false }, stringResource(R.string.ui_save), { (parsed as? LimitInput.Ok)?.let { onSet(it.value) }; custom = false },
             confirmEnabled = parsed is LimitInput.Ok,
         ) {
-            // L6: two helper lines reserved, so a longer message does not shift the centred dialog's buttons.
+            // P-STABLE L6: two helper lines reserved, so a longer message does not shift the centred dialog's buttons.
             LcTextField(text, { text = it }, helper = helper, helperTone = tone, kind = TextFieldKind.Number, suffix = stringResource(R.string.fb_e3_unit_tokens), helperMinLines = 2)
         }
     }

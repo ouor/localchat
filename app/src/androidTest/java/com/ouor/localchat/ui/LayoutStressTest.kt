@@ -42,7 +42,7 @@ import org.junit.Assert.assertFalse
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.testing.ScreenOnRule
-import com.ouor.localchat.ui.providers.CONTEXT_PRESETS
+import com.ouor.localchat.ui.format.CONTEXT_PRESETS
 import com.ouor.localchat.ui.providers.CONTEXT_RANGE
 import com.ouor.localchat.ui.providers.LimitRow
 import com.ouor.localchat.ui.components.CapabilityIcons

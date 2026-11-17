@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.foundation.layout.height
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
@@ -200,7 +201,7 @@ class ChatScreenTest {
             file("b", "huge.pdf", com.ouor.localchat.attach.PrepFailure.TOO_LARGE),
             file("d", "old.doc", com.ouor.localchat.attach.PrepFailure.LEGACY_OFFICE),
         )))
-        rule.onNodeWithText(ctx.getString(R.string.fb3_d_file_too_large, "huge.pdf")).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.fb3_d_file_too_large, "huge.pdf", "64MB")).assertIsDisplayed()
         rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(0)
     }
 
@@ -554,6 +555,40 @@ class ChatScreenTest {
         rule.runOnIdle { cs = ComposerUiState() }
         rule.onNodeWithText(ctx.getString(R.string.ui_no_provider)).assertIsDisplayed()
         assertEquals(title, rule.onNodeWithText(ctx.getString(R.string.ui_welcome_title)).fetchSemanticsNode().boundsInRoot)
+    }
+
+    private fun bannersBottom() = listOf(R.string.ui_save_failed, R.string.ui_retry, R.string.ui_no_provider, R.string.ui_add_provider)
+        .flatMap { rule.onAllNodesWithText(ctx.getString(it)).fetchSemanticsNodes() }.maxOf { it.boundsInRoot.bottom }
+
+    @Test fun bannersNeverCoverTheFirstMessage() { // FB3 fix ui M1
+        show(ChatUiState(loading = false, saveFailing = true, turns = listOf(turn("FIRST-Q", reply("Hello")))))
+        val first = rule.onNodeWithText("FIRST-Q").fetchSemanticsNode().boundsInRoot
+        assertTrue("first message $first under the banners ${bannersBottom()}", first.top >= bannersBottom())
+    }
+
+    @Test fun bannersNeverCoverTheWelcomeOnAShortScreen() { // FB3 fix ui M1
+        rule.setContent {
+            LocalchatTheme(false) {
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.height(420.dp)) {
+                    ChatScreen(ChatUiState(loading = false, saveFailing = true), ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
+                }
+            }
+        }
+        val title = rule.onNodeWithText(ctx.getString(R.string.ui_welcome_title)).fetchSemanticsNode().boundsInRoot
+        assertTrue("welcome $title under the banners ${bannersBottom()}", title.top >= bannersBottom())
+    }
+
+    @Test fun actionBarShowsTheSameButtonsRunningOrNot() { // FB3 fix ui m1: a reply with no text keeps read-aloud (disabled)
+        val empty = MessageBody.Assistant(emptyList(), ReplyStatus.STREAMING, model = null, options = GenOptions())
+        var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("hi", empty, live = true)), runPhase = RunPhase.Streaming))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        val speaker = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_read_aloud))
+        val regen = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_regenerate))
+        val before = speaker.fetchSemanticsNode().boundsInRoot to regen.fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { state = ChatUiState(loading = false, turns = listOf(turn("hi", empty.copy(status = ReplyStatus.DONE)))) }
+        speaker.assertIsNotEnabled()
+        regen.assertIsEnabled()
+        assertEquals(before, speaker.fetchSemanticsNode().boundsInRoot to regen.fetchSemanticsNode().boundsInRoot)
     }
 
     @Test fun snackbarStaysClearOfTheScrollButton() { // L3

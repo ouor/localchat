@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.providers
 
+import com.ouor.localchat.ui.format.limitLabel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ouor.localchat.core.model.ApiKey
@@ -74,7 +75,7 @@ sealed interface EndpointEffect {
 }
 
 /** What the URL, key and connection-check parts of SC-02 call ([EndpointEditViewModel]; fakes in layout tests). */
-interface EndpointFieldActions {
+internal interface EndpointFieldActions {
     fun onUrl(v: String)
     fun onAllowHttp(v: Boolean)
     fun onKey(v: String)
@@ -86,7 +87,7 @@ interface EndpointFieldActions {
 
 /** SC-02 add / detail (architecture 10.3). */
 @HiltViewModel(assistedFactory = EndpointEditViewModel.Factory::class)
-class EndpointEditViewModel @AssistedInject constructor(
+internal class EndpointEditViewModel @AssistedInject constructor(
     @Assisted val endpointId: String?,
     @Assisted private val preset: PresetId?,
     @Assisted private val custom: Boolean,
@@ -219,9 +220,6 @@ data class ModelDetailUiState(
     val autoOutput: Sourced<Int?> = Sourced(null, CapSource.UNKNOWN),
 )
 
-// FB-6 limit menu: K = 1024, 1M = 1,048,576.
-val CONTEXT_PRESETS = listOf(4, 8, 16, 32, 64, 128, 200, 256).map { it * 1024 } + 1_048_576
-val OUTPUT_PRESETS = listOf(1, 2, 4, 8, 16, 32, 64, 128).map { it * 1024 }
 val CONTEXT_RANGE = 1_024..10_000_000
 val OUTPUT_RANGE = 256..1_000_000
 
@@ -263,13 +261,6 @@ fun limitWarning(value: Int?, context: Pair<String, Int>?, auto: Sourced<Int?>, 
         server != null && value > server -> LimitWarning.AboveServer(limitLabel(server, presets))
         else -> null
     }
-}
-
-/** Preset values read as "128K" / "1M"; anything else as the exact number "128,000". */
-fun limitLabel(n: Int, presets: List<Int>): String = when {
-    n !in presets -> "%,d".format(n)
-    n % 1_048_576 == 0 -> "${n / 1_048_576}M"
-    else -> "${n / 1024}K"
 }
 
 /** SC-02a: values with their source badges; edits replace the whole override set. */

@@ -214,14 +214,14 @@ fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = M
         "mermaid", source, modifier, // language label like code blocks; the toggle says 다이어그램/코드
         headerExtra = {
             // P-STABLE L9: the toggle is there while streaming too (disabled) and is as wide as its longer label, so it
-            // neither appears when the reply ends nor changes width when tapped.
-            if (engine != null && !empty) {
+            // neither appears when the reply ends nor changes width when tapped. A failed render hides it (nothing to toggle to).
+            if (engine != null && !empty && state !is DiagramState.Failed) {
                 val labels = listOf(stringResource(R.string.ui_show_diagram), stringResource(R.string.ui_show_code))
                 Box {
                     labels.forEach { LcButton(it, {}, Modifier.alpha(0f).clearAndSetSemantics {}, variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = false) }
                     LcButton(
                         labels[if (codeMode) 0 else 1], { showCode = !codeMode }, Modifier.matchParentSize(),
-                        variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = renderNow && state !is DiagramState.Failed,
+                        variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = renderNow,
                     )
                 }
             }

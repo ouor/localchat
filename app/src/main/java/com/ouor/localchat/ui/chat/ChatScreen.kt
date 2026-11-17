@@ -1,5 +1,9 @@
 package com.ouor.localchat.ui.chat
 
+import com.ouor.localchat.ui.format.CONTEXT_PRESETS
+import com.ouor.localchat.ui.format.MAX_FILE_SIZE
+import com.ouor.localchat.ui.format.compact
+import com.ouor.localchat.ui.format.limitLabel
 import android.content.ClipData
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -129,6 +133,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -274,6 +279,7 @@ internal fun ChatScreen(
     // The panel reports only settled heights (not Full), so the list never relayouts while the panel moves.
     val density = LocalDensity.current
     var bottomPx by remember { mutableIntStateOf(0) }
+    var bannerPx by remember { mutableIntStateOf(0) } // floating top banners; the list and welcome start below them (FB3 fix ui M1)
     var cover by remember { mutableIntStateOf(0) }
     val panelPad = with(density) { (cover - bottomPx).coerceAtLeast(0).toDp() }
 
@@ -301,11 +307,15 @@ internal fun ChatScreen(
             )
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.turns.isEmpty() && !state.loading) {
-                    Welcome(cs, Modifier.align(Alignment.Center))
+                    // Centered as before; pushed down only as far as a banner would otherwise cover it (P-STABLE L1 keeps it put otherwise).
+                    Welcome(cs, Modifier.fillMaxSize().layout { m, c ->
+                        val p = m.measure(c.copy(minWidth = 0, minHeight = 0))
+                        layout(c.maxWidth, c.maxHeight) { p.place((c.maxWidth - p.width) / 2, maxOf((c.maxHeight - p.height) / 2, bannerPx)) }
+                    })
                 } else {
                     LazyColumn(Modifier.fillMaxSize().pointerInput(Unit) {
                         awaitEachGesture { awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial); touched = true }
-                    }, list, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + panelPad), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    }, list, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp + with(density) { bannerPx.toDp() }, end = 16.dp, bottom = 16.dp + panelPad), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(state.turns, key = { it.user.node.id }) { turn ->
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 UserTurn(turn.user, cs, chat, state.attachments, composer::thumbnail)
@@ -343,12 +353,12 @@ internal fun ChatScreen(
                     }
                     if (!atBottom) ScrollToBottomButton(
                         { scope.launch { list.animateScrollToItem(state.turns.lastIndex.coerceAtLeast(0), Int.MAX_VALUE) } },
-                        Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = FAB_GAP),
                         hasNew = state.running,
                     )
                 }
                 // P-STABLE L1: banners float over the top of the list / welcome instead of pushing it down.
-                Column(Modifier.align(Alignment.TopCenter).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.align(Alignment.TopCenter).onSizeChanged { bannerPx = it.height }.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (state.saveFailing) {
                         Banner(stringResource(R.string.ui_save_failed), BannerVariant.Err, actions = listOf(BannerAction(stringResource(R.string.ui_retry), chat::retryWrites)))
                     }
@@ -368,8 +378,8 @@ internal fun ChatScreen(
                     inputModifier = Modifier.focusRequester(inputFocus).onFocusChanged { if (chat.sessionId == null) NewChatOptions.focused = it.hasFocus })
             }
         }
-        // P-STABLE L3: snackbars sit above the "scroll to bottom" button's slot (8dp + 40dp + 8dp), never over it.
-        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + 56.dp))
+        // P-STABLE L3: snackbars sit above the "scroll to bottom" button's slot (gap + button + gap), never over it.
+        LcSnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = with(density) { bottomPx.toDp() } + FAB_GAP + com.ouor.localchat.ui.components.ScrollToBottomSize + FAB_GAP))
         BrowserOverlay(browserState, browserActions) { cover = it }
     }
 
@@ -379,7 +389,7 @@ internal fun ChatScreen(
         ContextUsageCard(
             state.gaugePercent ?: 0,
             stringResource(R.string.ui_tokens, "%,d".format(state.usageTokens ?: 0)),
-            state.contextWindow?.let { "/ " + com.ouor.localchat.ui.providers.limitLabel(it, com.ouor.localchat.ui.providers.CONTEXT_PRESETS) } ?: "", // same "128K" as the limit menu
+            state.contextWindow?.let { "/ " + limitLabel(it, CONTEXT_PRESETS) } ?: "", // same "128K" as the limit menu
             stringResource(R.string.ui_context_note),
             if (chat.sessionId != null && !state.running) ({ contextCard = false; chat.compactNow() }) else null,
         )
@@ -476,13 +486,13 @@ private fun ComposerArea(
         // Order, top to bottom: status captions, options (model row, toggle row), input. Everything that comes and goes sits
         // above the input, so a caption or opening the options never moves the input or its buttons (P-STABLE H2; the list shrinks).
         val failed = cs.attachments.count { it.state is PrepState.Failed }
-        val unsupported = cs.attachments.firstOrNull(::isUnsupported)
+        val unsupported = cs.attachments.firstOrNull(::isFinalFailure)
         val retry = state.runPhase as? RunPhase.Retrying
         val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
         if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 when {
-                    unsupported != null -> Text(stringResource(if ((unsupported.state as PrepState.Failed).reason == PrepFailure.TOO_LARGE) R.string.fb3_d_file_too_large else R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    unsupported != null -> Text(if ((unsupported.state as PrepState.Failed).reason == PrepFailure.TOO_LARGE) stringResource(R.string.fb3_d_file_too_large, unsupported.name, MAX_FILE_SIZE) else stringResource(R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
                     cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
                 }
@@ -528,7 +538,7 @@ private fun ComposerArea(
                         when (a.state) { PrepState.Preparing -> TileState.Preparing; is PrepState.Failed -> TileState.Failed; PrepState.Ready -> if (a.hasOriginal) TileState.Ready else TileState.Missing },
                         thumbnail = composer.thumbnail(a),
                         onRemove = { composer.remove(a.id) },
-                        onRetry = if (isUnsupported(a)) null else ({ composer.retry(a.id) }),
+                        onRetry = if (isFinalFailure(a)) null else ({ composer.retry(a.id) }),
                     )
                 }
             }),
@@ -588,17 +598,11 @@ private fun Toggles(cs: ComposerUiState, composer: ComposerActions, nav: ChatNav
 
 private fun ModelInfo.endpointName(cs: ComposerUiState): String = cs.endpointNames[endpointId] ?: ""
 
-/** 851234 → "851.2k". */
-internal fun compact(n: Int): String = when {
-    n >= 1_000_000 -> "%.1fM".format(java.util.Locale.ROOT, n / 1_000_000f).replace(".0M", "M")
-    n >= 1_000 -> "%.1fk".format(java.util.Locale.ROOT, n / 1_000f).replace(".0k", "k")
-    else -> n.toString()
-}
+/** Space between the composer and the "scroll to bottom" button, and between the button and a snackbar. */
+private val FAB_GAP = 8.dp
 
-/** Retrying cannot fix an unsupported type, an old Office format or a file over 64 MB, so its tile offers no retry (FB2 QA Minor-2). */
-internal fun isUnsupported(a: Attachment) = (a.state as? PrepState.Failed)?.reason in FINAL_FAILURES
-
-private val FINAL_FAILURES = setOf(PrepFailure.UNSUPPORTED_TYPE, PrepFailure.LEGACY_OFFICE, PrepFailure.TOO_LARGE)
+/** A final failure's tile offers no retry ([PrepFailure.isFinal]). */
+private fun isFinalFailure(a: Attachment) = (a.state as? PrepState.Failed)?.reason?.let(PrepFailure::isFinal) == true
 
 private fun siteOf(url: String) = runCatching { java.net.URI(url).host?.removePrefix("www.") }.getOrNull() ?: url
 

@@ -60,9 +60,10 @@ fun ColumnScope.SessionDrawer(
 ) {
     val c = LcTheme.colors
     // P-STABLE L10: rows keep the order they had when [orderKey] (drawer opened, chat switched) or the query last changed.
-    val shown = remember(orderKey, state.query) { arrayOfNulls<List<Pair<SessionGroup, List<String>>>>(1) }
-    val groups = shown[0]?.let { SessionListViewModel.keepOrder(state.groups, it) } ?: state.groups
-    androidx.compose.runtime.SideEffect { if (state.loaded) shown[0] = groups.map { (g, rows) -> g to rows.map { it.session.id } } }
+    // Snapshot state written only after composition (SideEffect); an unchanged order is equal, so it settles in one pass.
+    var shown by remember(orderKey, state.query) { mutableStateOf<List<Pair<SessionGroup, List<String>>>?>(null) }
+    val groups = shown?.let { SessionListViewModel.keepOrder(state.groups, it) } ?: state.groups
+    androidx.compose.runtime.SideEffect { if (state.loaded) shown = groups.map { (g, rows) -> g to rows.map { it.session.id } } }
     var menuFor by remember { mutableStateOf<Session?>(null) }
     var renaming by remember { mutableStateOf<Session?>(null) }
     var deleting by remember { mutableStateOf<Session?>(null) }
