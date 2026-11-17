@@ -306,7 +306,13 @@ private fun PanelHandle(panel: PanelState, drag: MutableInteractionSource, actio
 /** Test tag of the page area (P-STABLE bounds tests). */
 internal const val PAGE_TAG = "browser-page"
 
+/** The page's focused element (inside open shadow roots too), scrolled into view only if it is out of view. */
+private const val SCROLL_FOCUSED_INTO_VIEW =
+    "(function(){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;" +
+        "if(e&&e!==document.body&&e.scrollIntoView)e.scrollIntoView({block:'nearest'});})()"
+
 /** Engine-owned WebView + highlight overlay (api-spec ui.browser.BrowserSurface). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
@@ -314,6 +320,16 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
             val view = remember(tabId) { actions.webView(tabId) }
             if (view != null) AndroidView(factory = { view }, Modifier.fillMaxSize(), onRelease = { actions.park(tabId) })
             else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
+            // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
+            // page shrinks; the panel may shrink first. Once the page has its keyboard-time height, bring the focused
+            // field (if any) back into view. Scrolling only; nothing is read from the page.
+            val keyboardUp = WindowInsets.imeAnimationTarget.getBottom(LocalDensity.current) > 0
+            LaunchedEffect(view, constraints.maxHeight, keyboardUp) {
+                if (view != null && keyboardUp) {
+                    kotlinx.coroutines.delay(200) // the renderer takes the new size first
+                    view.evaluateJavascript(SCROLL_FOCUSED_INTO_VIEW, null)
+                }
+            }
         }
         val h = highlight?.takeIf { it.tabId == tabId && it.cssViewportWidth > 0f }
         val scale = h?.let { constraints.maxWidth / it.cssViewportWidth } ?: 1f
