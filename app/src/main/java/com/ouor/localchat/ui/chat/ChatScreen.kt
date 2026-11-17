@@ -204,9 +204,7 @@ internal fun ChatScreen(
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf(false) }
-    var picker by remember { mutableStateOf(false) }
-    var contextCard by remember { mutableStateOf(false) }
-    var sourcesOf by remember { mutableStateOf<AssistantUi?>(null) }
+    var sheet by remember { mutableStateOf<ChatSheet?>(null) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val atBottom by remember { androidx.compose.runtime.derivedStateOf { !list.canScrollForward } }
@@ -341,7 +339,7 @@ internal fun ChatScreen(
                                         onRegenerate = { cs.model?.let { m -> chat.regenerate(reply.node.id, m.ref, cs.options) } },
                                         onContinue = { chat.continueReply(reply.node.id) },
                                         onVersion = chat::selectVersion,
-                                        onSources = { sourcesOf = reply },
+                                        onSources = { sheet = ChatSheet.Sources(reply) },
                                         onLink = { browserActions.open(it) },
                                         toolStep = chat::toolStep,
                                         onReadAloud = { chat.readAloud(reply.node.id, it) },
@@ -356,7 +354,7 @@ internal fun ChatScreen(
                                                 ErrorAction.TopUp -> reply.body.model?.let { nav.editEndpoint(it.endpointId) }
                                                 ErrorAction.OpenModelSettings -> reply.body.model?.let { nav.modelDetail(it.endpointId, it.modelId) }
                                                 ErrorAction.SummarizeNow -> chat.compactNow()
-                                                ErrorAction.ChooseModel -> { picker = true }
+                                                ErrorAction.ChooseModel -> { sheet = ChatSheet.Picker }
                                                 ErrorAction.OpenProvider -> reply.body.model?.let { nav.editEndpoint(it.endpointId) }
                                             }
                                         },
@@ -387,8 +385,8 @@ internal fun ChatScreen(
             Column(Modifier.onSizeChanged { bottomPx = it.height }) {
                 // 8dp gap to the composer (screens-fb1 1b ②).
                 BrowserPeek(browserState, browserActions, Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp))
-                ComposerArea(cs, state, composer, chat, nav, onPicker = { picker = true }, onAttach = { picks.launch(arrayOf("*/*")) },
-                    onMic = { mic.launch(android.Manifest.permission.RECORD_AUDIO) }, onGauge = { contextCard = true },
+                ComposerArea(cs, state, composer, chat, nav, onPicker = { sheet = ChatSheet.Picker }, onAttach = { picks.launch(arrayOf("*/*")) },
+                    onMic = { mic.launch(android.Manifest.permission.RECORD_AUDIO) }, onGauge = { sheet = ChatSheet.Context },
                     open = optionsOpen, onToggleOpen = { userOpen = !optionsOpen; if (chat.sessionId == null) NewChatOptions.pending = userOpen },
                     inputModifier = Modifier.focusRequester(inputFocus).onFocusChanged { if (chat.sessionId == null) NewChatOptions.focused = it.hasFocus })
             }
@@ -399,20 +397,24 @@ internal fun ChatScreen(
     }
 
     // ---- sheets and dialogs ----
-    // FB4 U-4: one sheet at a time. An approval holds the run, so it closes the user's open sheet and takes its place.
+    // FB4 U-4: one sheet at a time, by type ([ChatSheet]). An approval holds the run, so it takes the place of the user's
+    // sheet from its first frame and closes it (not shown again after the answer).
     val approving = state.pause is Pause.Approval
-    LaunchedEffect(approving) { if (approving) { picker = false; contextCard = false; sourcesOf = null } }
-    if (picker) ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { picker = false }, endpointIds = cs.endpointNames.keys.toList()) { composer.selectModel(it); picker = false }
-    if (contextCard) LcBottomSheet({ contextCard = false }, null) {
-        ContextUsageCard(
-            state.gaugePercent ?: 0,
-            stringResource(R.string.ui_tokens, "%,d".format(state.usageTokens ?: 0)),
-            state.contextWindow?.let { "/ " + limitLabel(it, CONTEXT_PRESETS) } ?: "", // same "128K" as the limit menu
-            stringResource(R.string.ui_context_note),
-            if (chat.sessionId != null && !state.running) ({ contextCard = false; chat.compactNow() }) else null,
-        )
+    LaunchedEffect(approving) { if (approving) sheet = null }
+    when (val open = sheet.takeUnless { approving }) {
+        null -> Unit
+        ChatSheet.Picker -> ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { sheet = null }, endpointIds = cs.endpointNames.keys.toList()) { composer.selectModel(it); sheet = null }
+        ChatSheet.Context -> LcBottomSheet({ sheet = null }, null) {
+            ContextUsageCard(
+                state.gaugePercent ?: 0,
+                stringResource(R.string.ui_tokens, "%,d".format(state.usageTokens ?: 0)),
+                state.contextWindow?.let { "/ " + limitLabel(it, CONTEXT_PRESETS) } ?: "", // same "128K" as the limit menu
+                stringResource(R.string.ui_context_note),
+                if (chat.sessionId != null && !state.running) ({ sheet = null; chat.compactNow() }) else null,
+            )
+        }
+        is ChatSheet.Sources -> SourcesSheet(sources(open.reply.body), { sheet = null; browserActions.open(it) }) { sheet = null }
     }
-    sourcesOf?.let { reply -> SourcesSheet(sources(reply.body), { sourcesOf = null; browserActions.open(it) }) { sourcesOf = null } }
     renaming?.let { current ->
         var t by remember { mutableStateOf(current) }
         LcDialog(stringResource(R.string.ui_rename), { renaming = null }, stringResource(R.string.ui_save), { chat.rename(t.trim()); renaming = null }, confirmEnabled = t.isNotBlank()) {
@@ -635,6 +637,16 @@ internal fun tileFailLabel(reason: String) = if (reason == PrepFailure.TOO_LARGE
  */
 internal fun failLabels(failures: Map<String, Int>): Map<Int, Int> =
     failures.entries.groupingBy { if (PrepFailure.isFinal(it.key)) tileFailLabel(it.key) else R.string.fb4_u_fail_retry }.fold(0) { n, e -> n + e.value }
+
+/**
+ * The chat screen's own bottom sheets: one at a time by construction (FB4 U-4). The approval sheet is not one of them (it
+ * follows the run's pause); a message's citation sheet and the browser's tab list keep their own state.
+ */
+private sealed interface ChatSheet {
+    data object Picker : ChatSheet
+    data object Context : ChatSheet
+    data class Sources(val reply: AssistantUi) : ChatSheet
+}
 
 /** A final failure's tile offers no retry ([PrepFailure.isFinal]). */
 private fun isFinalFailure(a: Attachment) = (a.state as? PrepState.Failed)?.reason?.let(PrepFailure::isFinal) == true

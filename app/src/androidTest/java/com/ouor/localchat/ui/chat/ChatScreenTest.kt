@@ -184,6 +184,11 @@ class ChatScreenTest {
         rule.onNodeWithText("Place order").assertIsDisplayed()
         rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(1) // the sheet closed; the chip stays
         com.ouor.localchat.ui.Shots.save("fb4-u4-approval-only")
+        // Answered: the model sheet does not come back on its own.
+        state = state.copy(runPhase = RunPhase.Streaming)
+        rule.waitForIdle()
+        rule.onNodeWithText("Place order").assertDoesNotExist()
+        rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(1)
     }
 
     @Test fun errorReplyShowsErrorCard() {
