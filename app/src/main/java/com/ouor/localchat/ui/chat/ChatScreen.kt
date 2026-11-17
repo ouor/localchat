@@ -447,10 +447,10 @@ internal fun ChatScreen(
             )
         }
         is Pause.StepLimit -> LcDialog(
-            // BUG-18: "중지" and back end the run (A-02).
+            // BUG-18: "마무리하기" and back end the tool steps; FB4: the run then wraps up with an answer (A-02).
             stringResource(R.string.ui_step_limit_title, p.reached), { chat.resolve(Resolution.StepLimitAnswer(false)) }, stringResource(R.string.ui_continue),
             { chat.resolve(Resolution.StepLimitAnswer(true)) }, text = stringResource(R.string.ui_step_limit_body),
-            dismissLabel = stringResource(R.string.ui_stop),
+            dismissLabel = stringResource(R.string.run_wrap_up),
         )
         else -> Unit
     }

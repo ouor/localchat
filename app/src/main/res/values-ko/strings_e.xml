@@ -167,7 +167,7 @@
     <string name="ui_recent">최근</string>
     <string name="ui_context_note" formatted="false">80%를 넘으면 다음 전송 때 오래된 기록을 자동으로 요약해요.</string>
     <string name="ui_step_limit_title">%1$d단계에 도달했어요</string>
-    <string name="ui_step_limit_body">계속 진행할까요?</string>
+    <string name="ui_step_limit_body">계속 진행할까요? 마무리하면 지금까지 찾은 내용으로 답을 정리해요.</string>
     <string name="ui_sources">출처</string>
     <string name="ui_summary_divider">이전 대화 요약됨</string>
     <string name="ui_reject_run_active">응답이 끝난 뒤에 보낼 수 있어요.</string>

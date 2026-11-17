@@ -1,5 +1,8 @@
 package com.ouor.localchat.chat
 
+import com.ouor.localchat.chat.run.Pause
+import com.ouor.localchat.chat.run.Resolution
+import com.ouor.localchat.chat.run.RunPhase
 import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.model.AppSettings
 import com.ouor.localchat.core.model.Draft
@@ -91,6 +94,40 @@ class AnswerLanguageRealApiTest {
             println("E3 run ${i + 1} reasoning=$reasoning calls=${page.calls} status=${reply.status} lang=$lang :: ${answer.take(160).replace('\n', ' ')}")
         }
         println("E3 summary $counts")
+    }
+
+    @Test
+    fun `wrapping up at the step limit ends with an answer`() = runBlocking {
+        // FB4 step limit: maxSteps 1, so the dialog comes after the first page; "Wrap up" is chosen.
+        assumeTrue(!key.isNullOrBlank() && System.getenv("LOCALCHAT_REAL_API") == "1")
+        var answered = 0
+        repeat(runs) { i ->
+            val store = FakeChatStore()
+            val page = Page {}
+            val models = object : ModelPort {
+                override suspend fun resolve(ref: ModelRef) = ResolvedModel(ref, LlmTarget("https://api.deepseek.com", key, 2, false), caps(tools = true))
+                override suspend fun markUsed(ref: ModelRef) = Unit
+            }
+            val wired = wireEngine(
+                this, store, ClientLlmPort(ChatCompletionsClient(OkHttpClient.Builder().readTimeout(120, TimeUnit.SECONDS).build(), AppJson)),
+                models, FakeToolPort(listOf(page)), FakeAttachments(), FakeBrowserPort(),
+                SettingsStore(MemoryDataStore(AppSettings(maxSteps = 1))), com.ouor.localchat.core.Clock.System,
+            )
+            wired.recovery.run()
+            val engine = wired.engine
+            val reasoning = i % 2 == 1
+            withTimeout(240_000) {
+                val sid = engine.send(null, Draft(Draft.NEW_CHAT, QUESTION, emptyList(), 0), GenOptions(reasoning = reasoning, browser = true), MODEL)
+                val limit = engine.runs.first { runs -> runs[sid]?.phase.let { it == null || (it as? RunPhase.Paused)?.pause is Pause.StepLimit } }
+                if (sid in limit) engine.resolve(sid, Resolution.StepLimitAnswer(continueRun = false))
+                engine.runs.first { sid !in it }
+            }
+            val reply = store.messages.values.last { it.body is MessageBody.Assistant }.body as MessageBody.Assistant
+            val answer = reply.blocks.filterIsInstance<TextBlock>().filter { it.step == reply.steps - 1 }.joinToString("") { it.text }
+            if (reply.status == com.ouor.localchat.core.model.ReplyStatus.DONE && answer.isNotBlank()) answered++
+            println("WRAP run ${i + 1} reasoning=$reasoning calls=${page.calls} steps=${reply.steps} status=${reply.status} error=${reply.error?.kind} :: ${answer.take(200).replace('\n', ' ')}")
+        }
+        println("WRAP summary answered=$answered/$runs")
     }
 
     private companion object {

@@ -1,6 +1,7 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.chat.context.NotePlacement
+import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.llm.LlmError
 
 /**
@@ -18,9 +19,17 @@ internal data class StepPolicy(
     val noneIgnored: Boolean = false,
     val emptyRetried: Boolean = false,
     val noteInSystem: Boolean = false,
+    /** FB4 step limit: the user chose to stop at the limit; TurnRunner has turned every tool off for one last answer. */
+    val wrapUp: Boolean = false,
 ) {
     /** One request's form: [sendTools] false = no tools at all; [callsBlocked] = this NEW-mode step cannot call. */
-    data class Shape(val sendTools: Boolean, val noCalls: Boolean, val callsBlocked: Boolean, val note: NotePlacement)
+    data class Shape(
+        val sendTools: Boolean,
+        val noCalls: Boolean,
+        val callsBlocked: Boolean,
+        val note: NotePlacement,
+        val noteText: String = SystemPrompt.TOOLS_OFF_NOTE,
+    )
 
     /** [listed]: the run lists tools; [toolsLeft]: some are still on; [hasCalls]: the reply has called before. */
     fun shape(listed: Boolean, toolsLeft: Boolean, newMode: Boolean, hasCalls: Boolean): Shape {
@@ -31,7 +40,8 @@ internal data class StepPolicy(
             noteInSystem -> NotePlacement.SYSTEM_END
             else -> NotePlacement.LAST_USER
         }
-        return Shape(sendTools = !noneIgnored, noCalls = noCalls, callsBlocked = callsBlocked, note = note)
+        val text = if (wrapUp) SystemPrompt.STEP_LIMIT_NOTE else SystemPrompt.TOOLS_OFF_NOTE
+        return Shape(sendTools = !noneIgnored, noCalls = noCalls, callsBlocked = callsBlocked, note = note, noteText = text)
     }
 
     /** A failed request: the policy to send the same step again with, or null to end with the error. */

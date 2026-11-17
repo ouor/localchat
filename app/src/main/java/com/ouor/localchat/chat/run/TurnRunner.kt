@@ -167,13 +167,15 @@ class TurnRunner @Inject constructor(
 
             while (true) {
                 // A-02 step limit.
-                if (mode == Mode.NEW && step > 0 && step % maxSteps == 0 && askedAt != step) {
+                if (mode == Mode.NEW && step > 0 && step % maxSteps == 0 && askedAt != step && !policy.wrapUp) {
                     askedAt = step
                     save()
                     val answer = handle.pause(Pause.StepLimit(step)) as Resolution.StepLimitAnswer
                     if (!answer.continueRun) {
-                        publish(body.copy(status = ReplyStatus.DONE))
-                        return
+                        // FB4: stopping here still ends with an answer: every tool goes off (a call is answered
+                        // TOOL_OFF) and the tools-off path asks once more, with the step-limit note.
+                        executor.narrow(emptySet())
+                        policy = policy.copy(wrapUp = true)
                     }
                 }
                 handle.update { it.copy(phase = RunPhase.Requesting, step = step) }
@@ -329,6 +331,7 @@ class TurnRunner @Inject constructor(
                     continueMode = mode == Mode.CONTINUE,
                     noCalls = shape.noCalls,
                     note = shape.note,
+                    noteText = shape.noteText,
                 ),
             )
 

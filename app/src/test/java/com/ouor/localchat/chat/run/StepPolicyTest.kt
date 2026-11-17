@@ -24,6 +24,9 @@ class StepPolicyTest {
         assertEquals(NotePlacement.NONE, fresh.shape(true, false, true, hasCalls = false).note)
         assertEquals(NotePlacement.LAST_USER, fresh.copy(emptyRetried = true).shape(true, false, true, hasCalls = false).note)
         assertEquals(NotePlacement.SYSTEM_END, fresh.copy(noteInSystem = true).off().note)
+        // FB4 step limit: the wrap-up uses the same shape with its own note.
+        assertEquals(com.ouor.localchat.chat.context.SystemPrompt.STEP_LIMIT_NOTE, fresh.copy(wrapUp = true).off().noteText)
+        assertEquals(com.ouor.localchat.chat.context.SystemPrompt.TOOLS_OFF_NOTE, fresh.off().noteText)
         // Two off-only steps block calls with tools still on; CONTINUE never gets the note.
         assertEquals(true, fresh.copy(offOnly = StepPolicy.OFF_ONLY_STEPS).shape(true, toolsLeft = true, newMode = true, hasCalls = true).noCalls)
         assertEquals(StepPolicy.Shape(true, noCalls = true, callsBlocked = false, note = NotePlacement.NONE), fresh.shape(true, false, newMode = false, hasCalls = true))

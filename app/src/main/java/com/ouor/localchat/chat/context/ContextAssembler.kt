@@ -46,6 +46,8 @@ data class AssemblyInput(
     val noCalls: Boolean = false,
     /** FB3 D1 / FB4 E-1: where the hidden tools-off note goes, if anywhere. */
     val note: NotePlacement = NotePlacement.NONE,
+    /** The note's text: tools turned off, or the step limit's wrap-up. */
+    val noteText: String = SystemPrompt.TOOLS_OFF_NOTE,
 )
 
 enum class NotePlacement {
@@ -64,7 +66,7 @@ object ContextAssembler {
     fun build(input: AssemblyInput): ChatRequest {
         val caps = input.model.caps
         // Rule 11 (FB4 E-1): the tools-off note at the end of the system message.
-        val system = if (input.note == NotePlacement.SYSTEM_END) input.system + "\n" + SystemPrompt.TOOLS_OFF_NOTE else input.system
+        val system = if (input.note == NotePlacement.SYSTEM_END) input.system + "\n" + input.noteText else input.system
         val messages = mutableListOf(WireMessage("system", JsonPrimitive(system)))
 
         // Rule 2: summary replaces the path up to and including coversUpToId.
@@ -118,7 +120,7 @@ object ContextAssembler {
             messages += assistantSteps(input.current, reply, current = true, sendable, latestImage, input)
         }
         // Rule 11 (FB3 D1): or as the last user message; never stored.
-        if (input.note == NotePlacement.LAST_USER) messages += WireMessage("user", JsonPrimitive(SystemPrompt.TOOLS_OFF_NOTE))
+        if (input.note == NotePlacement.LAST_USER) messages += WireMessage("user", JsonPrimitive(input.noteText))
 
         // Architecture 4.3, via llm's single mapping.
         // The model's current settings win over the options (a model whose reasoning was switched off never reasons).

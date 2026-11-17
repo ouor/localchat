@@ -285,9 +285,9 @@ class ChatScreenTest {
         rule.onNodeWithText(ctx.getString(R.string.chat_step_fail_sensitive), substring = true).assertIsDisplayed()
     }
 
-    @Test fun stepLimitStopEndsTheRun() { // BUG-18
+    @Test fun stepLimitWrapUpEndsTheToolSteps() { // BUG-18, FB4: the stop button is "Wrap up"
         show(ChatUiState(loading = false, turns = listOf(turn("go", reply(""), live = true)), runPhase = RunPhase.Paused(Pause.StepLimit(5))))
-        rule.onNodeWithText(ctx.getString(R.string.ui_stop)).performClick()
+        rule.onNodeWithText(ctx.getString(R.string.run_wrap_up)).performClick()
         rule.runOnIdle { assertEquals(listOf<Resolution>(Resolution.StepLimitAnswer(false)), resolved) }
     }
 

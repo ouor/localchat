@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Agent run strings, by feature rather than by cycle (FB4 arch m5). -->
+<resources>
+    <!-- Step-limit dialog: the button that stops the tools and has the AI answer with what it found so far. -->
+    <string name="run_wrap_up">Wrap up</string>
+</resources>
