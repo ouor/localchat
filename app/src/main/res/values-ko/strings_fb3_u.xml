@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FB3 QA track U -->
+    <string name="fb3_u_tile_too_large">너무 큼</string>
+    <string name="fb3_u_mic_denied">음성 입력에는 마이크 권한이 필요해요.</string>
+    <string name="fb3_u_open_settings">설정</string>
+</resources>

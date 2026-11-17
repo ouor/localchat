@@ -125,9 +125,12 @@ private fun findDisplayMath(lines: List<String>, start: Int, close: String): Pai
 
 const val TOKEN_OPEN = '⦃'
 const val TOKEN_CLOSE = '⦄'
-val INLINE_TOKEN = Regex("⦃([mc])(\\d+)⦄")
+val INLINE_TOKEN = Regex("⦃([mcj])(\\d*)⦄")
 
-/** [text] with tokens `⦃mN⦄` (math index N in [math]) and `⦃cN⦄` (citation number N). */
+/** Invisible joiner the annotator drops; punctuation to the parser, so a `**` next to it can open/close (FB3 m6). */
+const val JOINER = "⦃j⦄"
+
+/** [text] with tokens `⦃mN⦄` (math index N in [math]), `⦃cN⦄` (citation number N) and [JOINER]. */
 data class InlineParts(val text: String, val math: List<String>)
 
 // `$x$`: no space right inside the dollars, closing `$` not followed by a digit (avoids "$5 and $10").
@@ -141,6 +144,12 @@ private val CODE_SPAN = Regex("""(`+)[\s\S]*?\1""")
 private val LINK_TARGET = Regex("""]\([^)\s]*\)""")
 // Stops at brackets so a link's `)` and a citation after it stay outside.
 private val BARE_URL = Regex("""https?://[^\s()<>]+""")
+private val SINGLE_TILDE = Regex("""(?<![~\\])~(?!~)""")
+// Explicit ranges (Hangul, kana, CJK ideographs): Android's ICU regex and the JVM differ on script names.
+private const val CJK = "ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿"
+// Whole `*` runs only (`*` itself is punctuation).
+private val PUNCT_RUN_CJK = Regex("""(?<=\p{P})(?<!\*)(\*+)(?=[$CJK])""")
+private val CJK_RUN_PUNCT = Regex("""(?<=[$CJK])(\*+)(?=\p{P})(?!\*)""")
 
 fun tokenizeInline(markdown: String, citable: Set<Int>): InlineParts {
     val math = mutableListOf<String>()
@@ -162,11 +171,15 @@ private fun tokenizePlain(s: String, citable: Set<Int>, math: MutableList<String
         math += m.groupValues[1].ifEmpty { m.groupValues[2] }
         "$TOKEN_OPEN" + "m${math.size - 1}$TOKEN_CLOSE"
     }
-    if (citable.isEmpty()) return withMath
-    return CITATION.replace(withMath) { m ->
+    // FB3 m6: strikethrough is `~~` only (the parser pairs some single `~`, e.g. "~a~ ~b~"), and a `**` between
+    // punctuation and a CJK letter still opens/closes (`**"강조"**입니다`; CommonMark flanking wants a space there).
+    val styled = SINGLE_TILDE.replace(withMath, "\\\\~")
+        .replace(PUNCT_RUN_CJK, "$1$JOINER").replace(CJK_RUN_PUNCT, "$JOINER$1")
+    if (citable.isEmpty()) return styled
+    return CITATION.replace(styled) { m ->
         val ns = m.groupValues[1].split(',').map { it.trim().toInt() }
-        val definition = withMath.getOrNull(m.range.last + 1) == ':' &&
-            withMath.substring(0, m.range.first).substringAfterLast('\n').isBlank()
+        val definition = styled.getOrNull(m.range.last + 1) == ':' &&
+            styled.substring(0, m.range.first).substringAfterLast('\n').isBlank()
         if (ns.all { it in citable } && !definition) ns.joinToString("") { "$TOKEN_OPEN" + "c$it$TOKEN_CLOSE" } else m.value
     }
 }

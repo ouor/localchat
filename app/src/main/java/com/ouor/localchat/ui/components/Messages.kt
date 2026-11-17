@@ -53,7 +53,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -108,15 +112,17 @@ fun UserMessage(
     }
 }
 
-/** Inline edit of a user message (M-04) with cancel/save. */
+/** Inline edit of a user message (M-04) with cancel/save. Save waits for a real change from [original] (FB3 QA m3). */
 @Composable
-fun UserMessageEditor(text: String, onTextChange: (String) -> Unit, onCancel: () -> Unit, onSave: () -> Unit, modifier: Modifier = Modifier) {
+fun UserMessageEditor(text: String, onTextChange: (String) -> Unit, onCancel: () -> Unit, onSave: () -> Unit, modifier: Modifier = Modifier, original: String? = null) {
     val c = LcTheme.colors
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() } // FB3 QA m3: opening the editor puts the cursor in it
     Column(modifier.fillMaxWidth().clip(LcRadius.lg).background(c.surfaceRaised).border(1.5.dp, c.borderStrong, LcRadius.lg).padding(12.dp)) {
-        BasicTextField(text, onTextChange, Modifier.fillMaxWidth(), textStyle = LcTheme.text.bodyLarge.copy(color = c.textPrimary), cursorBrush = SolidColor(c.accent))
+        BasicTextField(text, onTextChange, Modifier.fillMaxWidth().focusRequester(focus), textStyle = LcTheme.text.bodyLarge.copy(color = c.textPrimary), cursorBrush = SolidColor(c.accent))
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             LcButton(stringResource(R.string.ui_cancel), onCancel, variant = ButtonVariant.Text, size = ButtonSize.Sm)
-            LcButton(stringResource(R.string.ui_save_send), onSave, size = ButtonSize.Sm, enabled = text.isNotBlank())
+            LcButton(stringResource(R.string.ui_save_send), onSave, size = ButtonSize.Sm, enabled = text.isNotBlank() && text.trim() != original?.trim())
         }
     }
 }

@@ -146,4 +146,35 @@ class PreprocessTest {
         assertEquals(table, hardBreaks(table))
         assertEquals("text  \nmore\n\n| a |\n|---|", hardBreaks("text\nmore\n\n| a |\n|---|"))
     }
+
+    /** Element types the library's parser (GFM, as mikepenz uses it) finds in the preprocessed text. */
+    private fun parsed(md: String): List<Pair<String, String>> {
+        val t = tokenizeInline(md, emptySet()).text
+        val out = mutableListOf<Pair<String, String>>()
+        fun walk(n: org.intellij.markdown.ast.ASTNode) {
+            out += n.type.name to t.substring(n.startOffset, n.endOffset).replace(JOINER, "")
+            n.children.forEach(::walk)
+        }
+        walk(org.intellij.markdown.parser.MarkdownParser(org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor()).buildMarkdownTreeFromString(t))
+        return out
+    }
+
+    @Test fun `fb3 m6 strikethrough needs two tildes`() {
+        // The parser paired these single tildes before.
+        listOf("~a~ ~b~", "**~a~**", "~~a~", "1~2일과 3~4일").forEach { md ->
+            assertTrue(md, parsed(md).none { it.first == "STRIKETHROUGH" })
+        }
+        assertEquals("~~취소~~", parsed("1~2와 ~~취소~~ 3~4").single { it.first == "STRIKETHROUGH" }.second)
+        assertEquals("a `~b~` \\~", tokenizeInline("a `~b~` \\~", emptySet()).text) // code and escapes untouched
+    }
+
+    @Test fun `fb3 m6 bold closes before a Korean letter after punctuation`() {
+        assertEquals("**\"강조\"**", parsed("이것은 **\"강조\"**입니다").single { it.first == "STRONG" }.second)
+        assertEquals("**\"강조\"**", parsed("이것은**\"강조\"**를").single { it.first == "STRONG" }.second)
+        assertEquals("*\"기울임\"*", parsed("*\"기울임\"*이다").single { it.first == "EMPH" && it.second.length > 1 }.second)
+        // Already fine stays fine, and plain text is untouched.
+        assertEquals("**강조**입니다", tokenizeInline("**강조**입니다", emptySet()).text)
+        assertEquals("**굵게**", parsed("**굵게**.").single { it.first == "STRONG" }.second)
+        assertEquals("* 목록", tokenizeInline("* 목록", emptySet()).text)
+    }
 }

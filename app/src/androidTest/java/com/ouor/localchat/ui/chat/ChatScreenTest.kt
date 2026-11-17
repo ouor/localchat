@@ -7,6 +7,8 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -631,6 +633,61 @@ class ChatScreenTest {
     }
 
     private fun shot(node: androidx.compose.ui.test.SemanticsNodeInteraction, name: String) = saveBitmap(node.captureToImage().asAndroidBitmap(), name)
+
+    @Test fun u3_editorStartsFocusedAndSavesOnlyAChange() { // FB3 QA m3
+        show(ChatUiState(loading = false, turns = listOf(turn("hi there", reply("Hello")))))
+        rule.onNodeWithText("hi there").performTouchInput { longClick() }
+        val field = rule.onNode(androidx.compose.ui.test.hasSetTextAction() and androidx.compose.ui.test.hasText("hi there"))
+        field.assertIsFocused()
+        val save = rule.onNodeWithText(ctx.getString(R.string.ui_save_send))
+        save.assertIsNotEnabled()
+        val slot = save.fetchSemanticsNode().boundsInRoot
+        field.performTextInput("!")
+        save.assertIsEnabled()
+        assertEquals(slot, save.fetchSemanticsNode().boundsInRoot)
+    }
+
+    @Test fun u5_tooLargeTileSaysTooLarge() { // FB3 QA m5
+        val big = com.ouor.localchat.core.model.Attachment(
+            "b", "huge.pdf", "application/pdf", 10, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
+            com.ouor.localchat.core.model.PrepState.Failed(com.ouor.localchat.attach.PrepFailure.TOO_LARGE), hasOriginal = true, createdAt = 0,
+        )
+        show(ChatUiState(loading = false), ComposerUiState(attachments = listOf(big)))
+        rule.onNodeWithText(ctx.getString(R.string.fb3_u_tile_too_large), useUnmergedTree = true).assertExists()
+        rule.onNodeWithText(ctx.getString(R.string.fb2_q_tile_unsupported), useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun u7_deniedMicSaysWhy() { // FB3 QA m7
+        var started = 0
+        val voice = object : ComposerActions by composer { override fun startVoice() { started++ } }
+        val owner = object : androidx.activity.result.ActivityResultRegistryOwner {
+            override val activityResultRegistry = object : androidx.activity.result.ActivityResultRegistry() {
+                override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>, input: I, options: androidx.core.app.ActivityOptionsCompat?) {
+                    dispatchResult(requestCode, false) // the user said no
+                }
+            }
+        }
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
+                LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false), ComposerUiState(), BrowserUiState(), chat, voice, browser, nav) }
+            }
+        }
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_voice_input)).performClick()
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText(ctx.getString(R.string.fb3_u_mic_denied)).assertIsDisplayed() }.isSuccess }
+        rule.onNodeWithText(ctx.getString(R.string.fb3_u_open_settings)).assertIsDisplayed()
+        assertEquals(0, started)
+    }
+
+    @Test fun u8_chipsAreSwitchesAndTheRunningBarIsDisabled() { // FB3 QA a11y
+        show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello", ReplyStatus.STREAMING), live = true)), runPhase = RunPhase.Streaming))
+        listOf(R.string.ui_copy, R.string.ui_read_aloud, R.string.ui_regenerate).forEach {
+            rule.onNodeWithContentDescription(ctx.getString(it)).assertIsNotEnabled()
+        }
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e1_options_show)).performClick()
+        listOf(R.string.ui_reasoning, R.string.ui_search, R.string.ui_browser).forEach {
+            rule.onNode(androidx.compose.ui.test.hasText(ctx.getString(it)) and androidx.compose.ui.test.isToggleable()).assertIsOff()
+        }
+    }
 
     private fun saveBitmap(bmp: android.graphics.Bitmap, name: String) {
         val dir = ctx.getExternalFilesDir("shots") ?: return

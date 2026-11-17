@@ -80,4 +80,10 @@ class ChatMappingTest {
         listOf(p.UNSUPPORTED_TYPE, p.LEGACY_OFFICE, p.TOO_LARGE).forEach { org.junit.Assert.assertTrue(it, p.isFinal(it)) }
         listOf(p.READ_FAILED, p.IMAGE_DECODE, p.EXTRACT_FAILED).forEach { org.junit.Assert.assertFalse(it, p.isFinal(it)) }
     }
+
+    @Test fun `fb3 m5 a too large file says too large, not unsupported`() {
+        val p = com.ouor.localchat.attach.PrepFailure
+        assertEquals(com.ouor.localchat.R.string.fb3_u_tile_too_large, tileFailLabel(p.TOO_LARGE))
+        listOf(p.UNSUPPORTED_TYPE, p.LEGACY_OFFICE).forEach { assertEquals(it, com.ouor.localchat.R.string.fb2_q_tile_unsupported, tileFailLabel(it)) }
+    }
 }

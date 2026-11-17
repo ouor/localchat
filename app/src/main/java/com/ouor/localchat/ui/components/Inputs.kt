@@ -66,6 +66,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -125,6 +127,7 @@ fun ToggleChip(
             modifier = modifier.semantics {
                 role = Role.Switch
                 stateDescription = stateText
+                toggleableState = ToggleableState(on) // FB3 QA a11y: a switch, with its on/off state, to TalkBack
                 if (iconOnly) contentDescription = label
             },
             horizontalPadding = PaddingValues(horizontal = if (iconOnly) 8.dp else 10.dp),

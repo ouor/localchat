@@ -284,7 +284,19 @@ internal fun ChatScreen(
     val panelPad = with(density) { (cover - bottomPx).coerceAtLeast(0).toDp() }
 
     val picks = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { composer.attach(it) }
-    val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) composer.startVoice() }
+    val micDenied = stringResource(R.string.fb3_u_mic_denied)
+    val openSettings = stringResource(R.string.fb3_u_open_settings)
+    val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) composer.startVoice()
+        // FB3 QA m7: say why nothing happened; after "don't ask again" only the app's settings page can grant it.
+        else scope.launch {
+            if (snackbar.showSnackbar(micDenied, openSettings, duration = androidx.compose.material3.SnackbarDuration.Long) == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", context.packageName, null)),
+                )
+            }
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().imePadding()) {
@@ -539,6 +551,7 @@ private fun ComposerArea(
                         thumbnail = composer.thumbnail(a),
                         onRemove = { composer.remove(a.id) },
                         onRetry = if (isFinalFailure(a)) null else ({ composer.retry(a.id) }),
+                        failedLabel = (a.state as? PrepState.Failed)?.let { stringResource(tileFailLabel(it.reason)) },
                     )
                 }
             }),
@@ -600,6 +613,9 @@ private fun ModelInfo.endpointName(cs: ComposerUiState): String = cs.endpointNam
 
 /** Space between the composer and the "scroll to bottom" button, and between the button and a snackbar. */
 private val FAB_GAP = 8.dp
+
+/** FB3 QA m5: a final failure's tile says why (too large is not "unsupported"). */
+internal fun tileFailLabel(reason: String) = if (reason == PrepFailure.TOO_LARGE) R.string.fb3_u_tile_too_large else R.string.fb2_q_tile_unsupported
 
 /** A final failure's tile offers no retry ([PrepFailure.isFinal]). */
 private fun isFinalFailure(a: Attachment) = (a.state as? PrepState.Failed)?.reason?.let(PrepFailure::isFinal) == true
