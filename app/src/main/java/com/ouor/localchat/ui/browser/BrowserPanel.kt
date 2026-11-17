@@ -260,7 +260,8 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                     }
                 }
             }
-            if (s.touchedAiTab == t.id) LcSnackbar(
+            // QA F2: only while the AI controls the tab; in a handoff (the user already controls it) it never covers the banner.
+            if (s.touchedAiTab == t.id && t.control == Control.AI) LcSnackbar(
                 stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
                 icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
             )

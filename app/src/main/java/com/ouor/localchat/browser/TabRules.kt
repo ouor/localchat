@@ -5,6 +5,9 @@ import com.ouor.localchat.browser.script.CssRect
 /** Pure rules behind BrowserEngine/BrowserTab, kept apart so JVM tests can run them. */
 internal object TabRules {
 
+    /** B-09 ③: a user touch on an AI tab offers "take control", unless the user already controls it (handoff, QA F2). */
+    fun asksToTakeOver(owner: Owner, control: Control): Boolean = owner is Owner.Ai && control == Control.AI
+
     /** At most this many idle AI tabs of other chats stay open (BUG-13). */
     const val MAX_IDLE_AI_TABS = 3
 
