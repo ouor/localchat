@@ -202,6 +202,9 @@ class ChatScreenTest {
         rule.onNodeWithText(ctx.getString(R.string.ui_err_auth_body), substring = true).assertDoesNotExist()
     }
 
+    /** FB4 U-6 caption: "<kind>: n" per failure kind, joined by " · ". */
+    private fun fails(vararg kinds: Pair<Int, Int>) = kinds.joinToString(" · ") { (label, n) -> ctx.getString(R.string.attach_fail_count, ctx.getString(label), n) }
+
     @Test fun unsupportedAttachmentNamesTheFileAndOffersNoRetry() { // FB2 QA Minor-2
         fun file(id: String, name: String, reason: String) = com.ouor.localchat.core.model.Attachment(
             id, name, "application/octet-stream", 10, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
@@ -212,7 +215,7 @@ class ChatScreenTest {
             file("r", "notes.pdf", com.ouor.localchat.attach.PrepFailure.READ_FAILED),
         )))
         // FB4 U-6: two kinds of failure are both counted (the file is named when it fails alone, see u6_*).
-        rule.onNodeWithText("${ctx.getString(R.string.fb2_q_tile_unsupported)} 1 · ${ctx.getString(R.string.fb4_u_fail_retry)} 1").assertIsDisplayed()
+        rule.onNodeWithText(fails(R.string.fb2_q_tile_unsupported to 1, R.string.attach_fail_retry to 1)).assertIsDisplayed()
         rule.onNodeWithText(ctx.getString(R.string.fb2_q_tile_unsupported), useUnmergedTree = true).assertExists()
         // Only the readable-later file keeps its retry.
         rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(1)
@@ -227,7 +230,7 @@ class ChatScreenTest {
             file("b", "huge.pdf", com.ouor.localchat.attach.PrepFailure.TOO_LARGE),
             file("d", "old.doc", com.ouor.localchat.attach.PrepFailure.LEGACY_OFFICE),
         )))
-        rule.onNodeWithText("${ctx.getString(R.string.fb3_u_tile_too_large)} 1 · ${ctx.getString(R.string.fb2_q_tile_unsupported)} 1").assertIsDisplayed()
+        rule.onNodeWithText(fails(R.string.fb3_u_tile_too_large to 1, R.string.fb2_q_tile_unsupported to 1)).assertIsDisplayed()
         rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(0)
     }
 
@@ -246,9 +249,7 @@ class ChatScreenTest {
             file("d", "old.doc", com.ouor.localchat.attach.PrepFailure.LEGACY_OFFICE), file("r", "n.pdf", com.ouor.localchat.attach.PrepFailure.READ_FAILED),
         ))
         rule.waitForIdle()
-        rule.onNodeWithText(listOf(
-            "${ctx.getString(R.string.fb3_u_tile_too_large)} 1", "${ctx.getString(R.string.fb2_q_tile_unsupported)} 2", "${ctx.getString(R.string.fb4_u_fail_retry)} 1",
-        ).joinToString(" · ")).assertIsDisplayed()
+        rule.onNodeWithText(fails(R.string.fb3_u_tile_too_large to 1, R.string.fb2_q_tile_unsupported to 2, R.string.attach_fail_retry to 1)).assertIsDisplayed()
         assertEquals(input, rule.onNode(androidx.compose.ui.test.hasSetTextAction()).fetchSemanticsNode().boundsInRoot)
         com.ouor.localchat.ui.Shots.save("fb4-u6-failure-kinds")
     }

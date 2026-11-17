@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Attachment strings, by feature rather than by cycle (FB4 arch m5). -->
+<resources>
+    <!-- Failure kind in the composer caption for files a retry may fix (their tile says "Retry"). -->
+    <string name="attach_fail_retry">Not prepared</string>
+    <!-- One failure kind and how many files failed for it, e.g. "Too large: 1". -->
+    <string name="attach_fail_count">%1$s: %2$d</string>
+</resources>

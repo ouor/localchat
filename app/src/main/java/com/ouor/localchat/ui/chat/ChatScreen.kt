@@ -505,17 +505,16 @@ private fun ComposerArea(
         }
         // Order, top to bottom: status captions, options (model row, toggle row), input. Everything that comes and goes sits
         // above the input, so a caption or opening the options never moves the input or its buttons (P-STABLE H2; the list shrinks).
-        val failed = cs.attachments.count { it.state is PrepState.Failed }
+        val failed = cs.failures.values.sum()
         val unsupported = cs.attachments.firstOrNull(::isFinalFailure)
         val retry = state.runPhase as? RunPhase.Retrying
         val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
         if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                val kinds = failLabels(cs.failures)
                 when {
-                    // FB4 U-6: failures of more than one kind (or several final ones) are counted per kind, on one line.
-                    failed > 1 && kinds.keys != setOf(R.string.fb4_u_fail_retry) -> Text(
-                        kinds.map { (label, n) -> "${stringResource(label)} $n" }.joinToString(" · "),
+                    // FB4 U-6: several failed files, at least one a retry cannot fix: counted per kind, on one line.
+                    unsupported != null && failed > 1 -> Text(
+                        failLabels(cs.failures).map { (label, n) -> stringResource(R.string.attach_fail_count, stringResource(label), n) }.joinToString(" · "),
                         style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     unsupported != null -> Text(if ((unsupported.state as PrepState.Failed).reason == PrepFailure.TOO_LARGE) stringResource(R.string.fb3_d_file_too_large, unsupported.name, MAX_FILE_SIZE) else stringResource(R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -636,7 +635,7 @@ internal fun tileFailLabel(reason: String) = if (reason == PrepFailure.TOO_LARGE
  * ([tileFailLabel]); the others, whose tile offers a retry, as "준비 실패".
  */
 internal fun failLabels(failures: Map<String, Int>): Map<Int, Int> =
-    failures.entries.groupingBy { if (PrepFailure.isFinal(it.key)) tileFailLabel(it.key) else R.string.fb4_u_fail_retry }.fold(0) { n, e -> n + e.value }
+    failures.entries.groupingBy { if (PrepFailure.isFinal(it.key)) tileFailLabel(it.key) else R.string.attach_fail_retry }.fold(0) { n, e -> n + e.value }
 
 /**
  * The chat screen's own bottom sheets: one at a time by construction (FB4 U-4). The approval sheet is not one of them (it
