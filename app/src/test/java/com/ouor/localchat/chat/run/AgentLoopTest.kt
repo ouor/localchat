@@ -388,6 +388,7 @@ class AgentLoopTest {
         val tool = FakeTool("open_tab")
         val h = Harness(this, tools = listOf(tool), maxSteps = 2)
         repeat(4) { h.llm.events(call("c$it", "open_tab"), finished("tool_calls")) }
+        h.llm.text("Opened four tabs; the rest is unchecked.")
         val sid = h.sendNew()
         advanceUntilIdle()
 
@@ -398,10 +399,58 @@ class AgentLoopTest {
         h.engine.resolve(sid, Resolution.StepLimitAnswer(continueRun = false))
         advanceUntilIdle()
 
+        // FB4: stopping wraps up: one more request that allows no call, with the step-limit note, ends with an answer.
         val reply = h.lastReply(sid)
         assertEquals(ReplyStatus.DONE, reply.status)
-        assertEquals(4, reply.steps)
+        assertEquals("Opened four tabs; the rest is unchecked.", reply.blocks.filterIsInstance<TextBlock>().single().text)
+        assertEquals(5, reply.steps)
         assertEquals(4, tool.calls)
+        val last = h.llm.requests.last()
+        assertEquals("none", last.toolChoice)
+        assertEquals(listOf("open_tab"), last.tools.orEmpty().map { it.function.name })
+        assertEquals(SystemPrompt.STEP_LIMIT_NOTE, last.messages.last().content!!.jsonPrimitive.content)
+        assertEquals(1, h.llm.completeRequests.size) // first turn: titled
+    }
+
+    @Test
+    fun `the step-limit wrap-up never asks again and never runs a tool, even when the model calls anyway`() = runTest {
+        // FB4: maxSteps 1, so without the guard the ignored call's next step would reopen the dialog.
+        val tool = FakeTool("open_tab")
+        val h = Harness(this, tools = listOf(tool), maxSteps = 1)
+        h.llm.events(call("c1", "open_tab"), finished("tool_calls"))
+        h.llm.events(call("c2", "open_tab"), finished("tool_calls")) // ignores tool_choice "none"
+        h.llm.text("One tab was opened.")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(Pause.StepLimit(1), (phase(h, sid) as RunPhase.Paused).pause)
+        h.engine.resolve(sid, Resolution.StepLimitAnswer(continueRun = false))
+        advanceUntilIdle()
+
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertEquals("One tab was opened.", reply.blocks.filterIsInstance<TextBlock>().single().text)
+        assertEquals(1, tool.calls)
+        assertEquals(ToolExecutor.TOOL_OFF, reply.blocks.filterIsInstance<ToolResultBlock>().last().content)
+        assertTrue(h.llm.requests.last().tools.isNullOrEmpty())
+        assertEquals(SystemPrompt.STEP_LIMIT_NOTE, h.llm.requests.last().messages.last().content!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `an empty wrap-up is asked once more, then ends as the empty-response error with the steps kept`() = runTest {
+        val tool = FakeTool("open_tab")
+        val h = Harness(this, tools = listOf(tool), maxSteps = 1)
+        h.llm.events(call("c1", "open_tab"), finished("tool_calls"))
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        h.engine.resolve(sid, Resolution.StepLimitAnswer(continueRun = false))
+        advanceUntilIdle()
+
+        val reply = h.lastReply(sid)
+        assertEquals(ChatErrorKind.EMPTY_RESPONSE, reply.error!!.kind)
+        assertEquals(3, h.llm.requests.size)
+        assertEquals(1, reply.blocks.filterIsInstance<ToolResultBlock>().size)
     }
 
     @Test

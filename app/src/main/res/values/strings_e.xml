@@ -167,7 +167,7 @@
     <string name="ui_recent">Recent</string>
     <string name="ui_context_note" formatted="false">Above 80%, older messages are summarized automatically on the next send.</string>
     <string name="ui_step_limit_title">Reached %1$d steps</string>
-    <string name="ui_step_limit_body">Keep going?</string>
+    <string name="ui_step_limit_body">Keep going? If you wrap up, the answer is put together from what was found so far.</string>
     <string name="ui_sources">Sources</string>
     <string name="ui_summary_divider">Earlier messages summarized</string>
     <string name="ui_reject_run_active">Wait until the current reply finishes.</string>

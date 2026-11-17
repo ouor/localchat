@@ -78,4 +78,9 @@ Tool use:
      */
     const val TOOLS_OFF_NOTE = "[App note: the user turned the tools off, so no tool can be called now. Answer the " +
         "request with what you already have, in plain text and in the language of the user's request, and say what you could not check.]"
+
+    /** FB4 step limit: the note when the user chose to stop at the step limit, so the reply still ends with an answer. */
+    const val STEP_LIMIT_NOTE = "[App note: the step limit was reached and the user chose to stop here. Do not call " +
+        "tools. Answer the request with what you already have, in plain text and in the language of the user's request, " +
+        "and say what is left unchecked.]"
 }
