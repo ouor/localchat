@@ -171,6 +171,20 @@ class ChatScreenTest {
         rule.runOnIdle { assertEquals(listOf<Resolution>(Resolution.ApprovalAnswer("p1", true)), resolved) }
     }
 
+    @Test fun approvalClosesTheOpenModelSheet() { // FB4 U-4: one sheet at a time
+        var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("buy it", reply(""), live = true)), runPhase = RunPhase.Streaming))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }
+        val chooseModel = ctx.getString(R.string.ui_choose_model)
+        rule.onNodeWithText(chooseModel, substring = true, useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(2) // chip + sheet title
+        state = state.copy(runPhase = RunPhase.Paused(Pause.Approval("p1", ApprovalInfo("click", 3, "https://shop.example/cart", "Place order"))))
+        rule.waitForIdle()
+        rule.onNodeWithText("Place order").assertIsDisplayed()
+        rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(1) // the sheet closed; the chip stays
+        com.ouor.localchat.ui.Shots.save("fb4-u4-approval-only")
+    }
+
     @Test fun errorReplyShowsErrorCard() {
         show(ChatUiState(loading = false, turns = listOf(turn("hi", reply("", ReplyStatus.ERROR, ChatError(ChatErrorKind.AUTH, 401))))))
         rule.onNodeWithText(ctx.getString(R.string.ui_err_auth_title)).assertIsDisplayed()

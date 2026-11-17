@@ -399,6 +399,9 @@ internal fun ChatScreen(
     }
 
     // ---- sheets and dialogs ----
+    // FB4 U-4: one sheet at a time. An approval holds the run, so it closes the user's open sheet and takes its place.
+    val approving = state.pause is Pause.Approval
+    LaunchedEffect(approving) { if (approving) { picker = false; contextCard = false; sourcesOf = null } }
     if (picker) ModelPickerSheet(cs.models, cs.model?.ref, { cs.endpointNames[it].orEmpty() }, { picker = false }, endpointIds = cs.endpointNames.keys.toList()) { composer.selectModel(it); picker = false }
     if (contextCard) LcBottomSheet({ contextCard = false }, null) {
         ContextUsageCard(
