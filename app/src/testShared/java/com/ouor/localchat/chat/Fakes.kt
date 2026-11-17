@@ -193,9 +193,14 @@ class FakeBrowserPort : BrowserPort {
     val opened = mutableListOf<String>()
     val closed = mutableListOf<Int>()
     var openError: Exception? = null
-    override suspend fun openAiTab(sessionId: String, url: String): Int {
+    /** Runs while the tab is being opened (after it exists): e.g. stops the run to test a cancel mid-open. */
+    var whileOpening: suspend (sessionId: String) -> Unit = {}
+    override suspend fun openPrefetchTab(sessionId: String, url: String): Int {
         openError?.let { throw it }
-        opened += url; return 40 + opened.size
+        opened += url
+        val id = 40 + opened.size
+        whileOpening(sessionId)
+        return id
     }
     override suspend fun close(tabId: Int) { closed += tabId }
     override fun isSensitive(url: String) = "bank" in url

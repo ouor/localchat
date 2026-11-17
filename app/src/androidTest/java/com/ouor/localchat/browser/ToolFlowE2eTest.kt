@@ -49,6 +49,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
@@ -404,6 +405,38 @@ class ToolFlowE2eTest {
     }
 
     @Test
+    fun prefetchTabStaysHiddenAndNeverBecomesTheDefaultTab() = runBlocking<Unit> {
+        // FB3 eng M2, arch M1.
+        val default = browser.acquireAiTab("s1", null, "snapshot")
+        val hidden = withContext(Dispatchers.Main) { browser.openAiTab("s1", url("/p1"), hidden = true) }
+        browser.acquireAiTab("s1", hidden, "page_text")
+        assertEquals(default.id, withContext(Dispatchers.Main) { browser.currentAiTab("s1") })
+        assertEquals(listOf(default.id), browser.visibleTabs.value.map { it.id })
+        assertEquals(listOf(default.id), browser.sessionTabs("s1").first().map { it.id })
+        assertTrue(browser.tabs.value.any { it.id == hidden })
+    }
+
+    @Test
+    fun prefetchTabsDoNotTakeTheUsersTabSlots() = runBlocking<Unit> {
+        // FB3 arch M1: hidden tabs have their own cap and never fill the visible limit.
+        withContext(Dispatchers.Main) {
+            repeat(TabRules.MAX_HIDDEN_TABS) { browser.openAiTab("s1", "about:blank", hidden = true) }
+            repeat(BrowserEngine.MAX_TABS) { browser.openUserTab("about:blank") }
+            assertTrue(runCatching { browser.openUserTab("about:blank") }.exceptionOrNull() is PageError)
+            assertTrue(runCatching { browser.openAiTab("s1", "about:blank", hidden = true) }.exceptionOrNull() is PageError)
+        }
+        assertEquals(BrowserEngine.MAX_TABS, browser.visibleTabs.value.size)
+    }
+
+    @Test
+    fun aHiddenTabsDialogsAreRefusedAtOnce() = runBlocking<Unit> {
+        // FB3 ui m6: nobody sees a prefetch tab, so alert()/confirm() must not hold the page.
+        val hidden = withContext(Dispatchers.Main) { browser.openAiTab("s1", url("/alert"), hidden = true) }
+        withTimeout(10_000) { browser.tabs.first { l -> l.any { it.id == hidden && it.title == "After" } } }
+        assertTrue(browser.prompts.value.isEmpty())
+    }
+
+    @Test
     fun tabsAndActivityPerChatAndCloseOnDelete() = runBlocking<Unit> {
         val a = browser.acquireAiTab("chatA", null, "snapshot")
         val b = browser.acquireAiTab("chatB", null, "click")
@@ -435,6 +468,7 @@ class ToolFlowE2eTest {
             "/start" to """<!doctype html><title>Start</title><a id="go" href="/next">Next page</a>
                 <p id="c"></p><script>document.getElementById('c').textContent = 'cookie: ' + document.cookie</script>""",
             "/next" to "<!doctype html><title>Next</title><p>Page /next body text</p>",
+            "/alert" to """<!doctype html><title>Before</title><script>alert('hi'); confirm('ok?'); document.title = 'After'</script>""",
             "/login" to """<!doctype html><title>Login</title><input id="user"><input id="pw" type="password">
                 <iframe id="f" src="data:text/html,<button>Pay</button>" style="width:300px;height:80px"></iframe>""",
             "/danger" to """<!doctype html><title>Danger</title><button id="del" onclick="this.textContent='gone'">Delete account</button>

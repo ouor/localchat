@@ -46,7 +46,7 @@ class ErrorAndRetryTest {
     fun `exceptions map to timeout, network, protocol`() {
         assertEquals(LlmError.Timeout, ErrorClassifier.classify(SocketTimeoutException()))
         assertEquals(LlmError.Network, ErrorClassifier.classify(IOException("reset")))
-        assertTrue(ErrorClassifier.classify(IllegalStateException("Invalid content-type")) is LlmError.Protocol)
+        assertEquals(LlmError.Protocol(null), ErrorClassifier.classify(IllegalStateException("Invalid content-type"))) // FB3 eng m5: no raw text
         assertTrue(ErrorClassifier.classify(HttpStatusException(429, null, "1")) is LlmError.RateLimited)
     }
 

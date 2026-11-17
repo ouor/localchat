@@ -23,7 +23,7 @@ internal object ErrorClassifier {
         is HttpStatusException -> classify(t.code, t.body)
         is InterruptedIOException -> LlmError.Timeout // SocketTimeoutException included
         is IOException -> LlmError.Network
-        else -> LlmError.Protocol(t.message)
+        else -> LlmError.Protocol(null) // FB3 eng m5: an unplanned exception's text is not shown to the user
     }
 
     /** `{"error":{…}}` inside a stream; a numeric `code` (OpenRouter) is used as the status. */

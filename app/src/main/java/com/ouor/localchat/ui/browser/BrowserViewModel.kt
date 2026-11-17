@@ -8,6 +8,7 @@ import com.ouor.localchat.browser.BrowserPrompt
 import com.ouor.localchat.browser.Control
 import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.Owner
+import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.run.Pause
@@ -60,9 +61,8 @@ data class BrowserUiState(
     fun isMine(t: TabInfo) = t.owner is Owner.Ai && (t.owner as Owner.Ai).sessionId == sessionId
 }
 
-/** Engine state into the panel state. Hidden link-prefetch tabs (and their prompts) never reach the UI. */
-internal fun BrowserUiState.merge(all: List<TabInfo>, ai: Map<Int, String>, h: Highlight?, prompts: List<BrowserPrompt>): BrowserUiState {
-    val tabs = all.filterNot { it.hidden }
+/** Engine state into the panel state. [tabs] are BrowserEngine.visibleTabs; a prompt of any other tab is not shown. */
+internal fun BrowserUiState.merge(tabs: List<TabInfo>, ai: Map<Int, String>, h: Highlight?, prompts: List<BrowserPrompt>): BrowserUiState {
     return copy(
         tabs = tabs, aiActivity = ai, highlight = h,
         prompt = prompts.firstOrNull { p ->
@@ -93,7 +93,7 @@ class BrowserViewModel @AssistedInject constructor(
     // B-09 ②: only this chat's AI activity drives its "AI is operating" bar.
     private val activity = sessionId?.let(engine::sessionActivity) ?: flowOf(emptyMap())
 
-    val state: StateFlow<BrowserUiState> = combine(local, engine.tabs, activity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
+    val state: StateFlow<BrowserUiState> = combine(local, engine.visibleTabs, activity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
         l.merge(tabs, ai, h, prompts)
     }.withSensitive(engine.sensitive.map { it::isSensitive }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
 
@@ -128,10 +128,11 @@ class BrowserViewModel @AssistedInject constructor(
 
     /** At the tab limit the tab list opens instead, so the user can close one (api-spec: UI checks tabs.size). */
     override fun newTab(url: String?) {
-        if (state.value.tabs.size >= MAX_TABS) { local.update { it.copy(showTabs = true) }; return }
+        if (state.value.tabs.size >= BrowserEngine.MAX_TABS) { local.update { it.copy(showTabs = true) }; return }
         viewModelScope.launch {
             val home = searchUrl(settings.settings.first().searchEngine, null)
-            val id = engine.openUserTab(url ?: home)
+            // The AI may have filled the last slot since the check: show the tab list so the user can close one.
+            val id = try { engine.openUserTab(url ?: home) } catch (_: PageError) { local.update { it.copy(showTabs = true) }; return@launch }
             local.update { it.copy(currentId = id, showTabs = false, panel = maxOf(it.panel, PanelState.Half)) }
         }
     }
@@ -180,8 +181,6 @@ class BrowserViewModel @AssistedInject constructor(
     override fun park(id: Int) = engine.park(id)
 
     private companion object {
-        const val MAX_TABS = 10
-
         // shortcut: mirrors browser.SearchEngines (not in the ui surface); use it once it is part of 10.2.
         fun searchUrl(engine: com.ouor.localchat.core.model.SearchEngine, query: String?): String {
             val q = query?.let { java.net.URLEncoder.encode(it, "UTF-8") }

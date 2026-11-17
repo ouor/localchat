@@ -99,9 +99,11 @@ class TurnRunner @Inject constructor(
 
         fun phase(phase: RunPhase) = handle.update { it.copy(phase = phase) }
 
-        fun fail(e: Exception) = publish(
-            body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.PROTOCOL, message = e.message ?: UNEXPECTED)),
-        )
+        // FB3 eng m5: a bug's or a broken row's text is not for the user; it goes to the log only.
+        fun fail(e: Exception) {
+            runCatching { android.util.Log.e("localchat", "run failed", e) } // JVM tests have no android.util.Log
+            publish(body.copy(status = ReplyStatus.ERROR, error = ChatError(ChatErrorKind.PROTOCOL, message = UNEXPECTED)))
+        }
 
         suspend fun save() {
             store.saveNode(node)
@@ -122,10 +124,14 @@ class TurnRunner @Inject constructor(
             }
             store.session(sessionId) ?: return // deleted meanwhile
             var path = MessageTree.ancestors(node, store.nodes(sessionId))
-            var tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
+            val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
+            val builtAt = clock.now()
             // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
-                ?: SystemPrompt.build(clock.now(), ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
+                ?: SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
+            // FB3 eng m3: once switches took every tool away, the request stops describing tool use (the stored context stays).
+            val systemWithoutTools by lazy { SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, false) }
+            fun systemFor(now: List<Tool>) = if (mode == Mode.CONTINUE || now.isNotEmpty() || tools.isEmpty()) system else systemWithoutTools
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
             val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
@@ -136,10 +142,16 @@ class TurnRunner @Inject constructor(
             var step = if (mode == Mode.CONTINUE) body.blocks.maxOfOrNull { it.step } ?: 0 else body.steps
             var compacted = false
             var askedAt = -1
-            // Audit #10: a switch turned off during the run drops its tools from the next step on; turning on never widens.
-            var switches = prefs.lastOptions
+            // Audit #10: a switch this chat's composer turned off during the run (ChatEngine.narrowRun) drops its tools
+            // before the next request and before each remaining call; turning one on never widens.
             var search = body.options.search
             var browserOn = body.options.browser
+            fun narrow() {
+                val now = handle.switches ?: return
+                if (!now.search) search = false
+                if (!now.browser) browserOn = false
+                if (executor.tools.isNotEmpty()) executor.narrow(toolPort.exposed(model.caps, search, browserOn).mapTo(HashSet()) { it.name })
+            }
             publish(body.copy(status = ReplyStatus.STREAMING, systemContext = system, finishReason = null, error = null))
             handle.update { it.copy(maxSteps = maxSteps) }
 
@@ -155,17 +167,11 @@ class TurnRunner @Inject constructor(
                     }
                 }
                 handle.update { it.copy(phase = RunPhase.Requesting, step = step) }
-                val now = settings.settings.first().lastOptions
-                if (switches.search && !now.search) search = false
-                if (switches.browser && !now.browser) browserOn = false
-                switches = now
-                if (tools.isNotEmpty()) {
-                    val keep = toolPort.exposed(model.caps, search, browserOn).map { it.name }.toSet()
-                    tools = tools.filter { it.name in keep }
-                    executor.tools = tools
-                }
+                narrow()
+                val stepTools = executor.tools
+                val stepSystem = systemFor(stepTools)
 
-                var request = assemble(path, model, tools, system)
+                var request = assemble(path, model, stepTools, stepSystem)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -178,7 +184,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, tools, system)
+                    request = assemble(path, model, stepTools, stepSystem)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
@@ -230,7 +236,7 @@ class TurnRunner @Inject constructor(
                         }
                         save()
                         // SE 24: one response cannot fan out into an unbounded run of tools.
-                        calls.take(MAX_CALLS_PER_STEP).forEach { runTool(executor, it) }
+                        calls.take(MAX_CALLS_PER_STEP).forEach { narrow(); runTool(executor, it) }
                         calls.drop(MAX_CALLS_PER_STEP).forEach { skipped ->
                             publish(
                                 body.copy(

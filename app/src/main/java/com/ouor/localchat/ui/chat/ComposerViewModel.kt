@@ -210,8 +210,8 @@ class ComposerViewModel @AssistedInject constructor(
 
     override fun toggleReasoning() = options { copy(reasoning = !reasoning) }
     override fun setEffort(effort: String?) = options { copy(reasoning = effort != null, reasoningEffort = effort ?: reasoningEffort) }
-    override fun toggleSearch() = options { copy(search = !search) }
-    override fun toggleBrowser() = options { copy(browser = !browser) }
+    override fun toggleSearch() = options(narrowRun = true) { copy(search = !search) }
+    override fun toggleBrowser() = options(narrowRun = true) { copy(browser = !browser) }
 
     override fun startVoice() = voiceInput.start(Locale.getDefault().toLanguageTag())
     override fun stopVoice() = voiceInput.stop()
@@ -251,8 +251,13 @@ class ComposerViewModel @AssistedInject constructor(
         }
     }
 
-    private fun options(transform: GenOptions.() -> GenOptions) {
-        viewModelScope.launch { settings.update { copy(lastOptions = lastOptions.transform()) } }
+    /** [narrowRun]: a tool switch also narrows this chat's own running reply (audit #10); other chats' runs never. */
+    private fun options(narrowRun: Boolean = false, transform: GenOptions.() -> GenOptions) {
+        viewModelScope.launch {
+            var now: GenOptions? = null
+            settings.update { copy(lastOptions = lastOptions.transform().also { now = it }) }
+            if (narrowRun && sessionId != null) now?.let { engine.narrowRun(sessionId, it) }
+        }
     }
 
     /** First emission adds the tile; later ones update it unless the user removed it meanwhile. */

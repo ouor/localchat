@@ -166,6 +166,12 @@ class ChatEngine @Inject constructor(
     /** Cancels every run and waits until each has saved (used before restore). */
     suspend fun stopAll() = registry.stopAll()
 
+    /**
+     * Audit #10 (FB3 arch M2): the composer of [sessionId] changed its switches. A switch now off drops its tools
+     * from that run's next call on; turning one on never widens a run. Other sessions' runs are untouched.
+     */
+    fun narrowRun(sessionId: String, options: GenOptions) = registry.narrow(sessionId, options)
+
     /** Answers the current pause of the session's run. */
     fun resolve(sessionId: String, resolution: Resolution) = registry.resolve(sessionId, resolution)
 

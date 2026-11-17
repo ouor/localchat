@@ -14,6 +14,25 @@ internal object TabRules {
     /** CSS px around the element in an approval preview. */
     private const val CROP_PAD = 24f
 
+    /** Hidden link-prefetch tabs open at once (LinkPrefetcher reads at most 3 links, one at a time). */
+    const val MAX_HIDDEN_TABS = 3
+
+    /**
+     * Why a new tab may not open, null when it may. Visible tabs count toward [BrowserEngine.MAX_TABS]; hidden ones
+     * only toward [MAX_HIDDEN_TABS], so a prefetch never takes a slot from the user (FB3 arch M1).
+     */
+    fun limitError(hidden: Boolean, visible: Int, hiddenOpen: Int): String? = when {
+        hidden && hiddenOpen >= MAX_HIDDEN_TABS -> "Too many pages are being read at once ($MAX_HIDDEN_TABS)."
+        !hidden && visible >= BrowserEngine.MAX_TABS -> "Too many tabs are open (${BrowserEngine.MAX_TABS}). Close unused tabs with close_tab."
+        else -> null
+    }
+
+    /** Size for a parked WebView: the host's once laid out, else the window's, else the display's. */
+    fun fallbackSize(hostW: Int, hostH: Int, windowW: Int?, windowH: Int?, displayW: Int, displayH: Int): Pair<Int, Int> =
+        if (hostW > 0 && hostH > 0) hostW to hostH
+        else if (windowW != null && windowH != null && windowW > 0 && windowH > 0) windowW to windowH
+        else displayW to displayH
+
     /** Ids to close, oldest first, from [lastUse] (tab id -> last AI use) of the eligible tabs. */
     fun idleAiTabsToClose(lastUse: Map<Int, Long>, now: Long): List<Int> {
         val idle = lastUse.entries.filter { now - it.value >= AI_IDLE_MS }.sortedBy { it.value }.map { it.key }

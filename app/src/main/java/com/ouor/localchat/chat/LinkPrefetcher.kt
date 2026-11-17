@@ -32,12 +32,14 @@ class LinkPrefetcher @Inject constructor(
             onReading(url)
             var tabId: Int? = null
             try {
-                tabId = browser.openAiTab(ctx.sessionId, url) // Too many tabs throws (AN 1).
-                val outcome = pageText.run(buildJsonObject { put("tabId", tabId) }, ctx)
+                // The id is stored inside NonCancellable: a cancel on the way out of withContext then still finds it in finally.
+                withContext(NonCancellable) { tabId = browser.openPrefetchTab(ctx.sessionId, url) } // Too many tabs throws (AN 1).
+                val id = checkNotNull(tabId)
+                val outcome = pageText.run(buildJsonObject { put("tabId", id) }, ctx)
                 // A redirect may have landed on a sensitive page (SE 2).
-                val landed = browser.tabUrl(tabId)
+                val landed = browser.tabUrl(id)
                 if (outcome.isError || landed == null || browser.isSensitive(landed)) null
-                else attachments.saveText(url, ctx.seal(outcome.text, tabId))
+                else attachments.saveText(url, ctx.seal(outcome.text, id))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
