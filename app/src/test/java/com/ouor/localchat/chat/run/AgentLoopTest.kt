@@ -961,6 +961,56 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a server that ignores tool_choice and keeps calling with no tools sent is asked once more, then ends before the step limit`() = runTest {
+        // FB4 E-2: before, every such step got TOOL_OFF results and the run went on to the step-limit pause.
+        lateinit var h: Harness
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, ctx -> h.engine.narrowRun(ctx.sessionId, GenOptions()); ToolOutcome("clicked") }
+        h = Harness(this, tools = listOf(click), models = FakeModelPort(caps(tools = true)))
+        repeat(30) { h.llm.events(call("c$it", "click"), finished("tool_calls")) }
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.ERROR, reply.status)
+        assertEquals(ChatErrorKind.EMPTY_RESPONSE, reply.error!!.kind)
+        assertEquals(listOf(null, "none", null, null), h.llm.requests.map { it.toolChoice })
+        assertTrue(h.llm.requests.drop(2).all { it.tools.isNullOrEmpty() && it.messages.last().content!!.jsonPrimitive.content == SystemPrompt.TOOLS_OFF_NOTE })
+        assertNull(phase(h, sid))
+    }
+
+    @Test
+    fun `with no tools sent, a reply of only markup is asked once more and then is the empty-response error`() = runTest {
+        // FB4 E-2: AnswerFilter turns DSML-only text into EmptyResponse.
+        lateinit var h: Harness
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, ctx -> h.engine.narrowRun(ctx.sessionId, GenOptions()); ToolOutcome("clicked") }
+        h = Harness(this, tools = listOf(click), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        h.llm.events(call("c2", "click"), finished("tool_calls")) // ignores tool_choice "none"
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        assertEquals(4, h.llm.requests.size)
+        assertEquals(ChatErrorKind.EMPTY_RESPONSE, h.lastReply(sid).error!!.kind)
+        assertTrue(h.llm.requests.drop(2).all { it.tools.isNullOrEmpty() })
+    }
+
+    @Test
+    fun `calls beside an answer on a request with no tools are dropped and the answer stands`() = runTest {
+        lateinit var h: Harness
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, ctx -> h.engine.narrowRun(ctx.sessionId, GenOptions()); ToolOutcome("clicked") }
+        h = Harness(this, tools = listOf(click), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        h.llm.events(call("c2", "click"), finished("tool_calls"))
+        h.llm.events(LlmEvent.TextDelta("Here is the answer."), call("c3", "click"), finished("tool_calls"))
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertEquals("Here is the answer.", reply.blocks.filterIsInstance<TextBlock>().single().text)
+        assertTrue(reply.blocks.none { it is ToolCallBlock && it.callId == "c3" })
+    }
+
+    @Test
     fun `a browser used last turn and switched off is still listed beside search, never run`() = runTest {
         // FB3 QA M1 review: a partial switch change dropped the browser definitions the history's calls need.
         val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER))

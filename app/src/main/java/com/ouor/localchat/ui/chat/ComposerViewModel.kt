@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ouor.localchat.attach.AttachmentIngest
+import com.ouor.localchat.attach.PrepFailure
 import com.ouor.localchat.attach.ValidationIssue
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.ChatRejected
@@ -79,6 +80,9 @@ data class ComposerUiState(
 ) {
     val canSend: Boolean get() = !running && model != null && (text.isNotBlank() || attachments.isNotEmpty()) &&
         attachments.none { it.state is PrepState.Failed }
+
+    /** FB4 E-4: failed attachments per PrepFailure reason code, in first-seen order (U-6 shows them). */
+    val failures: Map<String, Int> get() = PrepFailure.counts(attachments)
 
     /** What the switches show now; send, regenerate and edit-resend all use this, never an old reply's options. */
     val options: GenOptions get() = GenOptions(

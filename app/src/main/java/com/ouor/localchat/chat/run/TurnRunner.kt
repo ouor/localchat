@@ -32,6 +32,7 @@ import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.llm.LlmError
+import com.ouor.localchat.llm.toChatError
 import com.ouor.localchat.llm.wire.WireMessage
 import kotlinx.serialization.json.JsonPrimitive
 import com.ouor.localchat.llm.LlmEvent
@@ -160,6 +161,9 @@ class TurnRunner @Inject constructor(
             // FB3 D1: while no call is possible, a run that has used tools asks for the answer in a hidden note;
             // a reply that still comes back empty (only markup) is asked once more with the note, then fails as before.
             var emptyRetried = false
+            // FB4 E-1: Mistral (and vLLM's mistral_common check) reject `user` right after `tool` with a 400. Then the
+            // note goes to the end of the system message instead, for the rest of the run; DeepSeek never gets here.
+            var noteInSystem = false
             var search = body.options.search
             var browserOn = body.options.browser
             fun narrow() {
@@ -189,7 +193,7 @@ class TurnRunner @Inject constructor(
                 val callsBlocked = mode == Mode.NEW && (noCalls || noneIgnored)
                 val note = callsBlocked && (emptyRetried || body.blocks.any { it is ToolCallBlock })
 
-                var request = assemble(path, model, stepTools, system, noCalls, note)
+                var request = assemble(path, model, stepTools, system, noCalls, note, noteInSystem)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -202,7 +206,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, stepTools, system, noCalls, note)
+                    request = assemble(path, model, stepTools, system, noCalls, note, noteInSystem)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
@@ -240,6 +244,11 @@ class TurnRunner @Inject constructor(
                             }
                             publish(StreamCollector.reduce(body, t, step, clock.now()))
                         }
+                        if (t.error is LlmError.BadRequest && note && !noteInSystem) {
+                            noteInSystem = true
+                            publish(body.copy(blocks = before, error = null))
+                            continue
+                        }
                         if (t.error == LlmError.EmptyResponse && callsBlocked && !emptyRetried) {
                             emptyRetried = true
                             publish(body.copy(blocks = before, error = null))
@@ -249,9 +258,25 @@ class TurnRunner @Inject constructor(
                         return
                     }
                     is LlmEvent.Finished -> {
-                        publish(body.copy(steps = step + 1))
                         val answered = body.blocks.filterIsInstance<ToolResultBlock>().map { it.key }.toSet()
                         val calls = body.blocks.filterIsInstance<ToolCallBlock>().filter { it.step == step && it.key !in answered }
+                        // FB4 E-2: calls to a request that offered no tool (a server ignoring tool_choice "none") are no
+                        // answer either: asked once more like an empty reply, then the run ends instead of looping to the limit.
+                        if (stepTools.isEmpty() && calls.isNotEmpty()) {
+                            val answer = body.blocks.any { it is TextBlock && it.step == step && it.text.isNotBlank() }
+                            if (answer) {
+                                publish(body.copy(blocks = body.blocks - calls.toSet(), steps = step + 1, status = ReplyStatus.DONE))
+                                return
+                            }
+                            if (callsBlocked && !emptyRetried) {
+                                emptyRetried = true
+                                publish(body.copy(blocks = before))
+                                continue
+                            }
+                            publish(body.copy(blocks = before, status = ReplyStatus.ERROR, error = LlmError.EmptyResponse.toChatError()))
+                            return
+                        }
+                        publish(body.copy(steps = step + 1))
                         if (body.refusal || calls.isEmpty()) {
                             publish(body.copy(status = ReplyStatus.DONE))
                             if (mode == Mode.NEW && path.count { it.body is MessageBody.User } == 1) launchTitle(path, model)
@@ -305,7 +330,9 @@ class TurnRunner @Inject constructor(
             save()
         }
 
-        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, noCalls: Boolean, note: Boolean) =
+        suspend fun assemble(
+            path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, noCalls: Boolean, note: Boolean, noteInSystem: Boolean,
+        ) =
             ContextAssembler.build(
                 AssemblyInput(
                     system = system,
@@ -319,7 +346,13 @@ class TurnRunner @Inject constructor(
                     continueMode = mode == Mode.CONTINUE,
                 ),
             ).let { if (noCalls) it.copy(toolChoice = "none") else it }
-                .let { if (note) it.copy(messages = it.messages + WireMessage("user", JsonPrimitive(SystemPrompt.TOOLS_OFF_NOTE))) else it }
+                .let {
+                    when {
+                        !note -> it
+                        noteInSystem -> it.copy(messages = listOf(WireMessage("system", JsonPrimitive(system + "\n" + SystemPrompt.TOOLS_OFF_NOTE))) + it.messages.drop(1))
+                        else -> it.copy(messages = it.messages + WireMessage("user", JsonPrimitive(SystemPrompt.TOOLS_OFF_NOTE)))
+                    }
+                }
 
         suspend fun estimate(request: com.ouor.localchat.llm.wire.ChatRequest, path: List<MessageNode>): Int {
             val summaryAt = ContextAssembler.applicableSummary(store.summaries(sessionId), path)?.createdAt
