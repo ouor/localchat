@@ -78,7 +78,8 @@ class BrowserTab internal constructor(
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    private val console = ArrayDeque<String>()
+    /** (source document or script URL, line). */
+    private val console = ArrayDeque<Pair<String, String>>()
 
     private val _dialog = MutableStateFlow<BrowserPrompt.Dialog?>(null)
 
@@ -216,7 +217,7 @@ class BrowserTab internal constructor(
 
     // ---------- console
 
-    fun consoleLines(): List<String> = console.toList()
+    fun consoleLines(): List<String> = console.map { it.second }
 
     // ---------- prompts
 
@@ -274,7 +275,10 @@ class BrowserTab internal constructor(
 
     private inner class Client : WebViewClient() {
         override fun onPageStarted(view: WebView, startUrl: String, favicon: Bitmap?) {
-            console.clear() // SE 6: a previous page's logs (maybe a sensitive site during handoff) must not reach console_logs
+            // SE 6: a previous page's logs (maybe a sensitive site during handoff) must not reach console_logs. The new
+            // page's inline scripts may log before this callback arrives (seen on device), so its own lines stay.
+            val page = startUrl.substringBefore('#')
+            console.removeAll { it.first.substringBefore('#') != page }
             _loading.value = true
             url = startUrl
             events.onChanged(this@BrowserTab)
@@ -315,7 +319,7 @@ class BrowserTab internal constructor(
 
         override fun onConsoleMessage(m: ConsoleMessage): Boolean {
             if (console.size >= CONSOLE_MAX) console.removeFirst()
-            console.addLast("[${m.messageLevel().name.lowercase()}] ${m.message()} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
+            console.addLast(m.sourceId() to "[${m.messageLevel().name.lowercase()}] ${m.message()} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
             return true
         }
 
