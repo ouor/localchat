@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.core.view.ViewCompat
@@ -114,6 +115,22 @@ class BrowserImeTest {
         assertTrue("controls above the keyboard: ${giveBack().bottom} <= $imeTop", giveBack().bottom <= imeTop + 0.5f)
         assertTrue("page (and the field at its bottom) above the keyboard: ${pageBounds().bottom} <= $imeTop", pageBounds().bottom <= imeTop + 0.5f)
         assertTrue("page still usable", pageBounds().height > 100f)
+
+        // FB4 fix M1: dragging the handle with the keyboard up moves it with the finger, never by the keyboard's height.
+        val handle = rule.onNodeWithContentDescription(rule.activity.getString(R.string.fb_e4_handle_cd))
+        val handleTop = handle.fetchSemanticsNode().boundsInRoot.top
+        handle.performTouchInput { down(center) }
+        repeat(6) { step ->
+            handle.performTouchInput { moveBy(Offset(0f, -10f)) }
+            rule.waitForIdle()
+            val now = handle.fetchSemanticsNode().boundsInRoot.top
+            assertTrue("step $step: handle at $now, started at $handleTop", now <= handleTop + 20f && now >= handleTop - 80f)
+        }
+        handle.performTouchInput { up() }
+        rule.waitForIdle()
+        Thread.sleep(500) // settle back to Half
+        rule.waitForIdle()
+        assertEquals(handleTop, handle.fetchSemanticsNode().boundsInRoot.top, 1f)
 
         // Keyboard closed: everything is back where it was.
         rule.runOnUiThread {
