@@ -129,9 +129,6 @@ class TurnRunner @Inject constructor(
             // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
                 ?: SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
-            // FB3 eng m3: once switches took every tool away, the request stops describing tool use (the stored context stays).
-            val systemWithoutTools by lazy { SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, false) }
-            fun systemFor(now: List<Tool>) = if (mode == Mode.CONTINUE || now.isNotEmpty() || tools.isEmpty()) system else systemWithoutTools
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
             val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
@@ -142,8 +139,12 @@ class TurnRunner @Inject constructor(
             var step = if (mode == Mode.CONTINUE) body.blocks.maxOfOrNull { it.step } ?: 0 else body.steps
             var compacted = false
             var askedAt = -1
-            // Audit #10: a switch this chat's composer turned off during the run (ChatEngine.narrowRun) drops its tools
-            // before the next request and before each remaining call; turning one on never widens.
+            // Audit #10: a switch this chat's composer turned off during the run (ChatEngine.narrowRun) stops its tools
+            // before each remaining call (answered TOOL_OFF); turning one on never widens.
+            // FB3 QA M1: the requests keep the run's tool list, since its history holds calls to those tools: without
+            // the list DeepSeek wrote further calls as DSML text into the answer. With no tool left on, or after two
+            // steps that called only turned-off ones, the request allows no call (tool_choice "none").
+            var offOnly = 0
             var search = body.options.search
             var browserOn = body.options.browser
             fun narrow() {
@@ -168,10 +169,9 @@ class TurnRunner @Inject constructor(
                 }
                 handle.update { it.copy(phase = RunPhase.Requesting, step = step) }
                 narrow()
-                val stepTools = executor.tools
-                val stepSystem = systemFor(stepTools)
+                val noCalls = tools.isNotEmpty() && (executor.tools.isEmpty() || offOnly >= 2)
 
-                var request = assemble(path, model, stepTools, stepSystem)
+                var request = assemble(path, model, tools, system, noCalls)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -184,7 +184,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, stepTools, stepSystem)
+                    request = assemble(path, model, tools, system, noCalls)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
@@ -237,6 +237,7 @@ class TurnRunner @Inject constructor(
                         save()
                         // SE 24: one response cannot fan out into an unbounded run of tools.
                         calls.take(MAX_CALLS_PER_STEP).forEach { narrow(); runTool(executor, it) }
+                        offOnly = if (calls.all { executor.isOff(it.name) }) offOnly + 1 else 0
                         calls.drop(MAX_CALLS_PER_STEP).forEach { skipped ->
                             publish(
                                 body.copy(
@@ -280,7 +281,7 @@ class TurnRunner @Inject constructor(
             save()
         }
 
-        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String) =
+        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, noCalls: Boolean) =
             ContextAssembler.build(
                 AssemblyInput(
                     system = system,
@@ -293,7 +294,7 @@ class TurnRunner @Inject constructor(
                     tools = tools,
                     continueMode = mode == Mode.CONTINUE,
                 ),
-            )
+            ).let { if (noCalls) it.copy(toolChoice = "none") else it }
 
         suspend fun estimate(request: com.ouor.localchat.llm.wire.ChatRequest, path: List<MessageNode>): Int {
             val summaryAt = ContextAssembler.applicableSummary(store.summaries(sessionId), path)?.createdAt
