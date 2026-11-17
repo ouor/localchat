@@ -42,14 +42,30 @@ data class AssemblyInput(
     val tools: List<Tool>,
     /** M-03 (rule 10). */
     val continueMode: Boolean = false,
+    /** FB3 QA M1: the tools stay listed but no call is allowed (tool_choice "none"). */
+    val noCalls: Boolean = false,
+    /** FB3 D1 / FB4 E-1: where the hidden tools-off note goes, if anywhere. */
+    val note: NotePlacement = NotePlacement.NONE,
 )
+
+enum class NotePlacement {
+    NONE,
+
+    /** The last message, as a user message (DeepSeek's measured form). */
+    LAST_USER,
+
+    /** The end of the system message, for servers that reject `user` right after `tool` (Mistral). */
+    SYSTEM_END,
+}
 
 /** Architecture 5.4: every rule for what is sent lives here, numbered as in the table. */
 object ContextAssembler {
 
     fun build(input: AssemblyInput): ChatRequest {
         val caps = input.model.caps
-        val messages = mutableListOf(WireMessage("system", JsonPrimitive(input.system)))
+        // Rule 11 (FB4 E-1): the tools-off note at the end of the system message.
+        val system = if (input.note == NotePlacement.SYSTEM_END) input.system + "\n" + SystemPrompt.TOOLS_OFF_NOTE else input.system
+        val messages = mutableListOf(WireMessage("system", JsonPrimitive(system)))
 
         // Rule 2: summary replaces the path up to and including coversUpToId.
         var path = input.path
@@ -101,6 +117,8 @@ object ContextAssembler {
         } else {
             messages += assistantSteps(input.current, reply, current = true, sendable, latestImage, input)
         }
+        // Rule 11 (FB3 D1): or as the last user message; never stored.
+        if (input.note == NotePlacement.LAST_USER) messages += WireMessage("user", JsonPrimitive(SystemPrompt.TOOLS_OFF_NOTE))
 
         // Architecture 4.3, via llm's single mapping.
         // The model's current settings win over the options (a model whose reasoning was switched off never reasons).
@@ -111,6 +129,7 @@ object ContextAssembler {
             messages = messages,
             tools = input.tools.takeIf { it.isNotEmpty() }
                 ?.map { WireTool(WireFunction(it.name, it.description, it.parameters)) },
+            toolChoice = "none".takeIf { input.noCalls },
             // FB-6: only a user-set max output is sent; server/built-in values stay the server's own default.
             maxTokens = caps.maxOutputTokens.takeIf { it.source == CapSource.USER }?.value,
         ).withReasoning(input.model.reasoningWire, input.options.reasoning && spec != null, effort)

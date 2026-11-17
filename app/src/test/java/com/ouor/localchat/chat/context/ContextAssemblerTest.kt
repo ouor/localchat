@@ -128,6 +128,33 @@ class ContextAssemblerTest {
         assertEquals("c1", msgs.last().toolCallId)
     }
 
+    private fun afterCall(): Pair<List<MessageNode>, MessageBody.Assistant> {
+        val call = ToolCallBlock("c1", "page_text", "{}", 0, ToolCallState.DONE, 0)
+        val result = ToolResultBlock("c1", 0, "PAGE", isError = false)
+        return listOf(user("u1", "q1"), reply("a1", TextBlock("x", 0)), user("u2", "q2")) to empty().copy(blocks = listOf(call, result))
+    }
+
+    @Test
+    fun `the tools-off note as the last user message, with tool_choice none (FB3 D1)`() {
+        val (path, current) = afterCall()
+        val request = ContextAssembler.build(input(path, current).copy(noCalls = true, note = NotePlacement.LAST_USER))
+        assertEquals("none", request.toolChoice)
+        assertEquals(listOf("system", "user", "assistant", "user", "assistant", "tool", "user"), request.messages.map { it.role })
+        assertEquals(SystemPrompt.TOOLS_OFF_NOTE, request.messages.last().content!!.jsonPrimitive.content)
+        assertEquals("SYS", request.messages.first().content!!.jsonPrimitive.content)
+        assertNull(ContextAssembler.build(input(path, current)).toolChoice)
+    }
+
+    @Test
+    fun `the tools-off note at the end of the system message keeps tool last, also with a summary (FB4 E-1)`() {
+        val (path, current) = afterCall()
+        val s = Summary("s1", "s", "a1", "SUM", 5)
+        val msgs = ContextAssembler.build(input(path, current, summaries = listOf(s)).copy(note = NotePlacement.SYSTEM_END)).messages
+        assertEquals(listOf("system", "user", "user", "assistant", "tool"), msgs.map { it.role })
+        assertEquals("SYS\n" + SystemPrompt.TOOLS_OFF_NOTE, msgs.first().content!!.jsonPrimitive.content)
+        assertEquals(SystemPrompt.SUMMARY_PREFIX + "SUM", msgs[1].content!!.jsonPrimitive.content)
+    }
+
     @Test
     fun `summary replaces the path up to its cut point`() {
         val path = listOf(user("u1", "q1"), reply("a1", TextBlock("x", 0)), user("u2", "q2"))
