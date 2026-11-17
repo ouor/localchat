@@ -61,6 +61,34 @@ class DeepSeekRealApiTest {
     }
 
     @Test
+    fun `tool_choice none with the tools still listed answers in text after tool-calling steps`() = runBlocking {
+        // FB3 QA M1: what TurnRunner sends once the user turned every tool off mid-run.
+        val tool = com.ouor.localchat.llm.wire.WireTool(com.ouor.localchat.llm.wire.WireFunction(
+            "page_text", "Read the text of a tab", AppJson.parseToJsonElement("""{"type":"object","properties":{"tabId":{"type":"integer"}}}""") as kotlinx.serialization.json.JsonObject,
+        ))
+        for (thinking in listOf(false, true)) {
+            val request = ChatRequest(
+                "deepseek-flash",
+                listOf(
+                    WireMessage("user", JsonPrimitive("Read tabs 1 and 2 and tell me their titles.")),
+                    WireMessage(
+                        "assistant", null,
+                        toolCalls = listOf(com.ouor.localchat.llm.wire.WireToolCall("call_1", com.ouor.localchat.llm.wire.WireFunctionCall("page_text", """{"tabId":1}"""))),
+                        reasoningContent = "I will read tab 1 first.".takeIf { thinking },
+                    ),
+                    WireMessage("tool", JsonPrimitive("Title: Seoul"), toolCallId = "call_1"),
+                ),
+                tools = listOf(tool),
+                toolChoice = "none",
+            ).withReasoning(ReasoningWire.DEEPSEEK_THINKING, thinking, null)
+            val events = client.stream(target, request).toList()
+            assertTrue(events.toString(), events.last() is LlmEvent.Finished)
+            assertTrue(events.none { it is LlmEvent.ToolCallsReady })
+            assertFalse(events.filterIsInstance<LlmEvent.TextDelta>().joinToString("") { it.text }.contains("DSML"))
+        }
+    }
+
+    @Test
     fun `wrong key is AUTH without retries`() = runBlocking {
         val events = client.stream(target.copy(apiKey = "sk-invalid"), ask("hi")).toList()
         assertEquals(1, events.size)

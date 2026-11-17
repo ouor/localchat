@@ -61,6 +61,8 @@ class ToolExecutor(
         tools = tools.filter { it.name in keep }
     }
 
+    fun isOff(name: String) = name in turnedOff
+
     private val sources = existingSources.associateBy { it.url }.toMutableMap()
     private var callKey: String? = null
 

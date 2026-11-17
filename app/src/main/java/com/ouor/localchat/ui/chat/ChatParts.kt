@@ -247,20 +247,23 @@ internal fun replyText(blocks: List<com.ouor.localchat.core.model.Block>): Strin
 @Composable
 private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor.localchat.chat.ToolStep?): StepItemData {
     val v = toolVisual(call.name)
-    val state = when (call.state) {
-        ToolCallState.RUNNING -> StepState.Running
-        ToolCallState.AWAITING_APPROVAL -> StepState.AwaitingApproval
-        ToolCallState.DONE -> if (result?.isError == true) StepState.Failed else StepState.Done
-        ToolCallState.FAILED -> StepState.Failed
-        ToolCallState.DENIED -> StepState.Denied
-        ToolCallState.CANCELLED -> StepState.Stopped
-    }
+    val state = stepState(call, result, step)
     val detail = when {
-        state == StepState.Failed && step?.failureRes != null -> stringResource(step.failureRes) // BUG-10
+        (state == StepState.Failed || state == StepState.Skipped) && step?.failureRes != null -> stringResource(step.failureRes) // BUG-10
         step?.countRes != null -> androidx.compose.ui.res.pluralStringResource(step.countRes, step.count, step.count) // BUG-08
         else -> result?.summary
     }
     return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, detail, v.agent)
+}
+
+internal fun stepState(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor.localchat.chat.ToolStep?): StepState = when (call.state) {
+    ToolCallState.RUNNING -> StepState.Running
+    ToolCallState.AWAITING_APPROVAL -> StepState.AwaitingApproval
+    ToolCallState.DONE -> if (result?.isError == true) StepState.Failed else StepState.Done
+    // FB3 QA m2: a tool the user turned off is skipped (neutral), not failed (danger colour).
+    ToolCallState.FAILED -> if (step?.failureRes == R.string.chat_step_turned_off) StepState.Skipped else StepState.Failed
+    ToolCallState.DENIED -> StepState.Denied
+    ToolCallState.CANCELLED -> StepState.Stopped
 }
 
 @Composable

@@ -43,6 +43,26 @@ class StreamAssemblerTest {
     }
 
     @Test
+    fun `DeepSeek tool-call markup written as text never reaches the answer, even split across chunks`() {
+        // FB3 QA M1: a request without tools after tool-calling steps made DeepSeek write its calls as DSML text.
+        val dsml = "<｜｜DSML｜｜calls>\n<｜｜DSML｜｜invoke name=\"page_text\">1</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜calls>"
+        val asm = StreamAssembler()
+        val events = asm.feed("I'll visit each page.\n\n<", "｜｜DS", dsml.drop(5))
+        assertEquals("I'll visit each page.", events.text().trimEnd()) // whitespace sent before the markup stays
+        assertTrue(asm.hasAnswer)
+        assertEquals("ok", StreamAssembler().feed("ok<｜DSML｜function_calls>x").text())
+        assertEquals("a < b, <i>", StreamAssembler().feed("a <", " b, <", "i>").text())
+    }
+
+    @Test
+    fun `the page-content boundary tags are removed from the answer`() {
+        // FB3 QA m1.
+        assertEquals(com.ouor.localchat.chat.context.Untrusted.TAG, AnswerFilter.BOUNDARY_TAG)
+        val events = StreamAssembler().feed("<untrusted_pa", "ge_content>\nExample Domain\n</untrusted_page_content", ">\nThe title is X")
+        assertEquals("\nExample Domain\n\nThe title is X", events.text())
+    }
+
+    @Test
     fun `unclosed think block is flushed as reasoning`() {
         val asm = StreamAssembler()
         val events = asm.feed("<think>still thinking</thi")

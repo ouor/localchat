@@ -16,6 +16,8 @@ data class ChatRequest(
     val model: String,
     val messages: List<WireMessage>,
     val tools: List<WireTool>? = null,
+    /** "none" keeps [tools] described but allows no call (FB3 QA M1); null = omitted (the server's "auto"). */
+    @SerialName("tool_choice") val toolChoice: String? = null,
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
     /** DEEPSEEK_THINKING only; must be sent as "disabled" to turn reasoning off. */
     val thinking: Thinking? = null,
