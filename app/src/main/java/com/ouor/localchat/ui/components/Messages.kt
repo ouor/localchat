@@ -56,6 +56,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
@@ -119,7 +123,9 @@ fun UserMessageEditor(text: String, onTextChange: (String) -> Unit, onCancel: ()
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() } // FB3 QA m3: opening the editor puts the cursor in it
     Column(modifier.fillMaxWidth().clip(LcRadius.lg).background(c.surfaceRaised).border(1.5.dp, c.borderStrong, LcRadius.lg).padding(12.dp)) {
-        BasicTextField(text, onTextChange, Modifier.fillMaxWidth().focusRequester(focus), textStyle = LcTheme.text.bodyLarge.copy(color = c.textPrimary), cursorBrush = SolidColor(c.accent))
+        // Cursor starts at the end of the message (a plain String field would put it at the start).
+        var value by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
+        BasicTextField(value, { value = it; onTextChange(it.text) }, Modifier.fillMaxWidth().focusRequester(focus), textStyle = LcTheme.text.bodyLarge.copy(color = c.textPrimary), cursorBrush = SolidColor(c.accent))
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             LcButton(stringResource(R.string.ui_cancel), onCancel, variant = ButtonVariant.Text, size = ButtonSize.Sm)
             LcButton(stringResource(R.string.ui_save_send), onSave, size = ButtonSize.Sm, enabled = text.isNotBlank() && text.trim() != original?.trim())
