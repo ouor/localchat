@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -390,7 +391,13 @@ internal fun LimitRow(
         SettingsRow(title, value = cap.value?.let { limitLabel(it, presets) } ?: "—", divider = divider, onClick = { menu = true }) {
             // FB3 fix ui M2: the icon keeps its slot when there is no warning (invisible, no description), so the value never shifts.
             Icon(Icons.Outlined.WarningAmber, warn, Modifier.size(18.dp).alpha(if (warn != null) 1f else 0f), tint = c.warning)
-            SourceBadge(cap.source)
+            // FB3 QA m4: the badge slot is as wide as the widest source tag (the others laid out invisibly),
+            // so 서버 ↔ 사용자 never shifts the value.
+            Box(contentAlignment = Alignment.Center) {
+                CapSource.entries.forEach { s ->
+                    SourceBadge(s, if (s == cap.source) Modifier else Modifier.alpha(0f).clearAndSetSemantics {})
+                }
+            }
             Icon(Icons.Rounded.ArrowDropDown, null, Modifier.size(20.dp), tint = c.iconSecondary)
         }
         // FB2-1: the menu opens under (or above) the value/▾ with its end edge at the row's.
