@@ -842,6 +842,46 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `with every switch off, a history holding tool calls sends those tools allowing no call, and nothing runs`() = runTest {
+        // FB3 QA M1 (new turn, continue, regenerate): a toolless request after tool calls made DeepSeek write them as text.
+        val search = FakeTool("web_search", groups = setOf(ToolGroup.SEARCH))
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER))
+        val h = Harness(this, tools = listOf(search, click), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "web_search"), finished("tool_calls"))
+        h.llm.text("a1")
+        val sid = h.sendNew("q1")
+        advanceUntilIdle()
+        assertEquals(1, search.calls)
+
+        h.llm.events(LlmEvent.TextDelta("a2"), finished("length"))
+        h.engine.send(sid, draft("q2"), GenOptions(), TEST_MODEL)
+        advanceUntilIdle()
+        val id = h.store.messages.values.last().id
+        h.llm.text(" more")
+        h.engine.continueReply(id)
+        advanceUntilIdle()
+        h.llm.text("b2")
+        h.engine.regenerate(id, TEST_MODEL, GenOptions())
+        advanceUntilIdle()
+        // A call the model still makes is answered TOOL_OFF, never run.
+        h.llm.events(call("c2", "web_search"), finished("tool_calls"))
+        h.llm.text("a3")
+        h.engine.send(sid, draft("q3"), GenOptions(), TEST_MODEL)
+        advanceUntilIdle()
+        assertEquals(ToolExecutor.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().content)
+
+        assertEquals(1, search.calls)
+        assertEquals(0, click.calls)
+        val off = h.llm.requests.drop(2) // new turn, continue, regenerate, new turn (2 steps)
+        assertEquals(5, off.size)
+        off.forEach {
+            assertEquals("none", it.toolChoice)
+            assertEquals(listOf("web_search"), it.tools.orEmpty().map { t -> t.function.name })
+            assertFalse(it.messages.first().content!!.jsonPrimitive.content.contains("Tool use:"))
+        }
+    }
+
+    @Test
     fun `a model that keeps calling only turned-off tools is asked for an answer after two such steps`() = runTest {
         // FB3 QA M1: search still on, browser off; no endless TOOL_OFF loop.
         lateinit var h: Harness

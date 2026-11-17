@@ -129,10 +129,20 @@ class TurnRunner @Inject constructor(
             // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
                 ?: SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
+            // FB3 QA M1: with no tool on, a history holding tool calls still sends those tools' definitions (allowing no
+            // call, below), or DeepSeek writes its calls as text. The system prompt stays the toolless one: nothing can run.
+            val listed = tools.ifEmpty {
+                if (!model.caps.toolCalling.value) emptyList()
+                else (path.map { it.body } + body).filterIsInstance<MessageBody.Assistant>()
+                    .flatMap { b -> b.blocks.filterIsInstance<ToolCallBlock>().map { it.name } }
+                    .distinct().mapNotNull(toolPort::byName)
+            }
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
-            val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, tools, existingSources) { id, state ->
+            val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, listed, existingSources) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
+            // Listed only for the history: a call to one is answered TOOL_OFF, never run.
+            executor.narrow(tools.mapTo(HashSet()) { it.name })
             if (mode == Mode.NEW && body.steps == 0 && tools.isEmpty()) path = prefetchLinks(path, executor)
             // A restored or hand-edited settings file may hold 0 (AN 10).
             val maxSteps = prefs.maxSteps.takeIf { it > 0 } ?: AppSettings().maxSteps
@@ -169,9 +179,9 @@ class TurnRunner @Inject constructor(
                 }
                 handle.update { it.copy(phase = RunPhase.Requesting, step = step) }
                 narrow()
-                val noCalls = tools.isNotEmpty() && (executor.tools.isEmpty() || offOnly >= 2)
+                val noCalls = listed.isNotEmpty() && (executor.tools.isEmpty() || offOnly >= 2)
 
-                var request = assemble(path, model, tools, system, noCalls)
+                var request = assemble(path, model, listed, system, noCalls)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -184,7 +194,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, tools, system, noCalls)
+                    request = assemble(path, model, listed, system, noCalls)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
