@@ -125,12 +125,16 @@ private fun findDisplayMath(lines: List<String>, start: Int, close: String): Pai
 
 const val TOKEN_OPEN = '⦃'
 const val TOKEN_CLOSE = '⦄'
-val INLINE_TOKEN = Regex("⦃([mcj])(\\d*)⦄")
+/** Groups: 1 = m/c and 2 = its number, or 3 = j ([JOINER]); neither = [ESCAPED_OPEN]. */
+val INLINE_TOKEN = Regex("⦃(?:([mc])(\\d+)|(j))?⦄")
 
 /** Invisible joiner the annotator drops; punctuation to the parser, so a `**` next to it can open/close (FB3 m6). */
 const val JOINER = "⦃j⦄"
 
-/** [text] with tokens `⦃mN⦄` (math index N in [math]), `⦃cN⦄` (citation number N) and [JOINER]. */
+/** A `⦃` the user wrote: the annotator shows `⦃`, so their text never reads as one of our tokens. */
+const val ESCAPED_OPEN = "⦃⦄"
+
+/** [text] with tokens `⦃mN⦄` (math index N in [math]), `⦃cN⦄` (citation number N), [JOINER] and [ESCAPED_OPEN]. */
 data class InlineParts(val text: String, val math: List<String>)
 
 // `$x$`: no space right inside the dollars, closing `$` not followed by a digit (avoids "$5 and $10").
@@ -143,7 +147,7 @@ private val CODE_SPAN = Regex("""(`+)[\s\S]*?\1""")
 // m-1: `[1]` inside a link target or a bare/auto URL is part of the address, not a citation.
 private val LINK_TARGET = Regex("""]\([^)\s]*\)""")
 // Stops at brackets so a link's `)` and a citation after it stay outside.
-private val BARE_URL = Regex("""https?://[^\s()<>]+""")
+private val BARE_URL = Regex("""(?:https?://|\bwww\.)[^\s()<>]+""")
 private val SINGLE_TILDE = Regex("""(?<![~\\])~(?!~)""")
 // Explicit ranges (Hangul, kana, CJK ideographs): Android's ICU regex and the JVM differ on script names.
 private const val CJK = "ᄀ-ᇿ぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿"
@@ -167,8 +171,8 @@ fun tokenizeInline(markdown: String, citable: Set<Int>): InlineParts {
 
 private fun tokenizePlain(s: String, citable: Set<Int>, math: MutableList<String>): String {
     if (s.isEmpty()) return s
-    val withMath = INLINE_MATH.replace(s) { m ->
-        math += m.groupValues[1].ifEmpty { m.groupValues[2] }
+    val withMath = INLINE_MATH.replace(s.replace("$TOKEN_OPEN", ESCAPED_OPEN)) { m ->
+        math += m.groupValues[1].ifEmpty { m.groupValues[2] }.replace(ESCAPED_OPEN, "$TOKEN_OPEN")
         "$TOKEN_OPEN" + "m${math.size - 1}$TOKEN_CLOSE"
     }
     // FB3 m6: strikethrough is `~~` only (the parser pairs some single `~`, e.g. "~a~ ~b~"), and a `**` between
@@ -184,23 +188,33 @@ private fun tokenizePlain(s: String, citable: Set<Int>, math: MutableList<String
     }
 }
 
-/** Fenced code blocks, inline code spans, link targets and URLs (sorted, merged). */
+/** Fenced and indented code blocks, inline code spans, link targets and URLs (sorted, merged). */
 private fun protectedRanges(md: String): List<IntRange> {
     val ranges = mutableListOf<IntRange>()
     var offset = 0
     var fenceStart = -1
     var fence: String? = null
+    // Indented code: 4 spaces / a tab after a blank line, outside a list (there the indent is the item's content).
+    var indentStart = -1
+    var prevBlank = true
+    var inList = false
     for (line in md.split('\n')) {
         val end = offset + line.length
-        if (fence == null) {
-            FENCE_OPEN.find(line)?.let { fence = it.groupValues[1].take(3); fenceStart = offset }
-        } else if (line.trimStart().startsWith(fence!!)) {
+        val indented = line.startsWith("    ") || line.startsWith("\t")
+        if (indentStart >= 0 && !indented && line.isNotBlank()) { ranges += indentStart until offset; indentStart = -1 }
+        if (fence == null && indentStart < 0) {
+            if (indented && prevBlank && !inList && line.isNotBlank()) indentStart = offset
+            else FENCE_OPEN.find(line)?.let { fence = it.groupValues[1].take(3); fenceStart = offset }
+        } else if (fence != null && line.trimStart().startsWith(fence!!)) {
             ranges += fenceStart until minOf(end + 1, md.length).coerceAtLeast(fenceStart + 1)
             fence = null
         }
+        if (line.isNotBlank() && !indented) inList = LIST_ITEM.containsMatchIn(line) || (inList && !prevBlank)
+        prevBlank = line.isBlank()
         offset = end + 1
     }
     if (fence != null) ranges += fenceStart until md.length
+    if (indentStart >= 0) ranges += indentStart until md.length
     val result = ranges.toMutableList()
     CODE_SPAN.findAll(md).forEach { m -> if (ranges.none { m.range.first in it }) result += m.range }
     (LINK_TARGET.findAll(md) + BARE_URL.findAll(md)).forEach { result += it.range }
