@@ -1,6 +1,10 @@
 package com.ouor.localchat.testing
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -35,12 +39,21 @@ class FakeOpenAiServer : Closeable {
     @Volatile
     var models: List<String> = listOf("fake-model")
 
+    /**
+     * FB4 E-1: a chat request with a `user` message right after a `tool` one gets Mistral's 400 (vLLM's
+     * mistral_common check raises the same), without taking a scenario.
+     */
+    @Volatile
+    var rejectUserAfterTool = false
+
     init {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.url.encodedPath
                 return when {
                     path.endsWith("/models") -> json(200, modelsBody())
+                    path.endsWith("/chat/completions") && rejectUserAfterTool && userAfterTool(request) ->
+                        json(400, errorBody("Unexpected role 'user' after role 'tool'"))
                     path.endsWith("/chat/completions") ->
                         scenarios.poll()?.response() ?: json(500, errorBody("no scenario queued"))
                     else -> json(404, errorBody("unknown path $path"))
@@ -62,6 +75,11 @@ class FakeOpenAiServer : Closeable {
         requireNotNull(server.takeRequest(timeoutSec, TimeUnit.SECONDS)) { "no request within ${timeoutSec}s" }
 
     override fun close() = server.close()
+
+    private fun userAfterTool(request: RecordedRequest): Boolean {
+        val messages = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject["messages"]?.jsonArray.orEmpty()
+        return messages.map { it.jsonObject["role"]?.jsonPrimitive?.content }.zipWithNext().any { (a, b) -> a == "tool" && b == "user" }
+    }
 
     private fun modelsBody() = buildJsonObject {
         put("object", "list")
