@@ -101,6 +101,8 @@ class AgentLoopTest {
         assertEquals("Title", h.store.sessions.getValue(sid).title)
         assertEquals(1, h.llm.completeRequests.size)
         assertTrue(h.llm.completeRequests.single().messages.last().toString().contains("Write the title in the language of the question."))
+        // FB4 F3: the script rule the check enforces is said in the request (DeepSeek drifted to Chinese).
+        assertTrue(h.llm.completeRequests.single().messages.last().content!!.jsonPrimitive.content.endsWith("Use no Chinese, Japanese or Korean characters."))
 
         h.llm.results.addLast(LlmResult.Ok("关于月球的事实", "stop", null))
         h.llm.text("b")
@@ -126,12 +128,20 @@ class AgentLoopTest {
         advanceUntilIdle()
         assertEquals("Moon page and Earth link", h.store.sessions.getValue(retried).title)
 
+        // A Korean question asks for Korean, without the no-CJK rule.
+        h.llm.results.addLast(LlmResult.Ok("달 이야기", "stop", null))
+        h.llm.text("가")
+        h.sendNew("달에 대해 알려줘")
+        advanceUntilIdle()
+        val korean = h.llm.completeRequests.last().messages.last().toString()
+        assertTrue(korean.contains("Write the title in Korean.") && !korean.contains("Use no Chinese"))
+
         h.llm.results.addLast(LlmResult.Ok("关于月球的事实", "stop", null))
         h.llm.results.addLast(LlmResult.Ok("月球事实", "stop", null))
         h.llm.text("b")
         val fallback = h.sendNew("List facts about the Moon please")
         advanceUntilIdle()
-        assertEquals(4, h.llm.completeRequests.size)
+        assertEquals(5, h.llm.completeRequests.size)
         assertEquals("List facts about the Moon plea", h.store.sessions.getValue(fallback).title)
         assertEquals(TitleSource.AUTO, h.store.sessions.getValue(fallback).titleSource)
     }

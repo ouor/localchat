@@ -5,9 +5,11 @@ import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.core.model.AppLanguage
 import com.ouor.localchat.core.model.TitleSource
 import com.ouor.localchat.llm.LlmResult
+import com.ouor.localchat.llm.toChatError
 import com.ouor.localchat.storage.SettingsStore
 import kotlinx.coroutines.flow.first
 import java.util.Locale
+import java.util.logging.Logger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,16 +26,22 @@ class TitleGenerator @Inject constructor(
         val request = ContextAssembler.plain(
             model, SystemPrompt.TITLE,
             // The language rule goes last: DeepSeek otherwise drifts to Chinese (BUG-02).
-            "Question:\n${question.take(1000)}\n\nAnswer:\n${answer.take(1000)}\n\nWrite the title in $language.",
+            "Question:\n${question.take(1000)}\n\nAnswer:\n${answer.take(1000)}\n\nWrite the title in $language." +
+                // FB4 F3: "the language of the question" still drifted to Chinese twice in a row (then the question
+                // became the title); the rule [fits] checks is now said, not left implied.
+                if (language in CJK) "" else " Use no Chinese, Japanese or Korean characters.",
         )
         // QA1c: Flash still answered English questions with Chinese titles; retry once, then use the question.
         var title: String? = null
         repeat(2) {
             if (title == null) {
-                val result = llm.complete(model.target, request) as? LlmResult.Ok ?: return
+                val result = llm.complete(model.target, request)
+                if (result !is LlmResult.Ok) return log.warning("title request failed: ${(result as LlmResult.Failed).error.toChatError().kind}")
                 title = clean(result.text)?.takeIf { fits(it, language) }
             }
         }
+        // FB4 F3: on screen the fallback looks like no title at all; the log tells them apart.
+        if (title == null) log.warning("title not in $language twice; the question is the title")
         val chosen = title ?: firstPrompt(question).ifEmpty { return }
         store.updateSession(sessionId) {
             // Another reply's title or a user rename may have landed while the request ran.
@@ -49,6 +57,8 @@ class TitleGenerator @Inject constructor(
 
     companion object {
         const val MAX = 30
+        private val CJK = setOf("Korean", "Japanese", "Chinese")
+        private val log = Logger.getLogger("localchat")
 
         /** BUG-02: only the placeholder titles are replaced, once; AUTO, imported and USER titles stay. */
         fun replaceable(source: TitleSource?) = source == TitleSource.FIRST_PROMPT || source == TitleSource.NONE
