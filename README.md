@@ -25,7 +25,7 @@
 
 ## 설치
 
-1. [Releases](https://github.com/ouor/localchat/releases)에서 `localchat-v1.0.1-arm64-v8a.apk`를 받아 설치합니다.
+1. [Releases](https://github.com/ouor/localchat/releases)에서 `localchat-v1.0.2-arm64-v8a.apk`를 받아 설치합니다.
    Android 12 이상, arm64 기기용입니다. (Play 스토어 앱이 아니므로 "출처를 알 수 없는 앱" 설치 허용이 필요할 수 있어요.)
 2. 첫 화면에서 프로바이더를 고르고 API 키를 넣습니다. DeepSeek · OpenAI · OpenRouter · Ollama · LM Studio 프리셋이 있고,
    그 밖의 서버는 **직접 입력**(OpenAI 호환 서버)으로 기본 URL을 넣으면 됩니다.
