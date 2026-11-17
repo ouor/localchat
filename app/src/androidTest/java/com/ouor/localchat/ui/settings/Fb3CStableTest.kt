@@ -272,7 +272,9 @@ class Fb3CStableTest {
         val recheck = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box()
         ui = ConnectionUi.Checking
         rule.waitForIdle()
-        assertEquals(recheck, rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box())
+        val checking = rule.onNodeWithText(ctx.getString(R.string.ui_conn_recheck)).box() // same label; the spinner widens it (as M11)
+        assertEquals(recheck.left, checking.left)
+        assertEquals(recheck.top, checking.top)
         ui = ConnectionUi.Ok(3)
         rule.waitForIdle()
         rule.onNodeWithText(ctx.getString(R.string.ui_check_connection)).assertExists()
