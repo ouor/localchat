@@ -874,7 +874,10 @@ class AgentLoopTest {
         assertEquals(0, click.calls)
         val off = h.llm.requests.drop(2) // new turn, continue, regenerate, new turn (2 steps)
         assertEquals(5, off.size)
-        off.forEach {
+        // The model called despite "none": its last step goes without tools (OFF_ONLY guard for servers ignoring it).
+        assertNull(off.last().toolChoice)
+        assertTrue(off.last().tools.isNullOrEmpty())
+        off.dropLast(1).forEach {
             assertEquals("none", it.toolChoice)
             assertEquals(listOf("web_search"), it.tools.orEmpty().map { t -> t.function.name })
             assertFalse(it.messages.first().content!!.jsonPrimitive.content.contains("Tool use:"))
@@ -894,14 +897,39 @@ class AgentLoopTest {
         h.llm.events(call("c1", "click"), finished("tool_calls"))
         h.llm.events(call("c2", "click"), finished("tool_calls"))
         h.llm.events(call("c3", "click"), finished("tool_calls"))
+        // A server that ignores tool_choice and calls anyway: the next request lists no tools at all.
+        h.llm.events(call("c4", "click"), finished("tool_calls"))
         h.llm.text("Here is what I found.")
         val sid = h.sendNew()
         advanceUntilIdle()
         assertEquals(1, click.calls)
-        assertEquals(listOf(null, null, null, "none"), h.llm.requests.map { it.toolChoice })
+        assertEquals(listOf(null, null, null, "none", null), h.llm.requests.map { it.toolChoice })
+        assertTrue(h.llm.requests.last().tools.isNullOrEmpty())
         val reply = h.lastReply(sid)
         assertEquals(ReplyStatus.DONE, reply.status)
         assertEquals("Here is what I found.", reply.blocks.filterIsInstance<TextBlock>().single().text)
+    }
+
+    @Test
+    fun `a browser used last turn and switched off is still listed beside search, never run`() = runTest {
+        // FB3 QA M1 review: a partial switch change dropped the browser definitions the history's calls need.
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER))
+        val search = FakeTool("web_search", groups = setOf(ToolGroup.SEARCH))
+        val h = Harness(this, tools = listOf(search, click), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        h.llm.text("a1")
+        val sid = h.sendNew("q1")
+        advanceUntilIdle()
+        h.llm.events(call("c2", "click"), finished("tool_calls"))
+        h.llm.text("a2")
+        h.engine.send(sid, draft("q2"), GenOptions(search = true), TEST_MODEL)
+        advanceUntilIdle()
+        assertEquals(1, click.calls)
+        assertEquals(ToolExecutor.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().content)
+        h.llm.requests.drop(2).forEach {
+            assertEquals(listOf("web_search", "click"), it.tools.orEmpty().map { t -> t.function.name })
+            assertNull(it.toolChoice)
+        }
     }
 
     @Test
@@ -1050,7 +1078,9 @@ class AgentLoopTest {
         assertEquals(R.string.chat_step_fail_error, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result("boom", error = true))!!.failureRes)
         assertNull(h.engine.toolStep(block("navigate", ToolCallState.DENIED), result(SystemPrompt.DENIED, error = true))!!.failureRes)
         // FB3 QA m2: a tool the user turned off is not "failed with an error".
-        assertEquals(R.string.chat_step_turned_off, h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(ToolExecutor.TOOL_OFF, error = true))!!.failureRes)
+        val off = h.engine.toolStep(block("navigate", ToolCallState.FAILED), result(ToolExecutor.TOOL_OFF, error = true))!!
+        assertEquals(R.string.chat_step_turned_off to true, off.failureRes to off.turnedOff)
+        assertFalse(h.engine.toolStep(block("navigate", ToolCallState.FAILED), result("boom", error = true))!!.turnedOff)
     }
 
     @Test

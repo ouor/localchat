@@ -45,6 +45,16 @@ class ToolsTest {
     }
 
     @Test
+    fun `listed tools add the history's tools to the exposed ones, once each, known names only`() {
+        // FB3 QA M1: browser used earlier, now only search is on.
+        val exposed = ToolExposure.exposedTools(caps(), searchOn = true, browserOn = false)
+        val listed = ToolExposure.listedTools(exposed, listOf("click", "web_search", "click", "gone_tool"), caps())
+        assertEquals(exposed.map { it.name } + "click", listed.map { it.name })
+        assertEquals(listOf("navigate"), ToolExposure.listedTools(emptyList(), listOf("navigate"), caps()).map { it.name })
+        assertTrue(ToolExposure.listedTools(emptyList(), listOf("navigate"), caps(tools = false)).isEmpty())
+    }
+
+    @Test
     fun `no tool calling means no tools`() {
         assertTrue(names(caps(tools = false), search = true, browser = true).isEmpty())
     }
