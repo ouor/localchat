@@ -13,12 +13,16 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
  * appears, disappears or changes its text.
  */
 
-/** Keeps the element's space but draws nothing and hides it from TalkBack. [hidden] false = shown as usual. */
+/**
+ * Keeps the element's space but draws nothing and hides it from TalkBack. [hidden] false = shown as usual.
+ * Still takes taps and key focus (alpha 0 only stops drawing): reserve disabled or non-clickable variants only.
+ */
 fun Modifier.reserved(hidden: Boolean = true): Modifier = if (hidden) alpha(0f).clearAndSetSemantics {} else this
 
 /**
  * A slot as large as the largest of [reserve] (laid out invisibly, see [reserved]), with [content] drawn on top,
- * so switching between those variants never resizes the slot or moves what is next to it.
+ * so switching between those variants never resizes the slot or moves what is next to it. As with [reserved], the
+ * [reserve] variants must be disabled or non-clickable, or they become invisible touch and focus targets.
  */
 @Composable
 fun StableSlot(
