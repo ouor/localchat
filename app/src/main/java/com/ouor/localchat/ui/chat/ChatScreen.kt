@@ -509,9 +509,15 @@ private fun ComposerArea(
         val reading = (state.runPhase as? RunPhase.RunningTool)?.takeIf { it.toolName == "read_link" }
         if (failed > 0 || cs.waitingForFiles || retry != null || reading != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                val kinds = failLabels(cs.failures)
                 when {
+                    // FB4 U-6: failures of more than one kind (or several final ones) are counted per kind, on one line.
+                    failed > 1 && kinds.keys != setOf(R.string.fb4_u_fail_retry) -> Text(
+                        kinds.map { (label, n) -> "${stringResource(label)} $n" }.joinToString(" · "),
+                        style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                     unsupported != null -> Text(if ((unsupported.state as PrepState.Failed).reason == PrepFailure.TOO_LARGE) stringResource(R.string.fb3_d_file_too_large, unsupported.name, MAX_FILE_SIZE) else stringResource(R.string.fb2_q_file_unsupported, unsupported.name), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText)
+                    failed > 0 -> Text(stringResource(R.string.ui_files_failed, failed), style = LcTheme.text.caption, color = c.dangerText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     cs.waitingForFiles -> Text(stringResource(R.string.ui_files_waiting), style = LcTheme.text.caption, color = c.textTertiary)
                 }
                 retry?.let { RetryStatus(it.attempt, it.max) }
@@ -622,6 +628,13 @@ private val FAB_GAP = 8.dp
 
 /** FB3 QA m5: a final failure's tile says why (too large is not "unsupported"). */
 internal fun tileFailLabel(reason: String) = if (reason == PrepFailure.TOO_LARGE) R.string.fb3_u_tile_too_large else R.string.fb2_q_tile_unsupported
+
+/**
+ * FB4 U-6: [PrepFailure.counts] summed per caption label, in first-seen order. Final failures read as their tile does
+ * ([tileFailLabel]); the others, whose tile offers a retry, as "준비 실패".
+ */
+internal fun failLabels(failures: Map<String, Int>): Map<Int, Int> =
+    failures.entries.groupingBy { if (PrepFailure.isFinal(it.key)) tileFailLabel(it.key) else R.string.fb4_u_fail_retry }.fold(0) { n, e -> n + e.value }
 
 /** A final failure's tile offers no retry ([PrepFailure.isFinal]). */
 private fun isFinalFailure(a: Attachment) = (a.state as? PrepState.Failed)?.reason?.let(PrepFailure::isFinal) == true

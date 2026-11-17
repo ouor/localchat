@@ -206,7 +206,8 @@ class ChatScreenTest {
             file("z", "archive.zip", com.ouor.localchat.attach.PrepFailure.UNSUPPORTED_TYPE),
             file("r", "notes.pdf", com.ouor.localchat.attach.PrepFailure.READ_FAILED),
         )))
-        rule.onNodeWithText(ctx.getString(R.string.fb2_q_file_unsupported, "archive.zip")).assertIsDisplayed()
+        // FB4 U-6: two kinds of failure are both counted (the file is named when it fails alone, see u6_*).
+        rule.onNodeWithText("${ctx.getString(R.string.fb2_q_tile_unsupported)} 1 · ${ctx.getString(R.string.fb4_u_fail_retry)} 1").assertIsDisplayed()
         rule.onNodeWithText(ctx.getString(R.string.fb2_q_tile_unsupported), useUnmergedTree = true).assertExists()
         // Only the readable-later file keeps its retry.
         rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(1)
@@ -221,8 +222,30 @@ class ChatScreenTest {
             file("b", "huge.pdf", com.ouor.localchat.attach.PrepFailure.TOO_LARGE),
             file("d", "old.doc", com.ouor.localchat.attach.PrepFailure.LEGACY_OFFICE),
         )))
-        rule.onNodeWithText(ctx.getString(R.string.fb3_d_file_too_large, "huge.pdf", "64MB")).assertIsDisplayed()
+        rule.onNodeWithText("${ctx.getString(R.string.fb3_u_tile_too_large)} 1 · ${ctx.getString(R.string.fb2_q_tile_unsupported)} 1").assertIsDisplayed()
         rule.onAllNodesWithText(ctx.getString(R.string.ui_retry), useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    @Test fun u6_failureKindsAreCountedWithoutMovingTheInput() { // FB4 U-6
+        fun file(id: String, name: String, reason: String) = com.ouor.localchat.core.model.Attachment(
+            id, name, "application/octet-stream", 10, com.ouor.localchat.core.model.AttachmentKind.DOCUMENT,
+            com.ouor.localchat.core.model.PrepState.Failed(reason), hasOriginal = true, createdAt = 0,
+        )
+        val big = file("b", "huge.pdf", com.ouor.localchat.attach.PrepFailure.TOO_LARGE)
+        var cs by mutableStateOf(ComposerUiState(attachments = listOf(big)))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false), cs, BrowserUiState(), chat, composer, browser, nav) } }
+        rule.onNodeWithText(ctx.getString(R.string.fb3_d_file_too_large, "huge.pdf", "64MB")).assertIsDisplayed() // alone: named
+        val input = rule.onNode(androidx.compose.ui.test.hasSetTextAction()).fetchSemanticsNode().boundsInRoot
+        cs = cs.copy(attachments = listOf(
+            big, file("z", "a.zip", com.ouor.localchat.attach.PrepFailure.UNSUPPORTED_TYPE),
+            file("d", "old.doc", com.ouor.localchat.attach.PrepFailure.LEGACY_OFFICE), file("r", "n.pdf", com.ouor.localchat.attach.PrepFailure.READ_FAILED),
+        ))
+        rule.waitForIdle()
+        rule.onNodeWithText(listOf(
+            "${ctx.getString(R.string.fb3_u_tile_too_large)} 1", "${ctx.getString(R.string.fb2_q_tile_unsupported)} 2", "${ctx.getString(R.string.fb4_u_fail_retry)} 1",
+        ).joinToString(" · ")).assertIsDisplayed()
+        assertEquals(input, rule.onNode(androidx.compose.ui.test.hasSetTextAction()).fetchSemanticsNode().boundsInRoot)
+        com.ouor.localchat.ui.Shots.save("fb4-u6-failure-kinds")
     }
 
     @Test fun readAloudButtonReadsTheReply() { // BUG-01
