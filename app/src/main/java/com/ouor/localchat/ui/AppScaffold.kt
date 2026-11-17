@@ -12,6 +12,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -131,10 +132,17 @@ fun AppScaffold(app: AppViewModel = hiltViewModel()) {
 @Composable
 internal fun CompactDrawer(drawer: DrawerState, drawerContent: @Composable () -> Unit, content: @Composable () -> Unit) {
     val scope = rememberCoroutineScope()
-    ModalNavigationDrawer(drawerContent = drawerContent, drawerState = drawer, gesturesEnabled = drawer.isOpen) { content() }
-    // Composed when the drawer opens, so it is the newest back callback and wins over the screen's (browser panel).
-    if (drawer.targetValue == DrawerValue.Open) BackHandler { scope.launch { drawer.close() } }
+    val open = drawer.targetValue == DrawerValue.Open
+    // Screen back handlers (browser panel) step aside while the drawer is open, so back reaches the drawer
+    // whatever order the callbacks were registered in.
+    ModalNavigationDrawer(drawerContent = drawerContent, drawerState = drawer, gesturesEnabled = drawer.isOpen) {
+        CompositionLocalProvider(LocalDrawerOpen provides open) { content() }
+    }
+    BackHandler(open) { scope.launch { drawer.close() } }
 }
+
+/** True while the compact session drawer is open over the screen; screen-level back handlers stay off then. */
+val LocalDrawerOpen = compositionLocalOf { false }
 
 /**
  * I-02: MainActivity puts shared content into the new-chat draft; here we only move to the new chat.

@@ -177,4 +177,21 @@ class PreprocessTest {
         assertEquals("**굵게**", parsed("**굵게**.").single { it.first == "STRONG" }.second)
         assertEquals("* 목록", tokenizeInline("* 목록", emptySet()).text)
     }
+
+    @Test fun `fb3 u2 a user's own token-like text is escaped, never one of ours`() {
+        val t = tokenizeInline("a ⦃c⦄ ⦃j⦄ ⦃m5⦄ ⦃c1⦄ [1]", setOf(1)).text
+        assertEquals("a ⦃⦄c⦄ ⦃⦄j⦄ ⦃⦄m5⦄ ⦃⦄c1⦄ ⦃c1⦄", t)
+        // Only the real citation and the escapes match; the bare `⦃c⦄`/`⦃m⦄` forms never do.
+        assertEquals(listOf(ESCAPED_OPEN, ESCAPED_OPEN, ESCAPED_OPEN, ESCAPED_OPEN, "⦃c1⦄"), INLINE_TOKEN.findAll(t).map { it.value }.toList())
+        assertTrue(INLINE_TOKEN.findAll("⦃c⦄⦃m⦄").none())
+    }
+
+    @Test fun `fb3 u2 indented code and www links are left alone`() {
+        val code = "    x = \$a\$ [1] ~b~"
+        assertEquals("text\n\n$code\n\nafter ⦃c1⦄", tokenizeInline("text\n\n$code\n\nafter [1]", setOf(1)).text)
+        // Indented under a list item it is the item's text, and a line right after a paragraph continues it.
+        assertEquals("- item\n\n    more ⦃c1⦄", tokenizeInline("- item\n\n    more [1]", setOf(1)).text)
+        assertEquals("para\n    more ⦃c1⦄", tokenizeInline("para\n    more [1]", setOf(1)).text)
+        assertEquals("see www.x.com/a[1]b now ⦃c1⦄", tokenizeInline("see www.x.com/a[1]b now [1]", setOf(1)).text)
+    }
 }

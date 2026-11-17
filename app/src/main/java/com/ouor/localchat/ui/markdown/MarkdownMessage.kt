@@ -139,10 +139,13 @@ private fun MarkdownBlock(
             var i = 0
             INLINE_TOKEN.findAll(node).forEach { m ->
                 append(node.substring(i, m.range.first))
-                val n = m.groupValues[2].toIntOrNull() ?: 0
+                val n = m.groupValues[2].toIntOrNull() ?: -1
                 when {
-                    m.groupValues[1] == "j" -> Unit // JOINER: only there for the parser
-                    m.groupValues[1] == "c" -> appendInlineContent("c$n", "[$n]")
+                    m.groupValues[3] == "j" -> Unit // JOINER: only there for the parser
+                    m.groupValues[1].isEmpty() -> append(TOKEN_OPEN) // ESCAPED_OPEN
+                    // Defensive: a token that is not ours (e.g. inside code the preprocessor left alone) shows as written.
+                    m.groupValues[1] == "c" -> if (n in sources) appendInlineContent("c$n", "[$n]") else append(m.value)
+                    n !in parts.math.indices -> append(m.value)
                     mathOk.getOrElse(n) { false } -> appendInlineContent("m$n", "$" + parts.math[n] + "$")
                     else -> withStyle(codeStyle) { append("$" + parts.math[n] + "$") }
                 }
