@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -239,18 +240,26 @@ fun ConnectionStatus(state: ConnectionUi?, onRecheck: () -> Unit, onSaveAnyway: 
             )
             if (state is ConnectionUi.Error && onSaveAnyway != null) LcButton(stringResource(R.string.ui_conn_save_anyway), onSaveAnyway, variant = ButtonVariant.Text, size = ButtonSize.Sm)
         }
+        // Exactly one body line at any font scale, a long reason ellipsized (TalkBack still reads it whole), so
+        // nothing below moves. The invisible "checking" text holds that line's height: at a large font a line in a CJK
+        // fallback font is taller than a Latin one, and an empty line shorter still.
+        val checking = stringResource(R.string.ui_conn_checking)
         Row(Modifier.heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when (state) {
-                null -> {}
-                ConnectionUi.Checking -> Text(stringResource(R.string.ui_conn_checking), style = LcTheme.text.body, color = c.textSecondary)
+            val (text, color) = when (state) {
+                null -> "" to c.textSecondary
+                ConnectionUi.Checking -> checking to c.textSecondary
                 is ConnectionUi.Ok -> {
                     Icon(Icons.Rounded.CheckCircleOutline, null, Modifier.size(18.dp), tint = c.success)
-                    Text(stringResource(R.string.ui_conn_ok, state.modelCount), style = LcTheme.text.body, color = c.textPrimary)
+                    stringResource(R.string.ui_conn_ok, state.modelCount) to c.textPrimary
                 }
                 is ConnectionUi.Error -> {
                     Icon(Icons.Rounded.ErrorOutline, null, Modifier.size(18.dp), tint = c.danger)
-                    Text(state.reason, style = LcTheme.text.body, color = c.dangerText)
+                    state.reason to c.dangerText
                 }
+            }
+            Box(Modifier.weight(1f, fill = false), contentAlignment = Alignment.CenterStart) {
+                Text(checking, Modifier.alpha(0f).clearAndSetSemantics {}, style = LcTheme.text.body, maxLines = 1)
+                if (text.isNotEmpty()) Text(text, style = LcTheme.text.body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

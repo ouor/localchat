@@ -1,6 +1,8 @@
 package com.ouor.localchat.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -196,6 +198,8 @@ fun LcTextField(
     suffix: String? = null,
     /** P-STABLE: lines the helper always takes, so a longer message does not move what is below (or a dialog's buttons). */
     helperMinLines: Int = 1,
+    /** P-STABLE: every message the helper may show, so it reserves the tallest (one may wrap at a large font). */
+    helperSlot: List<String> = emptyList(),
 ) {
     val c = LcTheme.colors
     var focused by remember { mutableStateOf(false) }
@@ -258,7 +262,9 @@ fun LcTextField(
                 }
             },
         )
-        if (helper != null) {
+        if (helper != null) Box {
+            // The slot is as tall as the tallest message it may show, at this width and font scale.
+            helperSlot.forEach { Text(it, Modifier.alpha(0f).clearAndSetSemantics {}, style = LcTheme.text.caption, minLines = helperMinLines) }
             Text(
                 helper, style = LcTheme.text.caption, minLines = helperMinLines,
                 color = when (helperTone) {

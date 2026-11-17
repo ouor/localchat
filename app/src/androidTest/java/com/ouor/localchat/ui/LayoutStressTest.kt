@@ -197,12 +197,19 @@ class LayoutStressTest {
 
     @Test fun limitMenuReachesCustomItemAndOpensDialog() {
         // Popups take their font scale from the window's resources, not from DeviceConfigurationOverride:
-        // scale this test activity's resources (only this activity; no system setting is touched).
-        rule.runOnUiThread {
-            val res = rule.activity.resources
+        // scale this test activity's resources (no system setting is touched). The ResourcesImpl is shared with the
+        // next tests' activities in this process, so the scale is put back after (else they all run at 200%).
+        val res = rule.activity.resources
+        val before = android.content.res.Configuration(res.configuration)
+        @Suppress("DEPRECATION")
+        rule.runOnUiThread { res.updateConfiguration(android.content.res.Configuration(before).apply { fontScale = 2f }, res.displayMetrics) }
+        try { limitMenuAt200Percent() } finally {
             @Suppress("DEPRECATION")
-            res.updateConfiguration(android.content.res.Configuration(res.configuration).apply { fontScale = 2f }, res.displayMetrics)
+            rule.runOnUiThread { res.updateConfiguration(before, res.displayMetrics) }
         }
+    }
+
+    private fun limitMenuAt200Percent() {
         stress {
             SettingsGroup {
                 LimitRow("컨텍스트 창", Sourced(131_072, CapSource.SERVER), Sourced(131_072, CapSource.SERVER), CONTEXT_PRESETS, CONTEXT_RANGE, null, false) {}

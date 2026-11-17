@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -296,7 +297,12 @@ class AgentScriptTest {
     @Test
     fun dialogsAreHeldAndAnswered() = runBlocking<Unit> {
         load("dialog.html")
-        assertTrue(tab.consoleLines().any { "dialog page ready" in it })
+        // The console message reaches the app on its own channel, not ordered with onPageFinished: wait for it
+        // (read on the main thread, where the buffer is written).
+        val ready = withTimeoutOrNull(5_000) {
+            while (withContext(Dispatchers.Main) { tab.consoleLines() }.none { "dialog page ready" in it }) delay(50)
+        }
+        assertNotNull(withContext(Dispatchers.Main) { tab.consoleLines() }.toString(), ready)
         try {
             PageScript.callJson(tab, "click", buildJsonObject { put("target", "#ask") })
             fail("click should be cut short by confirm()")
