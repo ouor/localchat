@@ -48,6 +48,8 @@ data class ToolStep(
     val countRes: Int? = null,
     val count: Int = 0,
     val failureRes: Int? = null,
+    /** FB3 QA m2: the user's switch stopped the call; ui shows it neutral, with [failureRes] as the reason. */
+    val turnedOff: Boolean = false,
 )
 
 class ChatRejected(val reason: Reason) : Exception(reason.name) {
@@ -198,9 +200,10 @@ class ChatEngine @Inject constructor(
         val args = runCatching { AppJson.parseToJsonElement(block.argumentsJson).jsonObject }.getOrNull()
         val count = result?.summary?.let(COUNT::matchEntire)?.groupValues?.get(1)?.toIntOrNull()
         val countRes = COUNT_RES[block.name]?.takeIf { count != null }
+        val failureRes = failure(block, result)
         return ToolStep(
             tool.labelRes, args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
-            countRes, count ?: 0, failure(block, result),
+            countRes, count ?: 0, failureRes, turnedOff = failureRes == R.string.chat_step_turned_off,
         )
     }
 

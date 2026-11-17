@@ -261,7 +261,7 @@ internal fun stepState(call: ToolCallBlock, result: ToolResultBlock?, step: com.
     ToolCallState.AWAITING_APPROVAL -> StepState.AwaitingApproval
     ToolCallState.DONE -> if (result?.isError == true) StepState.Failed else StepState.Done
     // FB3 QA m2: a tool the user turned off is skipped (neutral), not failed (danger colour).
-    ToolCallState.FAILED -> if (step?.failureRes == R.string.chat_step_turned_off) StepState.Skipped else StepState.Failed
+    ToolCallState.FAILED -> if (step?.turnedOff == true) StepState.Skipped else StepState.Failed
     ToolCallState.DENIED -> StepState.Denied
     ToolCallState.CANCELLED -> StepState.Stopped
 }

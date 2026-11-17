@@ -1,11 +1,12 @@
 package com.ouor.localchat.llm
 
+import com.ouor.localchat.core.UNTRUSTED_TAG
 import java.util.logging.Logger
 
 /**
  * FB3 QA M1, m1: keeps two kinds of model-written markup out of the answer text, across chunk borders.
  * - DeepSeek's tool-call markup ("<｜DSML｜…", fullwidth bars) written as text: dropped with the rest of the attempt.
- * - The page-content boundary tags the app puts around page text (chat.context.Untrusted.TAG): the tags are removed.
+ * - The page-content boundary tags the app puts around page text ([UNTRUSTED_TAG]): the tags are removed.
  * One instance per attempt.
  */
 internal class AnswerFilter {
@@ -38,10 +39,8 @@ internal class AnswerFilter {
         DSML_PREFIX.matches(tail) || TAGS.any { it.startsWith(tail, ignoreCase = true) }
 
     companion object {
-        /** Must equal chat.context.Untrusted.TAG (llm may not depend on chat; a test checks it). */
-        const val BOUNDARY_TAG = "untrusted_page_content"
-        private val TAGS = listOf("<$BOUNDARY_TAG>", "</$BOUNDARY_TAG>")
-        private val BOUNDARY = Regex("</?$BOUNDARY_TAG>", RegexOption.IGNORE_CASE)
+        private val TAGS = listOf("<$UNTRUSTED_TAG>", "</$UNTRUSTED_TAG>")
+        private val BOUNDARY = Regex("</?$UNTRUSTED_TAG>", RegexOption.IGNORE_CASE)
         private val DSML = Regex("<[｜|][｜|\\s]{0,3}DSML")
         private val DSML_PREFIX = Regex("<(?:[｜|][｜|\\s]{0,3}(?:D(?:S(?:M)?)?)?)?")
         private const val MAX_HELD = 32

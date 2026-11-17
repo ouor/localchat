@@ -16,7 +16,7 @@ class StepStateTest {
 
     @Test fun `a turned-off tool is skipped, not failed`() {
         // FB3 QA m2: it showed in the danger colour as "failed with an error".
-        assertEquals(StepState.Skipped, stepState(call, result, ToolStep(0, "", failureRes = R.string.chat_step_turned_off)))
+        assertEquals(StepState.Skipped, stepState(call, result, ToolStep(0, "", failureRes = R.string.chat_step_turned_off, turnedOff = true)))
         assertEquals(StepState.Failed, stepState(call, result, ToolStep(0, "", failureRes = R.string.chat_step_fail_error)))
         assertEquals(StepState.Failed, stepState(call, result, null))
     }

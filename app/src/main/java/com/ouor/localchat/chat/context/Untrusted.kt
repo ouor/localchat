@@ -2,7 +2,7 @@ package com.ouor.localchat.chat.context
 
 /** The B-S5 boundary around page-derived text. One literal, one escape rule. */
 object Untrusted {
-    const val TAG = "untrusted_page_content"
+    const val TAG = com.ouor.localchat.core.UNTRUSTED_TAG
 
     /** Pages cannot open or close the boundary themselves (SE 5): `<untrusted...` and `</untrusted...` lose their `<`. */
     fun wrap(text: String): String =

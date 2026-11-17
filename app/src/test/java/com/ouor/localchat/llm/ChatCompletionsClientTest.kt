@@ -170,6 +170,27 @@ class ChatCompletionsClientTest {
     }
 
     @Test
+    fun `R7 a rejected tool_choice is retried once without it and without the tools`() = runTest {
+        // FB3 QA M1 review: tool_choice "none" rides on tools listed only for the history.
+        server.enqueue(Scenario.http(400, message = "Unrecognized key(s) in object: 'tool_choice'"), Scenario.text("ok"))
+        val tool = com.ouor.localchat.llm.wire.WireTool(com.ouor.localchat.llm.wire.WireFunction("click", "d", kotlinx.serialization.json.JsonObject(emptyMap())))
+        val events = client.stream(target(), request.copy(tools = listOf(tool), toolChoice = "none")).toList()
+        assertEquals("ok", events.text())
+        assertEquals("none", AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject["tool_choice"]!!.jsonPrimitive.content)
+        val retried = AppJson.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        assertFalse("tool_choice" in retried)
+        assertFalse("tools" in retried)
+    }
+
+    @Test
+    fun `a reply of tool-call markup only is an empty reply`() = runTest {
+        // FB3 QA M1 review: the filter left nothing to show, so it must not finish as an empty DONE.
+        server.enqueue(Scenario.text("<｜DSML｜function_calls><｜DSML｜invoke name=\"click\"></｜DSML｜invoke></｜DSML｜function_calls>"))
+        val last = run(target(maxRetries = 0)).last()
+        assertTrue(last.toString(), last is LlmEvent.Failed && last.error == LlmError.EmptyResponse)
+    }
+
+    @Test
     fun `FB-6 max_tokens is serialized only when set`() {
         fun json(r: ChatRequest) = AppJson.parseToJsonElement(AppJson.encodeToString(ChatRequest.serializer(), r)).jsonObject
         assertFalse("max_tokens" in json(request))
