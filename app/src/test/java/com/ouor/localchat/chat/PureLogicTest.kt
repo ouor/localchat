@@ -61,6 +61,20 @@ class PureLogicTest {
     }
 
     @Test
+    fun `reasoning sent in both fields by a router stays one growing thinking block`() {
+        val asm = com.ouor.localchat.llm.StreamAssembler()
+        var body = empty
+        for (w in listOf("Let ", "me ", "think.")) {
+            val chunk = com.ouor.localchat.core.AppJson.decodeFromString(
+                com.ouor.localchat.llm.wire.ChatChunk.serializer(),
+                """{"choices":[{"delta":{"reasoning_content":"$w","reasoning":"$w"}}]}""",
+            )
+            asm.accept(chunk).forEach { body = StreamCollector.reduce(body, it, step = 0, now = 0L) }
+        }
+        assertEquals(listOf("Let me think."), body.blocks.filterIsInstance<ThinkingBlock>().map { it.text })
+    }
+
+    @Test
     fun `trimmer keeps short and latest results`() {
         assertEquals("short", ToolResultTrimmer.cut("short"))
         val cut = ToolResultTrimmer.cut("a".repeat(1500) + "b".repeat(1000) + "c".repeat(500))

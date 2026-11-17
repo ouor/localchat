@@ -37,8 +37,9 @@ internal class StreamAssembler {
         for (choice in chunk.choices) {
             choice.finishReason?.let { finishReason = it }
             val delta = choice.delta ?: continue
-            delta.reasoningContent?.let { reasoning(out, it, "reasoning_content") }
-            delta.reasoning?.let { reasoning(out, it, "reasoning") }
+            // Routers often send the same piece in both fields: one piece, one field (the content one first).
+            delta.reasoningContent?.takeIf { it.isNotEmpty() }?.let { reasoning(out, it, "reasoning_content") }
+                ?: delta.reasoning?.let { reasoning(out, it, "reasoning") }
             delta.content?.let { content(out, it) }
             delta.refusal?.takeIf { it.isNotEmpty() }?.let {
                 hasContent = true; hasAnswer = true
@@ -85,8 +86,10 @@ internal class StreamAssembler {
     private fun reasoning(out: MutableList<LlmEvent>, text: String, field: String) {
         if (text.isEmpty()) return
         hasContent = true
-        thoughtField = field
-        thought.feed(text).takeIf { it.isNotEmpty() }?.let { out += LlmEvent.ReasoningDelta(it, field) }
+        // The first field seen names the whole attempt's reasoning, so a server that switches fields mid-stream
+        // still makes one thinking block (a field change starts a new block).
+        if (thoughtField.isEmpty()) thoughtField = field
+        thought.feed(text).takeIf { it.isNotEmpty() }?.let { out += LlmEvent.ReasoningDelta(it, thoughtField) }
     }
 
     /** Releases reasoning held at a possible markup start, before the answer begins or at the end. */

@@ -94,12 +94,22 @@ class StreamAssemblerTest {
     }
 
     @Test
-    fun `reasoning fields keep their wire name and empty pieces are dropped`() {
+    fun `reasoning keeps the first wire name it arrived in and empty pieces are dropped`() {
         val asm = StreamAssembler()
         val events = asm.accept(chunk("""{"choices":[{"delta":{"reasoning_content":""}}]}""")) +
             asm.accept(chunk("""{"choices":[{"delta":{"reasoning":"r1"}}]}""")) +
             asm.accept(chunk("""{"choices":[{"delta":{"reasoning_content":"r2"}}]}"""))
-        assertEquals(listOf(LlmEvent.ReasoningDelta("r1", "reasoning"), LlmEvent.ReasoningDelta("r2", "reasoning_content")), events)
+        assertEquals(listOf(LlmEvent.ReasoningDelta("r1", "reasoning"), LlmEvent.ReasoningDelta("r2", "reasoning")), events)
+    }
+
+    @Test
+    fun `a piece sent in both reasoning fields is read once`() {
+        val asm = StreamAssembler()
+        val events = listOf("Let ", "me ", "think").flatMap {
+            asm.accept(chunk("""{"choices":[{"delta":{"reasoning_content":"$it","reasoning":"$it"}}]}"""))
+        } + asm.flush()
+        assertEquals("Let me think", events.reasoning("reasoning_content"))
+        assertEquals("", events.reasoning("reasoning"))
     }
 
     @Test
