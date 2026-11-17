@@ -885,6 +885,56 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `tools turned off mid-run ask for the answer in a hidden note, and a markup-only reply is asked once more`() = runTest {
+        // FB3 D1: DeepSeek wrote its next call as markup even under tool_choice "none"; the filter left an empty reply.
+        lateinit var h: Harness
+        val click = FakeTool("click", groups = setOf(ToolGroup.BROWSER)) { _, ctx ->
+            h.engine.narrowRun(ctx.sessionId, GenOptions())
+            ToolOutcome("Seoul: 9,668,465")
+        }
+        h = Harness(this, tools = listOf(click), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "click"), finished("tool_calls"))
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true)) // markup only, filtered away
+        h.llm.text("Seoul has 9,668,465 people; Busan and Incheon were not checked.")
+        val sid = h.sendNew()
+        advanceUntilIdle()
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.DONE, reply.status)
+        assertNull(reply.error)
+        assertEquals("Seoul has 9,668,465 people; Busan and Incheon were not checked.", reply.blocks.filterIsInstance<TextBlock>().single().text)
+        fun lastText(i: Int) = h.llm.requests[i].messages.last().content?.jsonPrimitive?.content
+        assertEquals(3, h.llm.requests.size)
+        assertFalse(lastText(0) == SystemPrompt.TOOLS_OFF_NOTE)
+        assertEquals(SystemPrompt.TOOLS_OFF_NOTE, lastText(1))
+        assertEquals(SystemPrompt.TOOLS_OFF_NOTE, lastText(2))
+        assertEquals(1, click.calls)
+        // The note is never stored.
+        assertTrue(h.store.messages.values.none { (it.body as? MessageBody.User)?.text == SystemPrompt.TOOLS_OFF_NOTE })
+    }
+
+    @Test
+    fun `a new turn with tools off gets the note only after an empty reply, and a second empty reply is the error`() = runTest {
+        // FB3 D1: the note is for runs that cannot call; one retry only.
+        val search = FakeTool("web_search", groups = setOf(ToolGroup.SEARCH))
+        val h = Harness(this, tools = listOf(search), models = FakeModelPort(caps(tools = true)))
+        h.llm.events(call("c1", "web_search"), finished("tool_calls"))
+        h.llm.text("a1")
+        val sid = h.sendNew("q1")
+        advanceUntilIdle()
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
+        h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
+        h.engine.send(sid, draft("q2"), GenOptions(), TEST_MODEL)
+        advanceUntilIdle()
+        val turn2 = h.llm.requests.drop(2)
+        assertEquals(2, turn2.size)
+        assertEquals("q2", turn2[0].messages.last().content!!.jsonPrimitive.content)
+        assertEquals(SystemPrompt.TOOLS_OFF_NOTE, turn2[1].messages.last().content!!.jsonPrimitive.content)
+        val reply = h.lastReply(sid)
+        assertEquals(ReplyStatus.ERROR, reply.status)
+        assertEquals(ChatErrorKind.EMPTY_RESPONSE, reply.error!!.kind)
+    }
+
+    @Test
     fun `a model that keeps calling only turned-off tools is asked for an answer after two such steps`() = runTest {
         // FB3 QA M1: search still on, browser off; no endless TOOL_OFF loop.
         lateinit var h: Harness

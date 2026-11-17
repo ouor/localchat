@@ -61,8 +61,10 @@ class DeepSeekRealApiTest {
     }
 
     @Test
-    fun `tool_choice none with the tools still listed answers in text after tool-calling steps`() = runBlocking {
-        // FB3 QA M1: what TurnRunner sends once the user turned every tool off mid-run.
+    fun `tool_choice none with the tools listed and the tools-off note answers in text after tool-calling steps`() = runBlocking {
+        // FB3 QA M1, D1: what TurnRunner sends once the user turned every tool off mid-run. Without the note DeepSeek
+        // still wrote its next call as markup under tool_choice "none" (measured with a full browser run: 16 of 16
+        // empty replies; with the note 16 of 16 answers).
         val tool = com.ouor.localchat.llm.wire.WireTool(com.ouor.localchat.llm.wire.WireFunction(
             "page_text", "Read the text of a tab", AppJson.parseToJsonElement("""{"type":"object","properties":{"tabId":{"type":"integer"}}}""") as kotlinx.serialization.json.JsonObject,
         ))
@@ -77,6 +79,7 @@ class DeepSeekRealApiTest {
                         reasoningContent = "I will read tab 1 first.".takeIf { thinking },
                     ),
                     WireMessage("tool", JsonPrimitive("Title: Seoul"), toolCallId = "call_1"),
+                    WireMessage("user", JsonPrimitive(com.ouor.localchat.chat.context.SystemPrompt.TOOLS_OFF_NOTE)),
                 ),
                 tools = listOf(tool),
                 toolChoice = "none",

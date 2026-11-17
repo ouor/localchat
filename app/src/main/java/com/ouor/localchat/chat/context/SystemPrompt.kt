@@ -71,4 +71,11 @@ Tool use:
     /** B-05 result after the user hands the tab back. */
     const val HANDOFF_DONE = "User completed the requested action. Take a new snapshot before continuing."
     const val DENIED = "User denied."
+
+    /**
+     * FB3 D1: hidden last user message, never stored, while no tool can be called. Without it DeepSeek kept writing
+     * its next call as text even under tool_choice "none" (16 of 16 on the real API; 0 of 16 with it).
+     */
+    const val TOOLS_OFF_NOTE = "[App note: the user turned the tools off, so no tool can be called now. Answer the " +
+        "request with what you already have, in plain text, and say what you could not check.]"
 }

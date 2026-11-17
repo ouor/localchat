@@ -32,6 +32,8 @@ import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.llm.LlmError
+import com.ouor.localchat.llm.wire.WireMessage
+import kotlinx.serialization.json.JsonPrimitive
 import com.ouor.localchat.llm.LlmEvent
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.tools.Tool
@@ -155,6 +157,9 @@ class TurnRunner @Inject constructor(
             // calls anyway gets no tools at all next (AnswerFilter keeps markup out of that answer).
             var offOnly = 0
             var noneIgnored = false
+            // FB3 D1: while no call is possible, a run that has used tools asks for the answer in a hidden note;
+            // a reply that still comes back empty (only markup) is asked once more with the note, then fails as before.
+            var emptyRetried = false
             var search = body.options.search
             var browserOn = body.options.browser
             fun narrow() {
@@ -181,8 +186,10 @@ class TurnRunner @Inject constructor(
                 narrow()
                 val noCalls = !noneIgnored && listed.isNotEmpty() && (executor.tools.isEmpty() || offOnly >= OFF_ONLY_STEPS)
                 val stepTools = if (noneIgnored) emptyList() else listed
+                val callsBlocked = mode == Mode.NEW && (noCalls || noneIgnored)
+                val note = callsBlocked && (emptyRetried || body.blocks.any { it is ToolCallBlock })
 
-                var request = assemble(path, model, stepTools, system, noCalls)
+                var request = assemble(path, model, stepTools, system, noCalls, note)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -195,7 +202,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, stepTools, system, noCalls)
+                    request = assemble(path, model, stepTools, system, noCalls, note)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
@@ -232,6 +239,11 @@ class TurnRunner @Inject constructor(
                                 continue
                             }
                             publish(StreamCollector.reduce(body, t, step, clock.now()))
+                        }
+                        if (t.error == LlmError.EmptyResponse && callsBlocked && !emptyRetried) {
+                            emptyRetried = true
+                            publish(body.copy(blocks = before, error = null))
+                            continue
                         }
                         publish(body.copy(status = ReplyStatus.ERROR))
                         return
@@ -293,7 +305,7 @@ class TurnRunner @Inject constructor(
             save()
         }
 
-        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, noCalls: Boolean) =
+        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, noCalls: Boolean, note: Boolean) =
             ContextAssembler.build(
                 AssemblyInput(
                     system = system,
@@ -307,6 +319,7 @@ class TurnRunner @Inject constructor(
                     continueMode = mode == Mode.CONTINUE,
                 ),
             ).let { if (noCalls) it.copy(toolChoice = "none") else it }
+                .let { if (note) it.copy(messages = it.messages + WireMessage("user", JsonPrimitive(SystemPrompt.TOOLS_OFF_NOTE))) else it }
 
         suspend fun estimate(request: com.ouor.localchat.llm.wire.ChatRequest, path: List<MessageNode>): Int {
             val summaryAt = ContextAssembler.applicableSummary(store.summaries(sessionId), path)?.createdAt
