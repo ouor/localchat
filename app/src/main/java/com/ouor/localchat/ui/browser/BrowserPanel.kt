@@ -28,6 +28,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.testTag
@@ -206,15 +209,24 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             val drag = remember { MutableInteractionSource() }
             // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows), so a focused page
             // field and the panel's controls stay above it; it settles back when the keyboard closes (P-STABLE keyboard
-            // exception). Drawn at max(0, offset - ime), continuous while dragged or animated (FB4 fix M1). Height and
+            // exception). The rise is that of the anchor the panel last settled on, so a drag follows the finger from the
+            // first pixel: from Half it was already risen (FB4 fix M1), from Full it rises nothing (QA F4, no dead zone).
+            // Leaving Full with the keyboard up closes the keyboard, so landing on Half adds no rise (no jump). Height and
             // bottom padding follow the keyboard's target, not its animation, so the page resizes once per open/close (m2).
             val density = LocalDensity.current
             val ime = WindowInsets.ime // read only in the offset lambda: placement, not recomposition, each frame
             val imeTarget = WindowInsets.imeAnimationTarget
             val keyboard = imeTarget.getBottom(density).toFloat()
+            val settledAt by remember { derivedStateOf { state.anchors.positionOf(state.settledValue) } }
+            val view = LocalView.current
+            LaunchedEffect(state) {
+                snapshotFlow { state.settledValue == PanelState.Full && state.offset > 1f }.collect { leaving ->
+                    if (leaving) ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime())
+                }
+            }
             Column(
                 Modifier.fillMaxWidth().height(with(density) { (h - top + minOf(top, keyboard)).toDp() })
-                    .offset { IntOffset(0, (state.offset - minOf(state.offset, ime.getBottom(this).toFloat())).roundToInt()) }
+                    .offset { IntOffset(0, (state.offset - minOf(settledAt, ime.getBottom(this).toFloat())).coerceAtLeast(0f).roundToInt()) }
                     .background(LcTheme.colors.surfaceRaised).windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
             ) {
                 BrowserPanelFrame(
