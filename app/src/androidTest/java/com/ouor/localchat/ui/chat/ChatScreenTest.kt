@@ -14,6 +14,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
@@ -568,16 +571,31 @@ class ChatScreenTest {
         assertTrue("first message $first under the banners ${bannersBottom()}", first.top >= bannersBottom())
     }
 
-    @Test fun bannersNeverCoverTheWelcomeOnAShortScreen() { // FB3 fix ui M1
+    @Test fun bannersNeverCoverTheWelcomeOnAShortScreen() = welcomeOnAShortScreen(640.dp, fits = true) // FB3 fix ui M1
+
+    @Test fun welcomeTooTallForTheSpaceIsLeftOut() = welcomeOnAShortScreen(420.dp, fits = false) // FB3 review 7
+
+    /**
+     * [height] below the status bar: the top bar pads itself by that inset, which differs per device (devphone01's is
+     * taller than devphone03's), so a fixed 420dp left room for the welcome on one phone and not the other.
+     */
+    private fun welcomeOnAShortScreen(height: androidx.compose.ui.unit.Dp, fits: Boolean) {
         rule.setContent {
             LocalchatTheme(false) {
-                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.height(420.dp)) {
+                val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.height(height + status)) {
                     ChatScreen(ChatUiState(loading = false, saveFailing = true), ComposerUiState(), BrowserUiState(), chat, composer, browser, nav)
                 }
             }
         }
-        val title = rule.onNodeWithText(ctx.getString(R.string.ui_welcome_title)).fetchSemanticsNode().boundsInRoot
-        assertTrue("welcome $title under the banners ${bannersBottom()}", title.top >= bannersBottom())
+        val titles = rule.onAllNodesWithText(ctx.getString(R.string.ui_welcome_title)).fetchSemanticsNodes().filter { n -> generateSequence(n.layoutInfo) { it.parentInfo }.all { it.isPlaced } }.map { it.boundsInRoot }.filter { it.height > 0f }
+        assertEquals(titles.toString(), if (fits) 1 else 0, titles.size)
+        // Shown: below the banners and above the composer (its model chip), never under either.
+        titles.forEach { title ->
+            assertTrue("welcome $title under the banners ${bannersBottom()}", title.top >= bannersBottom())
+            val composerTop = rule.onNodeWithText(ctx.getString(R.string.ui_choose_model), substring = true, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+            assertTrue("welcome $title over the composer at $composerTop", title.bottom <= composerTop)
+        }
     }
 
     @Test fun actionBarShowsTheSameButtonsRunningOrNot() { // FB3 fix ui m1: a reply with no text keeps read-aloud (disabled)
@@ -639,6 +657,8 @@ class ChatScreenTest {
         rule.onNodeWithText("hi there").performTouchInput { longClick() }
         val field = rule.onNode(androidx.compose.ui.test.hasSetTextAction() and androidx.compose.ui.test.hasText("hi there"))
         field.assertIsFocused()
+        // Review 5: the cursor starts at the end.
+        assertEquals(androidx.compose.ui.text.TextRange(8), field.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange])
         val save = rule.onNodeWithText(ctx.getString(R.string.ui_save_send))
         save.assertIsNotEnabled()
         val slot = save.fetchSemanticsNode().boundsInRoot

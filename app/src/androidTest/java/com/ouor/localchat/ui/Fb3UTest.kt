@@ -135,4 +135,74 @@ class Fb3UTest {
         val bold = text.spanStyles.filter { it.item.fontWeight == FontWeight.Bold }.map { text.text.substring(it.start, it.end) }
         assertEquals(listOf("\"강조\""), bold)
     }
+
+    private fun showMd(md: String) = rule.setContent {
+        LocalchatTheme(false) { MarkdownMessage(md, emptyList(), streaming = false, onLinkClick = {}, onCitationClick = {}, modifier = Modifier.width(360.dp)) }
+    }
+
+    @Test fun r1_tokenLikeTextShowsAsWrittenWithoutACrash() { // review 1
+        val md = "리터럴 ⦃c⦄ ⦃j⦄ ⦃m⦄ ⦃m0⦄ ⦃c1⦄ ⦃⦄ 끝"
+        showMd(md)
+        assertEquals(md, rule.onNodeWithText("리터럴", substring = true).fetchSemanticsNode().config[SemanticsProperties.Text].single().text)
+    }
+
+    @Test fun r4_joinerNeverShows() { // review 4: inside bold, in a table cell, in link text
+        showMd("앞 **강조**\" 뒤\n\n| 열 |\n|---|\n| **\"표\"**입니다 |\n\n[**\"링크\"**입니다](https://example.com)")
+        rule.waitForIdle()
+        val texts = rule.onAllNodes(androidx.compose.ui.test.hasText("", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+            .flatMap { it.config.getOrElse(SemanticsProperties.Text) { emptyList() } }.map { it.text }
+        assertTrue(texts.toString(), texts.none { "⦃" in it || "⦄" in it })
+        listOf("강조\" 뒤", "\"표\"입니다", "\"링크\"입니다").forEach { s -> assertTrue("$s in $texts", texts.any { s in it }) }
+    }
+
+    @Test fun r2_drawerBackWinsOverTheBrowserPanelWhateverTheOrder() { // review 2
+        val drawer = DrawerState(DrawerValue.Open)
+        var s by mutableStateOf(
+            com.ouor.localchat.ui.browser.BrowserUiState(
+                com.ouor.localchat.ui.browser.PanelState.Half,
+                listOf(com.ouor.localchat.browser.TabInfo(1, "t", "https://example.com", com.ouor.localchat.browser.Owner.Ai("A"), com.ouor.localchat.browser.Control.AI, loading = false)),
+                sessionId = "A",
+            ),
+        )
+        val panels = mutableListOf<com.ouor.localchat.ui.browser.PanelState>()
+        val actions = java.lang.reflect.Proxy.newProxyInstance(
+            javaClass.classLoader, arrayOf(com.ouor.localchat.ui.browser.BrowserActions::class.java),
+        ) { proxy, m, args ->
+            when (m.name) {
+                "setPanel" -> { val p = args[0] as com.ouor.localchat.ui.browser.PanelState; panels += p; s = s.copy(panel = p); null }
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args[0]
+                "toString" -> "actions"
+                else -> null // every other action is a no-op here
+            }
+        } as com.ouor.localchat.ui.browser.BrowserActions
+        var panel by mutableStateOf(false)
+        rule.setContent {
+            LocalchatTheme(false) {
+                CompactDrawer(drawer, { Text("DRAWER", Modifier.width(300.dp).fillMaxSize()) }) {
+                    Box(Modifier.fillMaxSize()) { if (panel) com.ouor.localchat.ui.browser.BrowserOverlay(s, actions) }
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.runOnIdle { panel = true } // the panel's back callback now registers after the drawer's
+        rule.waitForIdle()
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitUntil(5_000) { drawer.isClosed }
+        rule.runOnIdle { assertEquals(emptyList<Any>(), panels) } // the panel stayed Half
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() } // drawer closed: now the panel's
+        rule.runOnIdle { assertEquals(listOf(com.ouor.localchat.ui.browser.PanelState.Peek), panels) }
+    }
+
+    @Test fun r6_undoneDomainIsForgottenOnceSaved() { // review 6
+        var domains by mutableStateOf(listOf("a.example.com", "b.example.com"))
+        rule.setContent { LocalchatTheme(false) { SettingsGroup { SensitiveDomainRows(domains) { domains = it } } } }
+        rule.onAllNodesWithContentDescription(ctx.getString(R.string.ui_delete))[0].performClick()
+        rule.onNodeWithText(ctx.getString(R.string.fb3_c_undo)).performClick()
+        rule.waitForIdle()
+        // Removed elsewhere later (e.g. a restore): the row goes, it does not come back greyed with 되돌리기.
+        rule.runOnIdle { domains = listOf("b.example.com") }
+        rule.onNodeWithText("a.example.com").assertDoesNotExist()
+        rule.onNodeWithText(ctx.getString(R.string.fb3_c_undo)).assertDoesNotExist()
+    }
 }
