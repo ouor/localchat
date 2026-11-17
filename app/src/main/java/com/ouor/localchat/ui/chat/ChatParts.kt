@@ -80,7 +80,7 @@ internal fun UserTurn(user: UserUi, cs: ComposerUiState, chat: ChatActions, atta
         UserMessageEditor(e, { editing = it }, { editing = null }, {
             cs.model?.let { m -> chat.editAndResend(user.node.id, e.trim(), user.attachmentIds, m.ref, cs.options) }
             editing = null
-        })
+        }, original = user.text)
     } else {
         UserMessage(
             user.text,
