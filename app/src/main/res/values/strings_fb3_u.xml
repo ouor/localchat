@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FB3 QA track U -->
+    <string name="fb3_u_tile_too_large">Too large</string>
+    <string name="fb3_u_mic_denied">Voice input needs microphone permission.</string>
+    <string name="fb3_u_open_settings">Settings</string>
+</resources>
