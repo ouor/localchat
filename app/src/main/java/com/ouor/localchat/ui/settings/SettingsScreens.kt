@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -290,6 +291,10 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
 internal fun SensitiveDomainRows(domains: List<String>, onChange: (List<String>) -> Unit) {
     // Deleted domain -> its index among the rows shown when it was deleted (ascending inserts rebuild the order).
     val removed = remember { mutableStateMapOf<String, Int>() }
+    // An undone domain leaves [removed] once the saved list has it again (not before: see the undo below). Only undone
+    // ones: a just-deleted domain is still in the list until its own save lands.
+    val undone = remember { mutableSetOf<String>() }
+    LaunchedEffect(domains) { undone.filter { it in domains }.forEach { removed -= it; undone -= it } }
     val rows = domains.toMutableList()
     removed.entries.sortedBy { it.value }.forEach { (d, i) -> if (d !in rows) rows.add(i.coerceAtMost(rows.size), d) }
     val removedState = stringResource(R.string.fb3_c_removed)
@@ -300,9 +305,10 @@ internal fun SensitiveDomainRows(domains: List<String>, onChange: (List<String>)
             // FB3 QA M2: keep d in [removed] until the saved list has it again. Dropping it here left a frame without
             // the row (the save is async), so at the bottom of the page the scroll clamped and the list jumped a row.
             if (gone) LcButton(stringResource(R.string.fb3_c_undo), {
+                undone += d
                 onChange(domains.toMutableList().apply { add(rows.take(i).count { it in domains }, d) })
             }, variant = ButtonVariant.Text, size = ButtonSize.Sm)
-            else LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_delete), { removed[d] = i; onChange(domains - d) }, size = IconButtonSize.Sm)
+            else LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_delete), { removed[d] = i; undone -= d; onChange(domains - d) }, size = IconButtonSize.Sm)
         }
     }
 }
