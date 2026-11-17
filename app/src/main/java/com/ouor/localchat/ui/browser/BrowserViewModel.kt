@@ -73,6 +73,9 @@ internal fun BrowserUiState.merge(tabs: List<TabInfo>, ai: Map<Int, String>, h: 
     )
 }
 
+/** The handoff ended with "AI에게 돌려주기": the panel keeps the height the user has it at (FB4 U-3, P-STABLE). */
+internal fun BrowserUiState.handedBack(): BrowserUiState = copy(handoff = null)
+
 /** Re-marks sensitive tabs when the tabs or the rule change (a settings change alone must update the banner). */
 internal fun Flow<BrowserUiState>.withSensitive(isSensitive: Flow<(url: String) -> Boolean>): Flow<BrowserUiState> =
     combine(isSensitive) { s, sensitive -> s.copy(sensitive = s.tabs.filter { sensitive(it.url) }.mapTo(HashSet()) { it.id }) }
@@ -166,7 +169,7 @@ class BrowserViewModel @AssistedInject constructor(
     override fun giveBack(id: Int) {
         engine.setControl(id, Control.AI)
         val h = local.value.handoff
-        if (h != null && h.tabId == id) { sessionId?.let { chat.resolve(it, Resolution.HandoffReturned) }; local.update { it.copy(handoff = null, panel = PanelState.Half) } }
+        if (h != null && h.tabId == id) { sessionId?.let { chat.resolve(it, Resolution.HandoffReturned) }; local.update { it.handedBack() } }
     }
     /** B-04: hand a user tab to this chat's AI, or take an AI tab as a user tab. */
     override fun handToAi(id: Int) { sessionId?.let { engine.setOwner(id, Owner.Ai(it)) } }

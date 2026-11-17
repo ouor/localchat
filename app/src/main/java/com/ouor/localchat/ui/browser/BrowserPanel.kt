@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.browser
 
+import com.ouor.localchat.ui.components.reserved
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,8 +30,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
@@ -45,7 +44,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -199,10 +202,14 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
         if (shown) Box(Modifier.fillMaxSize()) {
             var editing by remember { mutableStateOf(false) }
             val drag = remember { MutableInteractionSource() }
+            // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows), so a focused page
+            // field and the panel's controls stay above it at the same size; it settles back when the keyboard closes.
+            val density = LocalDensity.current
+            val rise = minOf(top, WindowInsets.ime.getBottom(density).toFloat())
             Column(
-                Modifier.fillMaxWidth().height(with(LocalDensity.current) { (h - top).toDp() })
-                    .offset { IntOffset(0, state.offset.roundToInt()) }
-                    .background(LcTheme.colors.surfaceRaised).navigationBarsPadding(),
+                Modifier.fillMaxWidth().height(with(density) { (h - top + rise).toDp() })
+                    .offset { IntOffset(0, (state.offset - rise).roundToInt()) }
+                    .background(LcTheme.colors.surfaceRaised).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
             ) {
                 BrowserPanelFrame(
                     toolbar = {
@@ -248,7 +255,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                 }
             }
             if (s.touchedAiTab == t.id) LcSnackbar(
-                stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).navigationBarsPadding(),
+                stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
                 icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
             )
             if (editing) {
@@ -326,7 +333,7 @@ private fun TabsSheet(s: BrowserUiState, actions: BrowserActions) {
         TabGrid(slots, Modifier.fillMaxWidth().height(600.dp)) { slot ->
             val t = live[slot.id]
             if (t != null) TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
-            else Box(Modifier.alpha(0f).clearAndSetSemantics {}) { TabCard(slot.title, slot.shortUrl(), slot.tabOwner(s), {}) }
+            else Box(Modifier.reserved()) { TabCard(slot.title, slot.shortUrl(), slot.tabOwner(s), {}) }
         }
     }
 }

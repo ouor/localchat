@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FB4 U-6: failure kind in the attachment caption for files a retry may fix (the tile says "Retry"). -->
+    <string name="fb4_u_fail_retry">Not prepared</string>
+</resources>

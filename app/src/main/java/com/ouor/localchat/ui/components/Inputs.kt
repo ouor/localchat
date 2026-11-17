@@ -1,8 +1,6 @@
 package com.ouor.localchat.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -265,9 +263,8 @@ fun LcTextField(
                 }
             },
         )
-        if (helper != null) Box {
-            // The slot is as tall as the tallest message it may show, at this width and font scale.
-            helperSlot.forEach { Text(it, Modifier.alpha(0f).clearAndSetSemantics {}, style = LcTheme.text.caption, minLines = helperMinLines) }
+        // The slot is as tall as the tallest message it may show, at this width and font scale.
+        if (helper != null) StableSlot({ helperSlot.forEach { Text(it, style = LcTheme.text.caption, minLines = helperMinLines) } }) {
             Text(
                 helper, style = LcTheme.text.caption, minLines = helperMinLines,
                 color = when (helperTone) {

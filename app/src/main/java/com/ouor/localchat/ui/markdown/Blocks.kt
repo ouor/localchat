@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.markdown
 
+import com.ouor.localchat.ui.components.StableSlot
 import android.graphics.Picture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,8 +47,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -217,8 +216,7 @@ fun MermaidBlock(source: String, engine: JsRenderEngine?, modifier: Modifier = M
             // neither appears when the reply ends nor changes width when tapped. A failed render hides it (nothing to toggle to).
             if (engine != null && !empty && state !is DiagramState.Failed) {
                 val labels = listOf(stringResource(R.string.ui_show_diagram), stringResource(R.string.ui_show_code))
-                Box {
-                    labels.forEach { LcButton(it, {}, Modifier.alpha(0f).clearAndSetSemantics {}, variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = false) }
+                StableSlot({ labels.forEach { LcButton(it, {}, variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = false) } }) {
                     LcButton(
                         labels[if (codeMode) 0 else 1], { showCode = !codeMode }, Modifier.matchParentSize(),
                         variant = ButtonVariant.Text, size = ButtonSize.Sm, enabled = renderNow,
