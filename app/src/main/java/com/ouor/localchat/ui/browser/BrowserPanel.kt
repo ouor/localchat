@@ -1,5 +1,6 @@
 package com.ouor.localchat.ui.browser
 
+import com.ouor.localchat.ui.components.reserved
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,8 +30,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
@@ -326,7 +325,7 @@ private fun TabsSheet(s: BrowserUiState, actions: BrowserActions) {
         TabGrid(slots, Modifier.fillMaxWidth().height(600.dp)) { slot ->
             val t = live[slot.id]
             if (t != null) TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
-            else Box(Modifier.alpha(0f).clearAndSetSemantics {}) { TabCard(slot.title, slot.shortUrl(), slot.tabOwner(s), {}) }
+            else Box(Modifier.reserved()) { TabCard(slot.title, slot.shortUrl(), slot.tabOwner(s), {}) }
         }
     }
 }

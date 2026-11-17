@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -257,8 +256,7 @@ fun ConnectionStatus(state: ConnectionUi?, onRecheck: () -> Unit, onSaveAnyway: 
                     state.reason to c.dangerText
                 }
             }
-            Box(Modifier.weight(1f, fill = false), contentAlignment = Alignment.CenterStart) {
-                Text(checking, Modifier.alpha(0f).clearAndSetSemantics {}, style = LcTheme.text.body, maxLines = 1)
+            StableSlot({ Text(checking, style = LcTheme.text.body, maxLines = 1) }, Modifier.weight(1f, fill = false), Alignment.CenterStart) {
                 if (text.isNotEmpty()) Text(text, style = LcTheme.text.body, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
