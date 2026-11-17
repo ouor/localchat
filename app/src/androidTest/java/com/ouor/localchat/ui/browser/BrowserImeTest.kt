@@ -79,7 +79,7 @@ class BrowserImeTest {
     /** The field sits at the bottom of the viewport, where the keyboard comes up. */
     private val page = """<html><head><meta name="viewport" content="width=device-width"></head>
         <body style="margin:0;background:#e8f0fe">
-        <input style="position:fixed;bottom:0;left:0;width:100%;height:48px;font-size:18px;box-sizing:border-box" placeholder="login">
+        <input style="position:fixed;bottom:0;left:0;width:100%;height:48px;font-size:18px;box-sizing:border-box" id="f" placeholder="login">
         </body></html>"""
 
     private fun imeBottom(): Int = rule.runOnUiThread<Int> {
@@ -164,6 +164,18 @@ class BrowserImeTest {
         Shots.save("fb4-u2-3-closed")
         assertEquals(before, giveBack())
         assertEquals(pageBefore, pageBounds())
+    }
+
+    @Test fun halfKeyboardTypesIntoTheField() { // FB4 QA F6: the keyboard was attached but the text never reached the page
+        open(PanelState.Half, page)
+        rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, bottom - 20f)) }
+        rule.waitUntil(10_000) { imeBottom() > 0 }
+        Thread.sleep(1500) // keyboard animation, panel rise and page resize
+        rule.waitForIdle()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStringSync("seoul") // through the IME, like `input text`
+        rule.waitUntil(5_000) { js("document.getElementById('f').value") == "\"seoul\"" }
+        Shots.save("fb4-u4-f6-half-typed")
+        closeKeyboard()
     }
 
     /**

@@ -39,6 +39,8 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.drop
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
@@ -213,10 +215,10 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             // first pixel: from Half it was already risen (FB4 fix M1), from Full it rises nothing (QA F4, no dead zone).
             // Leaving Full with the keyboard up closes the keyboard, so landing on Half adds no rise (no jump). Height and
             // bottom padding follow the keyboard's target, not its animation, so the page resizes once per open/close (m2).
-            val density = LocalDensity.current
+            // Both are read in the same layout pass (QA F6): when the padding grew a frame before the height, the page was
+            // laid out 0px tall at Half, and Android drops a 0-sized view's focus, so the keyboard typed into nothing.
             val ime = WindowInsets.ime // read only in the offset lambda: placement, not recomposition, each frame
             val imeTarget = WindowInsets.imeAnimationTarget
-            val keyboard = imeTarget.getBottom(density).toFloat()
             val settledAt by remember { derivedStateOf { state.anchors.positionOf(state.settledValue) } }
             val view = LocalView.current
             LaunchedEffect(state) {
@@ -225,7 +227,12 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                 }
             }
             Column(
-                Modifier.fillMaxWidth().height(with(density) { (h - top + minOf(top, keyboard)).toDp() })
+                Modifier.fillMaxWidth()
+                    .layout { m, c ->
+                        val height = (h - top + minOf(top, imeTarget.getBottom(this).toFloat())).roundToInt()
+                        val p = m.measure(Constraints.fixed(c.maxWidth, height))
+                        layout(p.width, p.height) { p.place(0, 0) }
+                    }
                     .offset { IntOffset(0, (state.offset - minOf(settledAt, ime.getBottom(this).toFloat())).coerceAtLeast(0f).roundToInt()) }
                     .background(LcTheme.colors.surfaceRaised).windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
             ) {
