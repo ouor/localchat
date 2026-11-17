@@ -89,7 +89,7 @@ class ChatMappingTest {
     @Test fun `failure counts are summed per caption label in first-seen order`() { // FB4 U-6
         val p = com.ouor.localchat.attach.PrepFailure
         val counts = linkedMapOf(p.READ_FAILED to 1, p.UNSUPPORTED_TYPE to 2, p.TOO_LARGE to 1, p.LEGACY_OFFICE to 1, p.NO_TEXT to 2)
-        assertEquals(listOf(com.ouor.localchat.R.string.fb4_u_fail_retry to 3, com.ouor.localchat.R.string.fb2_q_tile_unsupported to 3, com.ouor.localchat.R.string.fb3_u_tile_too_large to 1), failLabels(counts).toList())
+        assertEquals(listOf(com.ouor.localchat.R.string.attach_fail_retry to 3, com.ouor.localchat.R.string.fb2_q_tile_unsupported to 3, com.ouor.localchat.R.string.fb3_u_tile_too_large to 1), failLabels(counts).toList())
         assertEquals(emptyMap<Int, Int>(), failLabels(emptyMap()))
     }
 }

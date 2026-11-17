@@ -39,7 +39,7 @@ class BrowserUiStateTest {
         assertEquals(true, slots.all { it.thumbnail == null })
     }
 
-    @Test fun `handing the tab back keeps the panel height the user chose`() { // FB4 U-3
+    @Test fun `handedBack does not touch the panel height`() { // FB4 U-3; giveBack itself has no VM test (BrowserEngine and ChatEngine are concrete Android classes)
         val handoff = com.ouor.localchat.chat.run.Pause.Handoff(2, "login")
         for (p in listOf(PanelState.Full, PanelState.Half)) {
             val after = BrowserUiState(panel = p, tabs = listOf(mine), sessionId = "A", handoff = handoff).handedBack()
