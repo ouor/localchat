@@ -53,6 +53,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.swipeDown
 import kotlinx.coroutines.cancel
@@ -530,6 +532,22 @@ class ChatScreenTest {
         bs = bs.copy(panel = PanelState.Full)
         rule.waitForIdle()
         input.assertIsNotFocused()
+    }
+
+    @Test fun tapsOnThePanelNeverReachTheChatBehindIt() { // FB4 QA O5: a tap between the banner's text and buttons focused the hidden input
+        val handed = aiTab.copy(control = com.ouor.localchat.browser.Control.USER)
+        val bs = BrowserUiState(PanelState.Half, listOf(handed), sessionId = "s", running = true, handoff = Pause.Handoff(1, "Please sign in"))
+        rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))), ComposerUiState(), bs, chat, composer, browser, nav) } }
+        val input = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder))
+        val give = rule.onNodeWithText(ctx.getString(R.string.ui_give_back_to_ai)).fetchSemanticsNode().boundsInRoot
+        val handle = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd)).fetchSemanticsNode().boundsInRoot
+        // The banner's gap left of its button (over the input), beside the handle, and below the banner's body text.
+        val body = rule.onNodeWithText(ctx.getString(R.string.ui_handoff_body)).fetchSemanticsNode().boundsInRoot
+        listOf(Offset(give.left - 30f, give.center.y), Offset(handle.right + 60f, handle.center.y), Offset(body.center.x, body.bottom + 4f)).forEach { p ->
+            rule.onRoot().performTouchInput { click(p) }
+            rule.waitForIdle()
+            input.assertIsNotFocused()
+        }
     }
 
     @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel
