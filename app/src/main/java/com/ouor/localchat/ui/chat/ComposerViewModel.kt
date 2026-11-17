@@ -74,7 +74,7 @@ data class ComposerUiState(
     val imageIssue: Boolean = false,
     /** I-05: send waits for preparing files. */
     val waitingForFiles: Boolean = false,
-    /** False only until the model list first arrives (P-STABLE L1: no "no provider" banner flash). */
+    /** True by default for previews and tests; the ViewModel starts false so "no provider" waits for the model list (P-STABLE L1). */
     val modelsLoaded: Boolean = true,
 ) {
     val canSend: Boolean get() = !running && model != null && (text.isNotBlank() || attachments.isNotEmpty()) &&
