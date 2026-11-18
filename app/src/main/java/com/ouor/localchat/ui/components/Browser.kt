@@ -51,6 +51,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -236,7 +238,9 @@ fun BrowserToolbar(
             val tabsDesc = stringResource(R.string.ui_tabs_desc, tabCount)
             Box(Modifier.size(48.dp).clip(LcRadius.full).combinedClickableCompat(onTabs).semantics { contentDescription = tabsDesc }, contentAlignment = Alignment.Center) {
                 Box(Modifier.size(22.dp).border(1.8.dp, c.iconPrimary, LcRadius.xs), contentAlignment = Alignment.Center) {
-                    Text("$tabCount", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.iconPrimary)
+                    // FB5 B3: a line exactly as tall as the digits, trimmed, so they sit in the box's middle (not the default line's).
+                    Text("$tabCount", color = c.iconPrimary, style = TextStyle(fontSize = 11.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold,
+                        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)))
                 }
             }
             trailing()

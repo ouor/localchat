@@ -16,6 +16,9 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
@@ -127,6 +130,27 @@ class BrowserStableTest {
         assertEquals(page, page().bounds())
         change { it.copy(tabs = it.tabs.map { t -> t.copy(loading = false) }) }
         assertEquals(page, page().bounds())
+    }
+
+    @Test fun tabCountSitsInTheMiddleOfItsBox() { // FB5 B3: the digit's ink is centred, not pushed down by the line height
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "One")), sessionId = "A"))
+        val img = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_tabs_desc, 1)).captureToImage().asAndroidBitmap()
+        val d = ctx.resources.displayMetrics.density
+        val box = 22f * d
+        val inset = (1.8f + 1.5f) * d // inside the border
+        val top = (img.height - box) / 2f
+        val left = (img.width - box) / 2f
+        val ink = ((top + inset).toInt() until (top + box - inset).toInt()).filter { y ->
+            ((left + inset).toInt() until (left + box - inset).toInt()).any { x ->
+                val c = img.getPixel(x, y)
+                (android.graphics.Color.red(c) + android.graphics.Color.green(c) + android.graphics.Color.blue(c)) / 3 < 128
+            }
+        }
+        assertTrue("digit drawn", ink.isNotEmpty())
+        val inkMid = (ink.first() + ink.last() + 1) / 2f
+        val boxMid = top + box / 2f
+        android.util.Log.i("FB5B3", "ink ${ink.first()}..${ink.last()} mid $inkMid box mid $boxMid")
+        assertTrue("digit centre $inkMid vs box centre $boxMid", kotlin.math.abs(inkMid - boxMid) <= 1.5f)
     }
 
     @Test fun closingATabLeavesItsSlotEmpty() { // L8
