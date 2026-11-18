@@ -95,6 +95,12 @@ object SearchEngines {
         return url.substring(0, q) + (if (kept.isEmpty()) "" else "?" + kept.joinToString("&")) + url.substring(hash)
     }
 
+    /** A result page of one of the engines (web_search reuses a tab still on one, browser-layers 3-2). */
+    fun isResultPage(url: String): Boolean = SearchEngine.entries.any { e ->
+        val base = url(e, "x").substringBefore('?')
+        url.substringBefore('?').substringBefore('#') == base && '?' in url
+    }
+
     /** A link back into a search engine itself (not a result). Google's /goto and /url redirects are results. */
     fun isEngineLink(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false

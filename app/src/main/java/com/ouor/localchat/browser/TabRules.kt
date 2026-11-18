@@ -6,46 +6,14 @@ import com.ouor.localchat.browser.script.PageMark
 /** Pure rules behind BrowserEngine/BrowserTab, kept apart so JVM tests can run them. */
 internal object TabRules {
 
-    /** B-09 ③: a user touch on an AI tab offers "take control", unless the user already controls it (handoff, QA F2). */
-    fun asksToTakeOver(owner: Owner, control: Control): Boolean = owner is Owner.Ai && control == Control.AI
-
-    /** At most this many idle AI tabs of other chats stay open (BUG-13). */
-    const val MAX_IDLE_AI_TABS = 3
-
-    /** An AI tab unused this long counts as idle. */
-    const val AI_IDLE_MS = 10 * 60_000L
-
     /** CSS px around the element in an approval preview. */
     private const val CROP_PAD = 24f
-
-    /** Hidden tabs open at once (web_search, read(url), link prefetch; tool calls run one at a time). */
-    const val MAX_HIDDEN_TABS = 3
-
-    /** How long a new hidden tab waits for a free slot before the limit error (B-m9). */
-    const val HIDDEN_WAIT = 20_000L
-    const val HIDDEN_POLL = 200L
-
-    /**
-     * Why a new tab may not open, null when it may. Visible tabs count toward [BrowserEngine.MAX_TABS]; hidden ones
-     * only toward [MAX_HIDDEN_TABS], so a prefetch never takes a slot from the user (FB3 arch M1).
-     */
-    fun limitError(hidden: Boolean, visible: Int, hiddenOpen: Int): String? = when {
-        hidden && hiddenOpen >= MAX_HIDDEN_TABS -> "Too many pages are being read at once ($MAX_HIDDEN_TABS)."
-        !hidden && visible >= BrowserEngine.MAX_TABS -> "Too many tabs are open (${BrowserEngine.MAX_TABS}). Ask the user to close some."
-        else -> null
-    }
 
     /** Size for a parked WebView: the host's once laid out, else the window's, else the display's. */
     fun fallbackSize(hostW: Int, hostH: Int, windowW: Int?, windowH: Int?, displayW: Int, displayH: Int): Pair<Int, Int> =
         if (hostW > 0 && hostH > 0) hostW to hostH
         else if (windowW != null && windowH != null && windowW > 0 && windowH > 0) windowW to windowH
         else displayW to displayH
-
-    /** Ids to close, oldest first, from [lastUse] (tab id -> last AI use) of the eligible tabs. */
-    fun idleAiTabsToClose(lastUse: Map<Int, Long>, now: Long): List<Int> {
-        val idle = lastUse.entries.filter { now - it.value >= AI_IDLE_MS }.sortedBy { it.value }.map { it.key }
-        return idle.take((idle.size - MAX_IDLE_AI_TABS).coerceAtLeast(0))
-    }
 
     /** [x, y, w, h] in view px of [rect] scaled by [scale] plus padding, clipped to the view; null if nothing is left. */
     fun cropBox(rect: CssRect, scale: Float, viewW: Int, viewH: Int): IntArray? {
@@ -60,9 +28,6 @@ internal object TabRules {
 
     /** Load phase cap: a mobile network's slow first response. */
     const val LOAD_CAP = 15_000L
-
-    /** On the Page line of a list that goes on from the one before it (browse() again, F9); both stay valid. */
-    const val CONTINUED = " (elements not listed last time)"
 
     /** Quiet window: no DOM change or request for this long (Playwright/Puppeteer networkidle). */
     const val QUIET = 500L
@@ -186,6 +151,53 @@ internal object TabRules {
             else -> "the connection failed"
         }
     }
+
+    // ---------- tabs and downloads (browser-layers 2-1, 2-5)
+
+    /** "4e7" → 4; anything else (an old "e7", text) → null. */
+    fun tabOfRef(ref: String): Int? = REF.matchEntire(ref.trim())?.groupValues?.get(1)?.toIntOrNull()
+
+    private val REF = Regex("""\[?\s*(?:ref\s*=\s*)?[@#]?(\d+)e\d+\s*]?""", RegexOption.IGNORE_CASE)
+
+    /**
+     * The download's file name: Content-Disposition `filename*=UTF-8''…` first, then `filename=`, then the URL's last
+     * path part; [URLUtil.guessFileName] turns Korean names into downloadfile.bin.
+     */
+    fun fileName(url: String, disposition: String?, mime: String?): String {
+        val d = disposition.orEmpty()
+        val star = Regex("""filename\*\s*=\s*([^']*)'[^']*'([^;]+)""", RegexOption.IGNORE_CASE).find(d)?.let { m ->
+            runCatching { java.net.URLDecoder.decode(m.groupValues[2].trim().trim('"').replace("+", "%2B"), m.groupValues[1].ifBlank { "UTF-8" }) }.getOrNull()
+        }
+        val plain = Regex("""filename\s*=\s*("([^"]*)"|[^;]+)""", RegexOption.IGNORE_CASE).find(d)?.let { m ->
+            m.groupValues[2].ifEmpty { m.groupValues[1] }.trim()
+        }
+        val fromUrl = url.takeIf { it.startsWith("http", ignoreCase = true) }?.substringBefore('?')?.substringBefore('#')?.substringAfterLast('/')
+            ?.let { runCatching { java.net.URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }.getOrDefault(it) }
+        val name = listOfNotNull(star, plain, fromUrl).map { it.replace(Regex("""[\\/:*?"<>|\x00-\x1f]"""), "_").trim() }
+            .firstOrNull { it.isNotEmpty() && it != "." && it != ".." } ?: "download"
+        if ('.' in name || mime == null) return name
+        return name + (EXT[mime.substringBefore(';').trim().lowercase()]?.let { ".$it" } ?: "")
+    }
+
+    private val EXT = mapOf(
+        "application/pdf" to "pdf", "text/plain" to "txt", "text/csv" to "csv", "text/html" to "html", "application/json" to "json",
+        "image/png" to "png", "image/jpeg" to "jpg", "image/gif" to "gif", "image/webp" to "webp", "application/zip" to "zip",
+    )
+
+    /** A `data:` URL's bytes and MIME, null when it is not one this app can decode. */
+    fun dataUrl(url: String): Pair<ByteArray, String>? {
+        if (!url.startsWith("data:", ignoreCase = true)) return null
+        val comma = url.indexOf(',').takeIf { it > 0 } ?: return null
+        val meta = url.substring(5, comma)
+        val mime = meta.substringBefore(';').ifBlank { "text/plain" }
+        val body = url.substring(comma + 1)
+        val bytes = if (meta.endsWith(";base64", ignoreCase = true)) runCatching { java.util.Base64.getDecoder().decode(body) }.getOrNull() ?: return null
+        else java.net.URLDecoder.decode(body.replace("+", "%2B"), "UTF-8").toByteArray()
+        return bytes to mime
+    }
+
+    /** The same file asked again this soon is not saved again (Chrome-like; an estimate, browser-layers 2-5). */
+    const val SAME_DOWNLOAD_MS = 30_000L
 
     // ---------- read sizes (tools-redesign 3-2, 5-3)
 

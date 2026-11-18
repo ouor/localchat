@@ -2,12 +2,16 @@ package com.ouor.localchat.browser
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Bundle
 import android.os.Environment
+import android.os.Message
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.webkit.ConsoleMessage
@@ -17,7 +21,6 @@ import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
-import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -31,61 +34,101 @@ import com.ouor.localchat.browser.script.PageMark
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.core.model.ToolStatus
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * One WebView with its client callbacks, load signals and held dialogs (architecture 7.1, tools-redesign 2). Created and used
- * on the main thread only; suspend functions switch to Main themselves. The WebView's context is a
- * [MutableContextWrapper] that the engine points at the host Activity (select popups, dialogs) or the
- * application.
+ * One tab: a WebView that can be put to sleep and woken ([webView] changes then), its load signals and the facts of what
+ * happened in it (browser-layers 2-3). The tab has no owner: the user and the AI use the same calls. Every action runs
+ * once and never waits; waiting is [awaitReady]. Created and used on the main thread; suspend functions switch to
+ * Main themselves. The WebView's context is a [MutableContextWrapper] the engine points at the host Activity.
  */
 class BrowserTab internal constructor(
     val id: Int,
     appContext: Context,
-    owner: Owner,
     private val events: Events,
 ) {
-    /** Engine hooks; defaults are no-ops so instrumented tests can create a bare tab. */
+    /** Engine hooks; the defaults let instrumented tests create a bare tab. */
     interface Events {
         fun onChanged(tab: BrowserTab) {}
-        fun onPrompt(prompt: BrowserPrompt) {}
-        fun onPromptDone(promptId: Long) {}
-        fun onRendererGone(tab: BrowserTab) {}
-        fun onUserTouch(tab: BrowserTab) {}
-        fun onExternalLink(tab: BrowserTab, uri: Uri) {}
 
-        /** An AI tool is running on [tab] right now (the engine's aiActivity). */
-        fun aiOperating(tab: BrowserTab): Boolean = false
+        /** Asks the listeners, then the default (browser-layers 2-4). [Answer.ToUser] = the engine lists it in prompts. */
+        fun dispatch(tab: BrowserTab, e: BrowserEvent): Answer = BrowserEngine.defaultAnswer(e, shown = false)
+
+        /** An event that waited for the user got its answer (or the tab went). */
+        fun answered(tab: BrowserTab, handled: Handled) {}
+
+        /** `window.open` / `target=_blank`: a new tab with no page loaded, whose WebView the page gets. */
+        fun popup(opener: BrowserTab): BrowserTab? = null
+
+        /** Brings [tab] to the front: only for the user's own gesture (a popup they opened). */
+        fun select(tab: BrowserTab) {}
+
+        /** The page called `window.close()`. */
+        fun closeWindow(tab: BrowserTab) {}
+
+        fun openExternal(uri: Uri) {}
+
+        /** A new WebView (first one or after [wake]) goes into the host at full size. */
+        fun park(tab: BrowserTab, view: WebView) {}
     }
 
     internal val contextWrapper = MutableContextWrapper(appContext)
-    val webView: WebView = WebViewFactory.create(contextWrapper)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    var owner: Owner = owner
-        internal set
-    var control: Control = Control.AI
-        internal set
-    /** Hidden tab of one tool call (web_search, read(url), link prefetch), kept out of the UI ([TabInfo.hidden]). */
-    var hidden: Boolean = false
-        internal set
+    private val _webView = MutableStateFlow<WebView?>(null)
+
+    /** null while asleep. The drawer borrows the current one and borrows again when it changes (wake). */
+    val webView: StateFlow<WebView?> = _webView.asStateFlow()
+
+    /** The current WebView; a sleeping tab has none ([wake] first). */
+    val view: WebView get() = _webView.value ?: throw PageError("Tab $id is asleep.")
+
+    /** One tool action at a time on this tab (several chats may run at once). Not ownership: anyone takes turns. */
+    val lock = Mutex()
+
     var url: String = ""
         private set
     var title: String = ""
         private set
 
+    /** null = awake. */
+    var asleep: Asleep? = null
+        private set
+
+    /** Epoch ms the tab was last picked, loaded or acted on. */
+    var lastUsedAt: Long = System.currentTimeMillis()
+        internal set
+
+    /** See [TabInfo.urlChain]. */
+    var urlChain: List<String> = emptyList()
+        private set
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    /** Uptime ms of the user's last own touch or key; injected input ([tap], [key]) is not counted (2-6). */
+    @Volatile var lastUserInputAt = 0L
+        private set
+
+    /** The user's finger is on the page right now. */
+    @Volatile var pointerDown = false
+        private set
 
     // Load signals (uptime ms). Requests arrive on a WebView thread, the rest on main.
     private val lastRequestAt = AtomicLong()
@@ -105,62 +148,93 @@ class BrowserTab internal constructor(
     /** Main-frame request URLs (uptime, url), redirects included, newest last; any thread. */
     private val mainRequests = ArrayDeque<Pair<Long, String>>()
 
-    /** The latest download the page started; the load that led to it ends there. */
-    internal var lastDownload: DownloadNote? = null
+    /** First main-frame request of the navigation on its way (uptime), 0 = none: [urlChain] starts there. */
+    @Volatile private var navStartAt = 0L
+
+    /** A document other than about:blank was loaded: a new tab whose first navigation is a download is closed (2-5). */
+    private var hadDocument = false
 
     /**
      * First ref number for the next document (G-M1): refs never repeat within the tab, so a ref from a page that is
-     * gone is always refused, never matched to another element. Raised after every agent.js call.
+     * gone is always refused, never matched to another element. Raised after every agent.js call; kept across sleep.
      */
     @Volatile internal var refNext = 1
 
     /** The document the last list was marked "still changing" for (G-m13). Main thread. */
     internal var changingDoc: String? = null
 
-    /** Dialogs the page showed while the AI used it, newest last (at most [DIALOG_LOG]). */
-    private val dialogLog = ArrayDeque<DialogNote>()
+    /** Events of the tab and their answers, newest last (at most [LOG]). */
+    private val eventLog = ArrayDeque<Handled>()
+    private val downloadLog = ArrayDeque<DownloadNote>()
 
-    private val _dialog = MutableStateFlow<BrowserPrompt.Dialog?>(null)
+    private val _dialog = MutableStateFlow<BrowserEvent.Dialog?>(null)
 
-    /** The JS dialog the page is blocked on, if any. */
-    val dialog: StateFlow<BrowserPrompt.Dialog?> = _dialog.asStateFlow()
+    /** The JS dialog the page is blocked on while the user answers it. */
+    val dialog: StateFlow<BrowserEvent.Dialog?> = _dialog.asStateFlow()
     private var dialogResult: JsResult? = null
 
-    private val fileChoosers = mutableMapOf<Long, ValueCallback<Array<Uri>>>()
-    private val permissions = mutableMapOf<Long, PermissionRequest>()
-    private val downloads = mutableMapOf<Long, BrowserPrompt.Download>()
+    /** Events waiting for the user: id -> the event and how to apply the answer. */
+    private val waiting = LinkedHashMap<Long, Pair<BrowserEvent, (Answer) -> Unit>>()
 
-    /** True while the engine injects a native event, so the touch listener can tell AI taps from user taps (B-09 ③). */
+    /** An event of the tab waits for the user. */
+    val pending: Boolean get() = waiting.isNotEmpty()
+
+    /** True while the engine injects a native event, so the user's own input is told apart (2-6). */
     private var injecting = false
 
+    /** Back/forward list saved when the tab was put to sleep; null after a renderer death (it cannot be saved then). */
+    private var savedState: Bundle? = null
+
+    /** URL the renderer last died on: dying there again is [BrowserEvent.RendererGone.repeated]. */
+    private var crashUrl: String? = null
+
     init {
-        webView.webViewClient = Client()
-        webView.webChromeClient = Chrome()
-        webView.setDownloadListener { dlUrl, _, disposition, mime, length ->
-            val p = BrowserPrompt.Download(nextPromptId(), id, dlUrl, URLUtil.guessFileName(dlUrl, disposition, mime), mime, length)
-            lastDownload = DownloadNote(SystemClock.uptimeMillis(), dlUrl, mime, p.fileName)
-            downloads[p.id] = p
-            events.onPrompt(p)
-        }
-        @SuppressLint("ClickableViewAccessibility")
-        webView.setOnTouchListener { _, e ->
-            if (!injecting && e.actionMasked == MotionEvent.ACTION_DOWN) events.onUserTouch(this)
+        _webView.value = newWebView()
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun newWebView(): WebView = WebViewFactory.create(contextWrapper).also { w ->
+        w.webViewClient = Client()
+        w.webChromeClient = Chrome()
+        w.setDownloadListener { dlUrl, _, disposition, mime, length -> onDownload(dlUrl, disposition, mime, length) }
+        w.setOnTouchListener { _, e ->
+            if (!injecting) {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> pointerDown = true
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> pointerDown = false
+                }
+                lastUserInputAt = SystemClock.uptimeMillis()
+            }
             false
         }
+        w.setOnKeyListener { _, _, _ ->
+            if (!injecting) lastUserInputAt = SystemClock.uptimeMillis()
+            false
+        }
+        events.park(this, w)
     }
+
+    /** A real user touch or key within [USER_INPUT_MS], not an injected one (external links, popups). */
+    private fun userInput(): Boolean = !injecting && SystemClock.uptimeMillis() - lastUserInputAt <= USER_INPUT_MS
 
     // ---------- navigation
 
     fun load(target: String) {
-        mainRequestAt.set(SystemClock.uptimeMillis())
-        superseded = (mainRequestAt.get() to url).takeIf { url != target }
+        val now = SystemClock.uptimeMillis()
+        mainRequestAt.set(now)
+        navStartAt = now
+        requested(target)
+        superseded = (now to url).takeIf { url != target }
         markLoading(target)
-        webView.loadUrl(target)
+        view.loadUrl(target)
     }
 
-    fun goBack() { if (webView.canGoBack()) { superseded = null; _loading.value = true; webView.goBack() } }
-    fun goForward() { if (webView.canGoForward()) { superseded = null; _loading.value = true; webView.goForward() } }
-    fun reload() { superseded = null; _loading.value = true; webView.reload() }
+    fun goBack() { if (view.canGoBack()) { superseded = null; _loading.value = true; view.goBack() } }
+    fun goForward() { if (view.canGoForward()) { superseded = null; _loading.value = true; view.goForward() } }
+    fun reload() { superseded = null; _loading.value = true; view.reload() }
+
+    val canGoBack: Boolean get() = _webView.value?.canGoBack() ?: (savedState != null)
+    val canGoForward: Boolean get() = _webView.value?.canGoForward() ?: false
 
     /** Set before loadUrl so a waiter never sees the previous page's "loaded" state. */
     private fun markLoading(target: String) {
@@ -169,14 +243,77 @@ class BrowserTab internal constructor(
         events.onChanged(this)
     }
 
+    // ---------- sleep (2-1)
+
+    /** Saves the back/forward list and drops the WebView; the tab stays in the list. Main thread. False when asleep. */
+    internal fun discard(): Boolean {
+        val w = _webView.value ?: return false
+        savedState = Bundle().takeIf { w.saveState(it) != null }
+        drop(w)
+        asleep = Asleep.DISCARDED
+        events.onChanged(this)
+        return true
+    }
+
+    /**
+     * A sleeping tab gets a new WebView with its back/forward list restored, or its URL loaded when there is none
+     * (after a renderer death). The tab object, number, [lock] and [refNext] stay. True when it was asleep.
+     */
+    suspend fun wake(): Boolean = withContext(Dispatchers.Main.immediate) {
+        if (asleep == null) return@withContext false
+        val state = savedState
+        savedState = null
+        asleep = null
+        _webView.value = newWebView()
+        val restored = state != null && view.restoreState(state) != null
+        if (!restored) load(url.ifEmpty { BrowserEngine.BLANK }) else { superseded = null; _loading.value = true }
+        lastUsedAt = System.currentTimeMillis()
+        events.onChanged(this@BrowserTab)
+        true
+    }
+
+    /**
+     * Renderer gone: every WebView sharing it died, so the tab keeps only its list entry. The answer to the event says
+     * whether it loads again now (Accept) or when it is next used (2-1). Main thread; tests call it directly.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun rendererGone(crashed: Boolean) {
+        val w = _webView.value ?: return
+        val repeated = crashUrl == url
+        crashUrl = url
+        savedState = null // shortcut: saveState on a dead renderer is assumed impossible (browser-layers 2-1 추정)
+        drop(w)
+        asleep = Asleep.CRASHED
+        events.onChanged(this)
+        raise(BrowserEvent.RendererGone(nextEventId(), id, SystemClock.uptimeMillis(), crashed, repeated)) { a ->
+            if (a is Answer.Accept) scope.launch { wake() }
+        }
+    }
+
+    private fun drop(w: WebView) {
+        cancelWaiting()
+        _webView.value = null
+        (w.parent as? android.view.ViewGroup)?.removeView(w)
+        w.destroy()
+        _loading.value = false
+    }
+
+    /** Closed for good. Main thread. */
+    internal fun destroy() {
+        scope.cancel()
+        _webView.value?.let(::drop)
+    }
+
+    // ---------- facts
+
     /** The latest main-frame failure at or after [since] (uptime), HTTP >= 400 included. Main thread. */
     fun navError(since: Long): NavError? = navErrors.lastOrNull { it.at >= since }
 
-    /** Dialogs shown at or after [since] (uptime). Main thread. */
-    fun dialogsSince(since: Long): List<DialogNote> = dialogLog.filter { it.at >= since }
+    /** Events at or after [since] (uptime) and how they were answered. Main thread. */
+    fun eventsSince(since: Long): List<Handled> = eventLog.filter { it.event.at >= since }
 
-    /** A download started at or after [since]. */
-    fun downloadSince(since: Long): DownloadNote? = lastDownload?.takeIf { it.at >= since }
+    /** Downloads started at or after [since] (uptime), with their state now. Main thread. */
+    fun downloadsSince(since: Long): List<DownloadNote> = downloadLog.filter { it.at >= since }
 
     /** Main-frame URLs requested at or after [since] (uptime), redirects included. Any thread. */
     fun mainRequestsSince(since: Long): List<String> =
@@ -192,10 +329,16 @@ class BrowserTab internal constructor(
 
     private fun requested(url: String) {
         val now = SystemClock.uptimeMillis()
+        if (navStartAt == 0L) navStartAt = now
         synchronized(mainRequests) {
             if (mainRequests.size >= MAIN_REQUESTS) mainRequests.removeFirst()
             mainRequests.addLast(now to url)
         }
+    }
+
+    private fun record(h: Handled) {
+        if (eventLog.size >= LOG) eventLog.removeFirst()
+        eventLog.addLast(h)
     }
 
     /**
@@ -231,7 +374,7 @@ class BrowserTab internal constructor(
             val now = SystemClock.uptimeMillis()
             val input = TabRules.ReadyInput(
                 now, since, docStart, settleStart, _loading.value, mark, settleN, mainRequestAt.get(), pageStartedAt,
-                committedAt, lastRequestAt.get(), navErrors.lastOrNull { !it.http }?.at, lastDownload?.at,
+                committedAt, lastRequestAt.get(), navErrors.lastOrNull { !it.http }?.at, downloadLog.lastOrNull()?.at,
             )
             when (val step = TabRules.readyStep(input)) {
                 is TabRules.ReadyStep.Done -> done = step.readiness
@@ -250,12 +393,12 @@ class BrowserTab internal constructor(
 
     /**
      * evaluateJavascript with a timeout. A JS dialog blocks the page's script thread, so the call also returns
-     * early when one opens (tools-redesign 2-4).
+     * early when one opens for the user (tools-redesign 2-4).
      */
     suspend fun evaluate(script: String, timeoutMs: Long): String = withContext(Dispatchers.Main.immediate) {
         _dialog.value?.let { throw PageError(dialogNote(it)) }
         val done = CompletableDeferred<String?>()
-        webView.evaluateJavascript(script) { done.complete(it) }
+        view.evaluateJavascript(script) { done.complete(it) }
         val result = withTimeoutOrNull(timeoutMs) {
             coroutineScope {
                 val opened = async { _dialog.first { it != null } }
@@ -265,16 +408,29 @@ class BrowserTab internal constructor(
                 }.also { opened.cancel() }
             }
         } ?: throw PageError("$NOT_ANSWERED ${timeoutMs / 1000} s (it may be busy).")
-        if (result is BrowserPrompt.Dialog) throw PageError(dialogNote(result))
+        if (result is BrowserEvent.Dialog) throw PageError(dialogNote(result))
         result as String
     }
 
     // ---------- native input (trusted events)
 
-    /** Native tap at CSS px ([innerWidth] = window.innerWidth). False when the view cannot take input. */
-    fun tap(cssX: Float, cssY: Float, innerWidth: Float): Boolean {
-        if (!webView.isAttachedToWindow || webView.width == 0 || innerWidth <= 0f) return false
-        val scale = webView.width / innerWidth
+    /**
+     * Native tap at CSS px ([innerWidth] = window.innerWidth). Waits first while the user's finger is down or they
+     * touched within [USER_GAP_MS] (up to [USER_WAIT_MS]), so their gesture is not cut (2-6). Does not tap a page
+     * that is still scrolling (a fling: the down would only stop it) and answers [Tap.MOVING]; the caller clicks by
+     * script instead.
+     */
+    suspend fun tap(cssX: Float, cssY: Float, innerWidth: Float): Tap = withContext(Dispatchers.Main.immediate) {
+        val start = SystemClock.uptimeMillis()
+        while ((pointerDown || SystemClock.uptimeMillis() - lastUserInputAt < USER_GAP_MS) && SystemClock.uptimeMillis() - start < USER_WAIT_MS) {
+            delay(FRAME_MS)
+        }
+        val w = view
+        if (!w.isAttachedToWindow || w.width == 0 || innerWidth <= 0f) return@withContext Tap.FAILED
+        val y0 = w.scrollY
+        delay(FRAME_MS * 2)
+        if (w.scrollY != y0) return@withContext Tap.MOVING
+        val scale = w.width / innerWidth
         val x = cssX * scale
         val y = cssY * scale
         val t = SystemClock.uptimeMillis()
@@ -283,9 +439,9 @@ class BrowserTab internal constructor(
         injecting = true
         try {
             // Taken when the down was: a script click after it would activate the element twice.
-            val a = webView.dispatchTouchEvent(down)
-            val b = webView.dispatchTouchEvent(up)
-            return a || b
+            val a = w.dispatchTouchEvent(down)
+            val b = w.dispatchTouchEvent(up)
+            if (a || b) Tap.DONE else Tap.FAILED
         } finally {
             injecting = false
             down.recycle()
@@ -293,35 +449,41 @@ class BrowserTab internal constructor(
         }
     }
 
+    enum class Tap { DONE, FAILED, MOVING }
+
     /** Native key press, e.g. KEYCODE_ENTER with META_CTRL_ON. */
     fun key(keyCode: Int, meta: Int): Boolean {
+        val w = view
         val t = SystemClock.uptimeMillis()
         injecting = true
         try {
-            val a = webView.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, keyCode, 0, meta))
-            val b = webView.dispatchKeyEvent(KeyEvent(t, t + TAP_MS, KeyEvent.ACTION_UP, keyCode, 0, meta))
+            val a = w.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, keyCode, 0, meta))
+            val b = w.dispatchKeyEvent(KeyEvent(t, t + TAP_MS, KeyEvent.ACTION_UP, keyCode, 0, meta))
             return a || b
         } finally {
             injecting = false
         }
     }
 
-    /** Visible area as a bitmap, null when the view is not laid out (R2). */
-    fun capture(): Bitmap? =
-        if (webView.isAttachedToWindow && webView.width > 0 && webView.height > 0) runCatching { webView.drawToBitmap() }.getOrNull() else null
+    /** Visible area as a bitmap, null when the view is asleep or not laid out (R2). */
+    fun capture(): Bitmap? {
+        val w = _webView.value ?: return null
+        return if (w.isAttachedToWindow && w.width > 0 && w.height > 0) runCatching { w.drawToBitmap() }.getOrNull() else null
+    }
 
     /**
      * SC-13 preview: the element at [rect] (CSS px, viewport of [innerWidth]) with a margin, from the visible
      * area. Null when not laid out or off screen. Main thread.
      */
     fun captureElement(rect: CssRect, innerWidth: Float): Bitmap? {
+        val w = _webView.value ?: return null
         if (innerWidth <= 0f) return null
-        val box = TabRules.cropBox(rect, webView.width / innerWidth, webView.width, webView.height) ?: return null
+        val box = TabRules.cropBox(rect, w.width / innerWidth, w.width, w.height) ?: return null
         val full = capture() ?: return null
         return Bitmap.createBitmap(full, box[0], box[1], box[2], box[3]).also { if (it !== full) full.recycle() }
     }
 
-    /** Downscaled last view of the page for the tab switcher; refreshed after load and when parked. */
+    /** Downscaled ([THUMB_WIDTH]) last view of the page for the tab list; refreshed after load and when parked. */
     var thumbnail: Bitmap? = null
         private set
 
@@ -334,79 +496,151 @@ class BrowserTab internal constructor(
         return true
     }
 
-    // ---------- prompts
+    // ---------- events (2-4)
 
-    fun answerDialog(accept: Boolean, text: String?) {
-        val r = dialogResult ?: return
-        val d = _dialog.value
-        dialogResult = null
-        _dialog.value = null
-        val answer = if (d?.kind == DialogKind.PROMPT && accept) text ?: d.defaultText.orEmpty() else null
-        if (!accept) r.cancel() else if (r is JsPromptResult && answer != null) r.confirm(answer) else r.confirm()
-        d?.let {
-            log(DialogNote(it.kind, it.message, accept, answer, SystemClock.uptimeMillis()))
-            events.onPromptDone(it.id)
+    /** Asks the engine, applies the answer now, or keeps the event for the user ([resolve]). */
+    private fun raise(e: BrowserEvent, apply: (Answer) -> Unit) {
+        val a = events.dispatch(this, e)
+        record(Handled(e, a))
+        if (a == Answer.ToUser) {
+            waiting[e.id] = e to apply
+            events.onChanged(this)
+        } else {
+            apply(a)
         }
     }
 
-    internal fun answerFileChooser(promptId: Long, uris: List<Uri>?) {
-        fileChoosers.remove(promptId)?.onReceiveValue(uris?.toTypedArray())
-        events.onPromptDone(promptId)
+    /** The user's answer to an event that waited for them. Main thread. */
+    internal fun resolve(eventId: Long, answer: Answer) {
+        val (e, apply) = waiting.remove(eventId) ?: return
+        record(Handled(e, answer))
+        apply(answer)
+        events.answered(this, Handled(e, answer))
+        events.onChanged(this)
     }
 
-    internal fun answerPermission(promptId: Long, grant: Boolean) {
-        permissions.remove(promptId)?.let { if (grant) it.grant(it.resources) else it.deny() }
-        events.onPromptDone(promptId)
+    private fun cancelWaiting() {
+        waiting.keys.toList().forEach { resolve(it, Answer.Dismiss) }
     }
 
-    internal fun answerDownload(promptId: Long, allow: Boolean) {
-        val d = downloads.remove(promptId)
-        events.onPromptDone(promptId)
-        if (d == null || !allow) return
-        val req = DownloadManager.Request(Uri.parse(d.url))
-            .setMimeType(d.mime)
-            .addRequestHeader("User-Agent", webView.settings.userAgentString)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, d.fileName)
-        CookieManager.getInstance().getCookie(d.url)?.let { req.addRequestHeader("Cookie", it) }
-        runCatching { contextWrapper.getSystemService(DownloadManager::class.java).enqueue(req) }
-    }
-
-    /** Cancels everything the page still waits on; called before destroy. */
-    internal fun cancelPrompts() {
-        answerDialog(false, null)
-        fileChoosers.values.forEach { it.onReceiveValue(null) }
-        permissions.values.forEach { it.deny() }
-        (fileChoosers.keys + permissions.keys + downloads.keys).forEach(events::onPromptDone)
-        fileChoosers.clear()
-        permissions.clear()
-        downloads.clear()
-    }
-
-    private fun log(n: DialogNote) {
-        if (dialogLog.size >= DIALOG_LOG) dialogLog.removeFirst()
-        dialogLog.addLast(n)
-    }
-
-    private fun hold(kind: DialogKind, message: String?, default: String?, result: JsResult): Boolean {
-        val now = SystemClock.uptimeMillis()
-        if (dialogResult != null) { // one at a time
+    private fun dialog(kind: DialogKind, message: String?, default: String?, result: JsResult): Boolean {
+        val e = BrowserEvent.Dialog(nextEventId(), id, SystemClock.uptimeMillis(), kind, message.orEmpty(), default, url)
+        if (dialogResult != null) { // one at a time, like a browser
             result.cancel()
-            log(DialogNote(kind, message.orEmpty(), accepted = false, text = null, at = now, extra = true))
+            record(Handled(e, Answer.Dismiss))
             return true
         }
-        // tools-redesign 2-4: an alert on a tab an AI tool is operating right now is confirmed by the app and reported
-        // in the tool result; between tool calls the user sees it (B-m8).
-        if (kind == DialogKind.ALERT && !hidden && events.aiOperating(this)) {
-            result.confirm()
-            log(DialogNote(kind, message.orEmpty(), accepted = true, text = null, at = now))
-            return true
+        raise(e) { a ->
+            if (_dialog.value?.id == e.id) { _dialog.value = null; dialogResult = null }
+            when (a) {
+                is Answer.Accept -> if (result is JsPromptResult && kind == DialogKind.PROMPT) result.confirm(a.text ?: default.orEmpty()) else result.confirm()
+                else -> result.cancel()
+            }
         }
-        val d = BrowserPrompt.Dialog(nextPromptId(), id, kind, message.orEmpty(), default, url)
-        dialogResult = result
-        _dialog.value = d
-        events.onPrompt(d)
+        if (e.id in waiting) { dialogResult = result; _dialog.value = e }
         return true
+    }
+
+    private fun onDownload(dlUrl: String, disposition: String?, mime: String?, length: Long) {
+        val now = SystemClock.uptimeMillis()
+        val firstNavigation = !hadDocument
+        val same = downloadLog.lastOrNull { it.url == dlUrl && now - it.at < TabRules.SAME_DOWNLOAD_MS }
+        if (same != null) {
+            addDownload(same.copy(at = now, again = true))
+        } else {
+            val e = BrowserEvent.Download(nextEventId(), id, now, dlUrl, mime, length, TabRules.fileName(dlUrl, disposition, mime))
+            val note = DownloadNote(now, dlUrl, mime, e.fileName)
+            addDownload(note)
+            raise(e) { a -> if (a is Answer.Accept) save(note) else update(note) { it.copy(state = DownloadNote.State.NOT_SAVED) } }
+        }
+        committedAt = now
+        _loading.value = false
+        events.onChanged(this)
+        if (firstNavigation) events.closeWindow(this) // Chrome: a new tab that only downloads goes away
+    }
+
+    private fun addDownload(n: DownloadNote) {
+        if (downloadLog.size >= LOG) downloadLog.removeFirst()
+        downloadLog.addLast(n)
+    }
+
+    private fun update(n: DownloadNote, change: (DownloadNote) -> DownloadNote) {
+        val i = downloadLog.indexOfFirst { it.at == n.at && it.url == n.url }
+        if (i >= 0) downloadLog[i] = change(downloadLog[i])
+    }
+
+    /** http(s) through DownloadManager (its completion comes to [downloadFinished]); data: and blob: by the app (2-5). */
+    private fun save(n: DownloadNote) {
+        val scheme = Uri.parse(n.url).scheme?.lowercase()
+        if (scheme == "http" || scheme == "https") {
+            try {
+                val req = DownloadManager.Request(Uri.parse(n.url))
+                    .setMimeType(n.mime)
+                    .addRequestHeader("User-Agent", view.settings.userAgentString)
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, n.fileName)
+                if (url.startsWith("http")) req.addRequestHeader("Referer", url)
+                CookieManager.getInstance().getCookie(n.url)?.let { req.addRequestHeader("Cookie", it) }
+                val dm = contextWrapper.getSystemService(DownloadManager::class.java)
+                val dmId = dm.enqueue(req)
+                update(n) { it.copy(state = DownloadNote.State.STARTED, managerId = dmId) }
+            } catch (e: Exception) {
+                update(n) { it.copy(state = DownloadNote.State.FAILED, reason = e.message ?: e.javaClass.simpleName) }
+            }
+            return
+        }
+        scope.launch {
+            val r = runCatching {
+                val (bytes, type) = if (scheme == "data") TabRules.dataUrl(n.url) ?: error("not a readable data: URL")
+                else TabRules.dataUrl(PageScript.blob(this@BrowserTab, n.url)) ?: error("the page did not hand over the file")
+                withContext(Dispatchers.IO) { writeDownload(n.fileName, n.mime ?: type, bytes) }
+                bytes.size.toLong() to type
+            }
+            update(n) { cur ->
+                r.fold(
+                    { (size, type) -> cur.copy(state = DownloadNote.State.SAVED, size = size, savedMime = type) },
+                    { cur.copy(state = DownloadNote.State.FAILED, reason = it.message ?: it.javaClass.simpleName) },
+                )
+            }
+            events.onChanged(this@BrowserTab)
+        }
+    }
+
+    private fun writeDownload(name: String, mime: String, bytes: ByteArray) {
+        val resolver = contextWrapper.applicationContext.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            put(MediaStore.Downloads.MIME_TYPE, mime)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Downloads refused the file")
+        try {
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Downloads could not be written")
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+    }
+
+    /** DownloadManager finished [managerId] (any of the app's): records the real name, size, type or failure. Main. */
+    internal fun downloadFinished(managerId: Long) {
+        val n = downloadLog.lastOrNull { it.managerId == managerId } ?: return
+        val dm = contextWrapper.getSystemService(DownloadManager::class.java)
+        val done = runCatching {
+            dm.query(DownloadManager.Query().setFilterById(managerId)).use { c ->
+                if (!c.moveToFirst()) return@use n.copy(state = DownloadNote.State.FAILED, reason = "cancelled")
+                val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                val size = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                val type = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_MEDIA_TYPE))
+                val local = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
+                val name = local?.let { Uri.parse(it).lastPathSegment } ?: n.fileName
+                if (status == DownloadManager.STATUS_SUCCESSFUL) n.copy(state = DownloadNote.State.SAVED, fileName = name, size = size, savedMime = type)
+                else n.copy(state = DownloadNote.State.FAILED, reason = "reason ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))}")
+            }
+        }.getOrElse { n.copy(state = DownloadNote.State.FAILED, reason = it.message ?: "unknown") }
+        update(n) { done }
+        events.onChanged(this)
     }
 
     private inner class Client : WebViewClient() {
@@ -414,6 +648,9 @@ class BrowserTab internal constructor(
             if (stale(startUrl)) return
             pageStartedAt = SystemClock.uptimeMillis()
             requested(startUrl)
+            urlChain = mainRequestsSince(navStartAt.takeIf { it > 0 } ?: pageStartedAt).plus(startUrl).distinct()
+            navStartAt = 0L
+            if (startUrl != crashUrl) crashUrl = null
             _loading.value = true
             url = startUrl
             events.onChanged(this@BrowserTab)
@@ -424,7 +661,9 @@ class BrowserTab internal constructor(
             committedAt = SystemClock.uptimeMillis()
             url = view.url ?: finishedUrl
             title = view.title.orEmpty()
+            if (url != BrowserEngine.BLANK) hadDocument = true
             _loading.value = false
+            lastUsedAt = System.currentTimeMillis()
             events.onChanged(this@BrowserTab)
             view.postDelayed({ if (!_loading.value && refreshThumbnail()) events.onChanged(this@BrowserTab) }, THUMB_DELAY_MS)
         }
@@ -442,8 +681,10 @@ class BrowserTab internal constructor(
             if (scheme in WEB_SCHEMES) return false
             // The navigation ends here without a document (B-m3).
             if (request.isForMainFrame) committedAt = SystemClock.uptimeMillis()
-            // tel:, mailto:, intent:, market: ... only a user tab may leave the app, never an AI tab.
-            if (owner == Owner.User && request.hasGesture() && scheme != "intent") events.onExternalLink(this@BrowserTab, request.url)
+            val uri = request.url
+            raise(BrowserEvent.ExternalLink(nextEventId(), id, SystemClock.uptimeMillis(), uri.toString(), userInput())) { a ->
+                if (a is Answer.Accept) events.openExternal(uri)
+            }
             return true
         }
 
@@ -469,12 +710,12 @@ class BrowserTab internal constructor(
         }
 
         private fun addError(e: NavError) {
-            if (navErrors.size >= DIALOG_LOG) navErrors.removeFirst()
+            if (navErrors.size >= LOG) navErrors.removeFirst()
             navErrors.addLast(e)
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-            events.onRendererGone(this@BrowserTab)
+            if (view === _webView.value) rendererGone(detail.didCrash())
             return true
         }
     }
@@ -488,32 +729,36 @@ class BrowserTab internal constructor(
         // Page logs are not kept (nothing reads them) and not printed to logcat.
         override fun onConsoleMessage(m: ConsoleMessage): Boolean = true
 
-        override fun onJsAlert(view: WebView, u: String, message: String?, result: JsResult) = hold(DialogKind.ALERT, message, null, result)
-        override fun onJsConfirm(view: WebView, u: String, message: String?, result: JsResult) = hold(DialogKind.CONFIRM, message, null, result)
+        override fun onJsAlert(view: WebView, u: String, message: String?, result: JsResult) = dialog(DialogKind.ALERT, message, null, result)
+        override fun onJsConfirm(view: WebView, u: String, message: String?, result: JsResult) = dialog(DialogKind.CONFIRM, message, null, result)
         override fun onJsPrompt(view: WebView, u: String, message: String?, default: String?, result: JsPromptResult) =
-            hold(DialogKind.PROMPT, message, default, result)
+            dialog(DialogKind.PROMPT, message, default, result)
+        override fun onJsBeforeUnload(view: WebView, u: String, message: String?, result: JsResult) =
+            dialog(DialogKind.BEFOREUNLOAD, message?.takeIf { it.isNotBlank() } ?: LEAVE_PAGE, null, result)
 
-        // "Leave this page?": an AI tool's navigation asked to leave, so it leaves; otherwise the user answers (B note).
-        override fun onJsBeforeUnload(view: WebView, u: String, message: String?, result: JsResult): Boolean {
-            if (hidden || events.aiOperating(this@BrowserTab)) {
-                result.confirm()
-                return true
+        override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+            val user = userInput()
+            val tab = events.popup(this@BrowserTab) ?: return false
+            (resultMsg.obj as WebView.WebViewTransport).webView = tab.view
+            resultMsg.sendToTarget()
+            raise(BrowserEvent.Popup(nextEventId(), id, SystemClock.uptimeMillis(), tab.id, user)) { a ->
+                if (a !is Answer.Accept) events.closeWindow(tab) else if (user) events.select(tab)
             }
-            return hold(DialogKind.CONFIRM, message?.takeIf { it.isNotBlank() } ?: LEAVE_PAGE, null, result)
+            return true
         }
 
+        override fun onCloseWindow(window: WebView) = events.closeWindow(this@BrowserTab)
+
         override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-            val p = BrowserPrompt.FileChooser(nextPromptId(), id, params.acceptTypes.filter { it.isNotBlank() },
+            val e = BrowserEvent.FileChooser(nextEventId(), id, SystemClock.uptimeMillis(), params.acceptTypes.filter { it.isNotBlank() },
                 params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
-            fileChoosers[p.id] = callback
-            events.onPrompt(p)
+            raise(e) { a -> callback.onReceiveValue((a as? Answer.Files)?.uris?.toTypedArray()) }
             return true
         }
 
         override fun onPermissionRequest(request: PermissionRequest) {
-            val p = BrowserPrompt.Permission(nextPromptId(), id, request.origin.toString(), request.resources.toList())
-            permissions[p.id] = request
-            events.onPrompt(p)
+            val e = BrowserEvent.Permission(nextEventId(), id, SystemClock.uptimeMillis(), request.origin.toString(), request.resources.toList())
+            raise(e) { a -> if (a is Answer.Accept) request.grant(request.resources) else request.deny() }
         }
 
         // The app holds no location permission.
@@ -523,9 +768,15 @@ class BrowserTab internal constructor(
 
     companion object {
         const val THUMB_WIDTH = 240
-        private const val DIALOG_LOG = 5
+        private const val LOG = 20
         private const val MAIN_REQUESTS = 20
         private const val LEAVE_PAGE = "Leave this page? Changes you made may not be saved."
+
+        /** A touch this recent counts as the user's own gesture for a link or popup (2-4, 추정 1 s). */
+        const val USER_INPUT_MS = 1_000L
+        private const val USER_GAP_MS = 300L
+        private const val USER_WAIT_MS = 2_000L
+        private const val FRAME_MS = 16L
 
         /** The settle phase shows "waiting for the page to finish" only after this long (no flicker on quick pages). */
         private const val SETTLING_SHOWN_MS = 1_000L
@@ -537,16 +788,27 @@ class BrowserTab internal constructor(
         private const val THUMB_DELAY_MS = 800L
         private const val TAP_MS = 50L
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript")
-        private val promptIds = AtomicLong()
-        internal fun nextPromptId() = promptIds.incrementAndGet()
+        private val eventIds = AtomicLong()
+        internal fun nextEventId() = eventIds.incrementAndGet()
 
-        fun dialogNote(d: BrowserPrompt.Dialog): String =
-            "A JavaScript ${d.kind.name.lowercase()} dialog is open: \"${d.message.take(300)}\". The page is waiting for the user to answer a dialog."
+        fun dialogNote(d: BrowserEvent.Dialog): String =
+            "A JavaScript ${d.kind.name.lowercase()} dialog is open: \"${d.message.take(300)}\". The page is waiting for the user to answer it."
     }
 }
 
-/** A dialog the page showed: [accepted] OK/Cancel, [text] a prompt's answer, [extra] = cancelled because another was open. */
-data class DialogNote(val kind: DialogKind, val message: String, val accepted: Boolean, val text: String?, val at: Long, val extra: Boolean = false)
-
-/** A download a hidden tab refused (uptime [at]). */
-data class DownloadNote(val at: Long, val url: String, val mime: String?, val fileName: String)
+/** A download of the tab (uptime [at]) and where it stands. [again] = the same URL within 30 s: not fetched twice. */
+data class DownloadNote(
+    val at: Long,
+    val url: String,
+    val mime: String?,
+    val fileName: String,
+    val state: State = State.ASKED,
+    val size: Long = -1,
+    /** The type of the saved file (a POST download fetched again as GET may come back as a page). */
+    val savedMime: String? = null,
+    val reason: String? = null,
+    val again: Boolean = false,
+    internal val managerId: Long = -1,
+) {
+    enum class State { ASKED, NOT_SAVED, STARTED, SAVED, FAILED }
+}

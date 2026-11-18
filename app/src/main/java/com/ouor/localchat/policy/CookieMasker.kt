@@ -1,4 +1,4 @@
-package com.ouor.localchat.browser.safety
+package com.ouor.localchat.policy
 
 import java.net.URLDecoder
 

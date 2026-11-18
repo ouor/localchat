@@ -20,7 +20,7 @@ object PdfPrinter {
         .build()
 
     suspend fun print(tab: BrowserTab): ByteArray {
-        val file = withContext(Dispatchers.IO) { File.createTempFile("print", ".pdf", tab.webView.context.applicationContext.cacheDir) }
+        val file = withContext(Dispatchers.IO) { File.createTempFile("print", ".pdf", tab.view.context.applicationContext.cacheDir) }
         try {
             withContext(Dispatchers.Main.immediate) {
                 val pfd = ParcelFileDescriptor.open(
@@ -29,7 +29,7 @@ object PdfPrinter {
                 )
                 try {
                     suspendCancellableCoroutine { cont ->
-                        PdfPrintBridge.write(tab.webView.createPrintDocumentAdapter(tab.title.ifBlank { "page" }), A4, pfd) { ok, error ->
+                        PdfPrintBridge.write(tab.view.createPrintDocumentAdapter(tab.title.ifBlank { "page" }), A4, pfd) { ok, error ->
                             if (ok) cont.resume(Unit) else cont.resumeWithException(PageError("Printing to PDF failed: ${error ?: "unknown error"}"))
                         }
                     }

@@ -1,11 +1,10 @@
-package com.ouor.localchat.browser.safety
+package com.ouor.localchat.browser.script
 
 import kotlinx.serialization.Serializable
 
 /**
- * What assets/browser/agent.js reports about a target element. Inputs of the pure safety rules
- * ([SensitiveFields], [IrreversibleAction]); attribute values are as written in the page (lowercased by JS
- * where noted).
+ * What assets/browser/agent.js reports about a target element ([BrowserTab.describe]); attribute values are as
+ * written in the page (lowercased by JS where noted). Page-reported: only as trustworthy as the page.
  */
 @Serializable
 data class ElementInfo(
