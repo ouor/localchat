@@ -28,6 +28,7 @@ import com.ouor.localchat.storage.SettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -64,7 +65,7 @@ class BrowserEngine @Inject constructor(
     private var nextId = 1
 
     /** sessionId -> the chat's work tab: the one tab its AI tools act on (tools-redesign 4). */
-    private val defaultAiTab = mutableMapOf<String, Int>()
+    private val workTabs = mutableMapOf<String, Int>()
 
     private var host: FrameLayout? = null
     private var hostActivity: Activity? = null
@@ -150,7 +151,7 @@ class BrowserEngine @Inject constructor(
     fun openUserTab(url: String): Int = open(Owner.User, url)
 
     /**
-     * Throws [PageError] at [MAX_TABS] visible tabs. A [hidden] tab (one tool call's) never shows in the panel or
+     * Throws [BrowserRefusal] at [MAX_TABS] visible tabs. A [hidden] tab (one tool call's) never shows in the panel or
      * tab list, never counts toward [MAX_TABS] (its own cap is [TabRules.MAX_HIDDEN_TABS]) and never becomes the
      * chat's work tab; its opener must close it.
      */
@@ -158,8 +159,25 @@ class BrowserEngine @Inject constructor(
     fun openAiTab(sessionId: String, url: String?, hidden: Boolean = false): Int {
         trimIdleAiTabs(except = sessionId)
         return open(Owner.Ai(sessionId), url, hidden).also {
-            if (!hidden) defaultAiTab[sessionId] = it
+            if (!hidden) workTabs[sessionId] = it
             aiUsedAt[it] = clock.now()
+        }
+    }
+
+    /**
+     * A hidden tab for one tool call: at [TabRules.MAX_HIDDEN_TABS] it waits for a slot (other chats' reads, link
+     * prefetch) up to [TabRules.HIDDEN_WAIT] instead of failing (B-m9). Any thread.
+     */
+    suspend fun openHiddenTab(sessionId: String, url: String): Int {
+        val start = SystemClock.uptimeMillis()
+        while (true) {
+            val id = withContext(Dispatchers.Main.immediate) {
+                if (byId.values.count { it.hidden } < TabRules.MAX_HIDDEN_TABS || SystemClock.uptimeMillis() - start >= TabRules.HIDDEN_WAIT) {
+                    openAiTab(sessionId, url, hidden = true)
+                } else null
+            }
+            if (id != null) return id
+            delay(TabRules.HIDDEN_POLL)
         }
     }
 
@@ -192,12 +210,12 @@ class BrowserEngine @Inject constructor(
     /** BUG-13: closes every AI tab of a chat (chat deleted). Any thread. */
     fun closeSessionTabs(sessionId: String) = onMain {
         byId.values.filter { it.owner == Owner.Ai(sessionId) }.map { it.id }.forEach(::close)
-        defaultAiTab.remove(sessionId)
+        workTabs.remove(sessionId)
     }
 
     private fun open(owner: Owner, url: String?, hidden: Boolean = false): Int {
         val hiddenCount = byId.values.count { it.hidden }
-        TabRules.limitError(hidden, byId.size - hiddenCount, hiddenCount)?.let { throw PageError(it) }
+        TabRules.limitError(hidden, byId.size - hiddenCount, hiddenCount)?.let { throw BrowserRefusal(it) }
         val tab = BrowserTab(nextId++, context, owner, this)
         tab.hidden = hidden
         byId[tab.id] = tab
@@ -214,8 +232,8 @@ class BrowserEngine @Inject constructor(
             val tab = byId[tabId] ?: return@onMain
             tab.owner = owner
             tab.control = Control.AI
-            defaultAiTab.values.removeAll { it == tabId }
-            if (owner is Owner.Ai) defaultAiTab[owner.sessionId] = tabId
+            workTabs.values.removeAll { it == tabId }
+            if (owner is Owner.Ai) workTabs[owner.sessionId] = tabId
             publish()
         }
     }
@@ -235,7 +253,7 @@ class BrowserEngine @Inject constructor(
         onMain {
             val tab = byId.remove(tabId) ?: return@onMain
             aiUsedAt.remove(tabId)
-            defaultAiTab.values.removeAll { it == tabId }
+            workTabs.values.removeAll { it == tabId }
             tab.cancelPrompts()
             (tab.webView.parent as? ViewGroup)?.removeView(tab.webView)
             tab.webView.destroy()
@@ -245,9 +263,9 @@ class BrowserEngine @Inject constructor(
         }
     }
 
-    /** For ui.browser.BrowserSurface and tools. Throws NoSuchElementException for a closed tab. */
+    /** For ui.browser.BrowserSurface and tools. Throws [TabClosed] for a closed tab. */
     @MainThread
-    fun tab(tabId: Int): BrowserTab = byId[tabId] ?: throw NoSuchElementException("tab $tabId")
+    fun tab(tabId: Int): BrowserTab = byId[tabId] ?: throw TabClosed(tabId)
 
     fun navigate(tabId: Int, url: String) = onMain { byId[tabId]?.load(url) }
     fun goBack(tabId: Int) = onMain { byId[tabId]?.goBack() }
@@ -356,7 +374,7 @@ class BrowserEngine @Inject constructor(
      * the work tab when there is none, and only it may use one on a sensitive site, since it leaves the site. While
      * the user holds control it calls [onUserControl] (the loop shows Pause.UserControl), waits for control to come
      * back (B-09 ③), calls [onResumed] and checks again. Marks [toolName] as the tab's AI activity (B-09 ②) until
-     * [clearAiActivity]. Any thread. Throws [PageError] when denied.
+     * [clearAiActivity]. Any thread. Throws [BrowserRefusal] when denied.
      */
     suspend fun acquireAiTab(
         sessionId: String,
@@ -385,19 +403,19 @@ class BrowserEngine @Inject constructor(
 
     /** The chat's work tab, if it is still open and owned by the session. */
     @MainThread
-    fun workTab(sessionId: String): Int? = defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
+    fun workTab(sessionId: String): Int? = workTabs[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
 
     /** The work tab by ownership only (no sensitive-URL or control check): request_handoff. */
     @MainThread
-    fun ownedAiTab(sessionId: String): BrowserTab = workTab(sessionId)?.let(byId::get) ?: throw PageError(NO_TAB)
+    fun ownedAiTab(sessionId: String): BrowserTab = workTab(sessionId)?.let(byId::get) ?: throw BrowserRefusal(NO_TAB)
 
     /** [acquireAiTab] without the control wait: the work tab (created when [navigating] and missing), B-S3. */
     @MainThread
     fun aiTabFor(sessionId: String, navigating: Boolean): BrowserTab {
-        val id = workTab(sessionId) ?: if (navigating) openAiTab(sessionId, null) else throw PageError(NO_TAB)
+        val id = workTab(sessionId) ?: if (navigating) openAiTab(sessionId, null) else throw BrowserRefusal(NO_TAB)
         val tab = byId.getValue(id)
         if (!navigating && sensitiveUrls.isSensitive(tab.url)) {
-            throw PageError("Your tab is on ${SensitiveUrls.hostOf(tab.url)}, which ${SensitiveUrls.REFUSAL}. The AI may not read or operate it; ask the user to do this part.")
+            throw BrowserRefusal("Your tab is on ${SensitiveUrls.hostOf(tab.url)}, which ${SensitiveUrls.REFUSAL}. The AI may not read or operate it; ask the user to do this part.")
         }
         return tab
     }
@@ -454,11 +472,12 @@ class BrowserEngine @Inject constructor(
 
     override fun onChanged(tab: BrowserTab) = publish()
 
+    override fun aiOperating(tab: BrowserTab): Boolean = tab.id in _aiActivity.value
+
     override fun onPrompt(prompt: BrowserPrompt) {
         // Nobody sees a hidden tab: refuse at once, or the page would wait forever (FB3 ui m6). read reports a download.
         val tab = byId[prompt.tabId]
         if (tab?.hidden == true) {
-            if (prompt is BrowserPrompt.Download) tab.lastDownload = DownloadNote(SystemClock.uptimeMillis(), prompt.url, prompt.mime, prompt.fileName)
             when (prompt) {
                 is BrowserPrompt.Dialog -> tab.answerDialog(false, null)
                 is BrowserPrompt.FileChooser -> tab.answerFileChooser(prompt.id, null)

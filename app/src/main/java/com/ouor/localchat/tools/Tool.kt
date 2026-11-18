@@ -47,8 +47,11 @@ enum class ApprovalMode {
     ALWAYS,
 }
 
-/** A model-facing failure (bad argument, refused action, stale ref). The message goes to the model as is. */
-class ToolError(message: String) : Exception(message)
+/**
+ * A model-facing failure (bad argument, refused action). The message goes to the model as is; [page] is a failed
+ * result that still shows the page (a stale ref answered with the current element list).
+ */
+class ToolError(message: String, val page: ToolOutcome? = null) : Exception(message)
 
 /** Implemented by chat.run.ToolExecutor; this is how tools reach the loop without importing chat. */
 interface ToolContext {
@@ -80,8 +83,17 @@ interface ToolContext {
     /** What the running call waits for, shown in its step line; null clears it. */
     fun status(s: ToolStatus?, engine: String? = null)
 
-    /** read's continuation per URL (and "(tab)"), for this turn. */
+    /** read's continuation per URL (and "(tab)"), for this chat. */
     val readCursors: MutableMap<String, ReadCursor>
+
+    /** B-S4: [urls] were visited for this call's result (a cached read part): their cookie values are masked too. */
+    fun markVisited(urls: Collection<String>)
+
+    /**
+     * SE 9 / B-M2: throws when an ALWAYS-approved call is no longer on the page the user approved. Called right before
+     * the approved action runs, after any wait.
+     */
+    fun checkApprovedPage(tab: BrowserTab)
 
     /** B-S2: suspends until the user answers SC-13. */
     suspend fun requireApproval(request: ApprovalRequest): Boolean
@@ -110,7 +122,6 @@ data class ApprovalRequest(
 data class ReadCursor(
     val url: String,
     val title: String,
-    val n: Int,
     val parts: List<String>,
     var next: Int,
     /** Flags line shown with the first part. */
@@ -118,12 +129,15 @@ data class ReadCursor(
     /** "(tab)" cursor: the document and text start it was made from. */
     val doc: String? = null,
     val head: String? = null,
+    /** Every URL the page was loaded through (redirects): masked again whenever a part is sent (B-S4). */
+    val urls: List<String> = emptyList(),
 )
 
 /** B-05 request to hand the tab to the user; the loop pauses on it. */
 data class HandoffRequest(val tabId: Int, val reason: String)
 
 data class ToolOutcome(
+    /** Page-derived text: the executor masks it and puts it inside the B-S5 boundary. Empty = none. */
     val text: String,
     val isError: Boolean = false,
     val summary: String? = null,
@@ -133,9 +147,13 @@ data class ToolOutcome(
     val handoff: HandoffRequest? = null,
     /** The user refused a CONDITIONAL approval inside the tool; the call is shown as DENIED. */
     val denied: Boolean = false,
+    /** App-written line before the boundary: what was done ("Clicked e5 → new page."). */
+    val lead: String = "",
+    /** App-written guidance after the boundary ("[more: …]", the submit button, more elements). */
+    val note: String = "",
 ) {
     companion object {
         const val DENIED_TEXT = "The user denied this action; do not retry it. Continue another way or ask the user."
-        val DENIED = ToolOutcome(DENIED_TEXT, isError = true, denied = true)
+        val DENIED = ToolOutcome("", isError = true, denied = true, lead = DENIED_TEXT)
     }
 }

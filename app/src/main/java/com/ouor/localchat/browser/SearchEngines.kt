@@ -39,7 +39,7 @@ object SearchEngines {
     /** How one load of a result page went. */
     enum class Outcome { RESULTS, BLOCKED, EMPTY, NET_ERROR }
 
-    enum class Next { DONE, RETRY, NEXT_ENGINE, NO_RESULTS, ALL_BLOCKED, NET_FAILED }
+    enum class Next { DONE, RETRY, NEXT_ENGINE, NO_RESULTS, ALL_BLOCKED, NET_FAILED, TIMED_OUT }
 
     const val RETRY_MS = 1_500L
     const val BUDGET_MS = 30_000L
@@ -48,8 +48,14 @@ object SearchEngines {
      * What to do after the latest attempt in [tries] (engine, outcome; oldest first) with [plan] the engine order.
      * Blocked pages, consent screens, HTTP errors and slow empty pages move on; a real empty result moves on once, the
      * second ends the search; a network error retries the same engine once, and two engines failing that way end it.
+     * No new page is loaded once [elapsedMs] since the search started reaches [BUDGET_MS] (B-m10).
      */
-    fun next(plan: List<SearchEngine>, tries: List<Pair<SearchEngine, Outcome>>): Next {
+    fun next(plan: List<SearchEngine>, tries: List<Pair<SearchEngine, Outcome>>, elapsedMs: Long): Next {
+        val n = next(plan, tries)
+        return if ((n == Next.RETRY || n == Next.NEXT_ENGINE) && elapsedMs >= BUDGET_MS) Next.TIMED_OUT else n
+    }
+
+    private fun next(plan: List<SearchEngine>, tries: List<Pair<SearchEngine, Outcome>>): Next {
         val (engine, outcome) = tries.last()
         if (outcome == Outcome.RESULTS) return Next.DONE
         if (outcome == Outcome.EMPTY && tries.count { it.second == Outcome.EMPTY } >= 2) return Next.NO_RESULTS

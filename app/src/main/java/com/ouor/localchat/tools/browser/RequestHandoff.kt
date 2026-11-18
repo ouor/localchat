@@ -1,6 +1,7 @@
 package com.ouor.localchat.tools.browser
 
 import com.ouor.localchat.R
+import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.tools.HandoffRequest
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
@@ -11,7 +12,7 @@ import com.ouor.localchat.tools.params
 import com.ouor.localchat.tools.string
 import kotlinx.serialization.json.JsonObject
 
-/** B-05: the work tab goes to the user until they give it back; the result is then the page as they left it (ToolExecutor.afterHandoff). */
+/** B-05: the work tab goes to the user until they give it back; the result is then the page as they left it ([returned]). */
 object RequestHandoff : Tool {
     override val name = "request_handoff"
     override val groups = setOf(ToolGroup.BROWSER)
@@ -29,8 +30,21 @@ object RequestHandoff : Tool {
         val reason = args.string("reason")
         return onMain {
             val tab = ctx.browser.ownedAiTab(ctx.sessionId)
-            // The loop pauses on handoff; when the user gives the tab back the executor replaces this text (architecture 7.7).
-            ToolOutcome("Handed the tab to the user: $reason", handoff = HandoffRequest(tab.id, reason))
+            // The loop pauses on handoff; when the user gives the tab back the executor replaces this result (architecture 7.7).
+            ToolOutcome("", lead = "Handed the tab to the user: $reason", handoff = HandoffRequest(tab.id, reason))
         }
+    }
+
+    const val GIVEN_BACK = "The user gave the tab back."
+    private const val RETURNED = "$GIVEN_BACK They may or may not have finished; check the page below."
+
+    /**
+     * The result once the user gave [tab] back (tools-redesign 3-7): the page as they left it. ToolExecutor checks a
+     * closed tab and a sensitive site first. Main thread.
+     */
+    internal suspend fun returned(ctx: ToolContext, tab: BrowserTab): ToolOutcome {
+        val since = now()
+        val page = ctx.pageResult(tab, ctx.ready(tab, since), since)
+        return ctx.withPicture(tab, page.copy(isError = false, lead = RETURNED), keep = false)
     }
 }

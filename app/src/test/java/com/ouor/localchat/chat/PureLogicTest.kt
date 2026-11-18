@@ -23,6 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.ouor.localchat.tools.ToolOutcome
 import org.junit.Test
 
 class PureLogicTest {
@@ -117,9 +118,39 @@ class PureLogicTest {
         assertFalse(out.getValue("2").contains("[ref=e1]"))
         assertEquals(newest, out["3"])
         assertEquals("r", out["4"])
-        // An old chat's tool names get no rule.
+        // Names outside the rules are sent as they are.
         val big = "z".repeat(5000)
-        assertEquals(big, ToolResultTrimmer.trim(listOf(Triple("1", "page_text", big), Triple("2", "snapshot", big)))["1"])
+        assertEquals(big, ToolResultTrimmer.trim(listOf(Triple("1", "other", big), Triple("2", "other", big)))["1"])
+    }
+
+    @Test
+    fun `the newest list is the newest result that holds one, not a later error or refusal (G-M2)`() {
+        val list = "Clicked e1 → new page.\n" + com.ouor.localchat.chat.context.Untrusted.wrap("Page: A — https://a.test/\n\n- button \"Archive\" [ref=e7]") +
+            "\n(12 more elements: 0 above and 12 below the visible part. Call browse() again to list them.)"
+        val denied = ToolOutcome.DENIED_TEXT
+        val disabled = "e9 is disabled."
+        val pageError = com.ouor.localchat.chat.context.Untrusted.wrap("A JavaScript alert dialog is open: \"hi\".")
+        val out = ToolResultTrimmer.trim(listOf(Triple("1", "click", list), Triple("2", "click", denied), Triple("3", "click", disabled), Triple("4", "type", pageError)))
+        assertEquals(list, out["1"]) // still the page the model acts on
+        assertEquals(denied, out["2"])
+        assertEquals(disabled, out["3"])
+        assertEquals(pageError, out["4"])
+        // A stale-ref error carries the current list: it is the newest then.
+        val stale = "Ref e7 is from an earlier page of this tab, not this one. Use a ref from the element list below.\n" +
+            com.ouor.localchat.chat.context.Untrusted.wrap("Page: B — https://b.test/\n\n- link \"x\" [ref=e20]")
+        val again = ToolResultTrimmer.trim(listOf(Triple("1", "click", list), Triple("2", "click", stale)))
+        assertEquals(
+            "Clicked e1 → new page.\n" + com.ouor.localchat.chat.context.Untrusted.wrap("Page: A — https://a.test/\n" + ToolResultTrimmer.STALE),
+            again["1"], // the old list's "more elements" note goes with its list
+        )
+        assertEquals(stale, again["2"])
+        // Code that opened a new page returns its list (G-m7): that list is the newest, the click's is old.
+        val ran = "Ran the code → new page.\n" + com.ouor.localchat.chat.context.Untrusted.wrap("Result: 1\nPage: C — https://c.test/\n\n- link \"y\" [ref=e30]")
+        val afterExec = ToolResultTrimmer.trim(listOf(Triple("1", "click", list), Triple("2", "execute", ran)))
+        assertTrue(afterExec["1"]!!, ToolResultTrimmer.STALE in afterExec["1"]!!)
+        assertEquals(ran, afterExec["2"])
+        assertTrue(ToolResultTrimmer.hasList(list))
+        assertFalse(ToolResultTrimmer.hasList(pageError))
     }
 
     @Test

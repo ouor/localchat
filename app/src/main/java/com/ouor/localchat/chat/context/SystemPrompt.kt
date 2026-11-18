@@ -8,6 +8,9 @@ import java.util.Locale
 
 /** Model-facing instructions (English on purpose; replies follow the user's language). */
 object SystemPrompt {
+    /** Rule 12: the steps-left note on the newest tool result. */
+    fun stepsLeft(n: Int) = "[App note: $n step(s) left before the user is asked whether to continue. Answer soon if you can.]"
+
 
     /**
      * Architecture 5.4 rule 1: A-08 context + A-09 user instructions + guidance for the exposed [tools] (tools-redesign

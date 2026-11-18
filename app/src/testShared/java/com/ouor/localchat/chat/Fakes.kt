@@ -176,7 +176,7 @@ class FakeBrowserPort : BrowserPort {
     /** Same contract as BrowserEngine.acquireAiTab: only navigating creates the tab; wait while USER, then check again. */
     override suspend fun acquireAiTab(sessionId: String, toolName: String, navigating: Boolean, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int {
         while (true) {
-            val id = workTab ?: if (navigating) 1.also { workTab = it } else throw com.ouor.localchat.browser.PageError(com.ouor.localchat.browser.BrowserEngine.NO_TAB)
+            val id = workTab ?: if (navigating) 1.also { workTab = it } else throw com.ouor.localchat.browser.BrowserRefusal(com.ouor.localchat.browser.BrowserEngine.NO_TAB)
             aiTabCalls += id to navigating
             if (controls.value[id] != Control.USER) return id.also { activity += it to toolName }
             onUserControl(id)

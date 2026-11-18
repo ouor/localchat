@@ -27,6 +27,6 @@ data class ElementInfo(
     val formMethod: String? = null,
     val formAction: String? = null,
     val href: String? = null,
-    /** Inside a `[role=search]` landmark (type's automatic Enter). */
+    /** A one-line search field (agent.js isSearchBox): type presses Enter after it by itself. */
     val search: Boolean = false,
 )

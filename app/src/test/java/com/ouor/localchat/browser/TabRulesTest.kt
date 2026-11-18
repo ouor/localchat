@@ -58,9 +58,9 @@ class TabRulesTest {
 
     private fun input(
         now: Long, settleStart: Long? = null, loading: Boolean = false, mark: PageMark? = mark(), settleN: Int? = null,
-        mainRequestAt: Long = 0, pageStartedAt: Long = 0, lastRequestAt: Long = 0, errorAt: Long? = null, downloadAt: Long? = null,
-        since: Long = 1_000, docStart: Long = since,
-    ) = ReadyInput(now, since, docStart, settleStart, loading, mark, settleN, mainRequestAt, pageStartedAt, lastRequestAt, errorAt, downloadAt)
+        mainRequestAt: Long = 0, pageStartedAt: Long = 0, committedAt: Long = 0, lastRequestAt: Long = 0, errorAt: Long? = null,
+        downloadAt: Long? = null, since: Long = 1_000, docStart: Long = since,
+    ) = ReadyInput(now, since, docStart, settleStart, loading, mark, settleN, mainRequestAt, pageStartedAt, committedAt, lastRequestAt, errorAt, downloadAt)
 
     @Test
     fun `load phase waits for the response, then settles`() {
@@ -78,13 +78,15 @@ class TabRulesTest {
     fun `settle phase is ready after a quiet window, with enough text or a change`() {
         val s = 2_000L
         assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600), settleN = 1)))
-        // Quiet but sparse and unchanged (E7): wait for the page to draw itself.
-        assertTrue(TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1)) is ReadyStep.Wait)
+        // Quiet but sparse and unchanged (E7): a new document may still draw itself, so it waits.
+        assertTrue(TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1, pageStartedAt = 1_200)) is ReadyStep.Wait)
+        // B-m4: no new document in this wait (a type, a re-list on a short form): quiet is enough.
+        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1)))
         assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(n = 2, quiet = 600, text = 50), settleN = 1)))
         // A request 100 ms ago keeps it busy.
         assertEquals(ReadyStep.Wait(400), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600), settleN = 1, lastRequestAt = 2_500)))
         // At the cap: a short unchanged page is ready, a changing one is CHANGING.
-        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(s + TabRules.SETTLE_CAP, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1)))
+        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(s + TabRules.SETTLE_CAP, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1, pageStartedAt = 1_200)))
         assertEquals(ReadyStep.Done(Readiness.CHANGING), TabRules.readyStep(input(s + TabRules.SETTLE_CAP, settleStart = s, mark = mark(n = 9, quiet = 10), settleN = 1)))
         // A new document requested while settling (JS redirect) loads again.
         assertEquals(ReadyStep.Restart, TabRules.readyStep(input(2_600, settleStart = s, mainRequestAt = 2_100, settleN = 1)))
@@ -95,6 +97,13 @@ class TabRulesTest {
         assertEquals(ReadyStep.Done(Readiness.FAILED), TabRules.readyStep(input(1_500, errorAt = 1_200)))
         assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(1_500, downloadAt = 1_200, loading = true, mark = null)))
         assertEquals(ReadyStep.Settle, TabRules.readyStep(input(1_500, errorAt = 900, downloadAt = 900)))
+    }
+
+    @Test
+    fun `a navigation answered without a new document ends the load phase (B-m3)`() {
+        // Same-page anchor, history push or a cancelled intent: onPageFinished / doUpdateVisitedHistory / the override.
+        assertEquals(ReadyStep.Settle, TabRules.readyStep(input(1_500, mainRequestAt = 1_100, pageStartedAt = 500, committedAt = 1_150)))
+        assertEquals(ReadyStep.Wait(TabRules.LOAD_POLL), TabRules.readyStep(input(1_500, mainRequestAt = 1_100, pageStartedAt = 500, committedAt = 900)))
     }
 
     // --- navigation errors (tools-redesign 2-2)

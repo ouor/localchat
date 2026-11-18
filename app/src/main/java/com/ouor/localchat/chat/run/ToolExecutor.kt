@@ -1,9 +1,12 @@
 package com.ouor.localchat.chat.run
 
+import android.os.SystemClock
 import android.util.Log
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
+import com.ouor.localchat.browser.BrowserRefusal
 import com.ouor.localchat.browser.PageError
+import com.ouor.localchat.browser.TabClosed
 import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.chat.AttachmentPort
@@ -23,8 +26,7 @@ import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
 import com.ouor.localchat.tools.ToolOutcome
-import com.ouor.localchat.tools.browser.pageResult
-import com.ouor.localchat.tools.browser.ready
+import com.ouor.localchat.tools.browser.RequestHandoff
 import com.ouor.localchat.tools.browser.sensitiveMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +42,7 @@ import javax.inject.Provider
 
 /**
  * Runs one turn's tool calls (architecture 6.4) and is the tools' [ToolContext]. One instance per
- * turn so citation numbers and read continuations stay stable within the message (S-04).
+ * turn so citation numbers stay stable within the message (S-04).
  */
 class ToolExecutor(
     override val sessionId: String,
@@ -53,6 +55,8 @@ class ToolExecutor(
     existingSources: List<Source>,
     override val contextWindow: Int? = null,
     override val vision: Boolean = false,
+    /** read's continuations of this chat; they outlive the turn (G-m9). */
+    override val readCursors: MutableMap<String, ReadCursor>,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
     private val onState: (callKey: String, ToolCallState) -> Unit,
 ) : ToolContext {
@@ -79,7 +83,7 @@ class ToolExecutor(
     fun isOff(name: String) = name in turnedOff
 
     private val sources = existingSources.associateBy { it.url }.toMutableMap()
-    override val readCursors = HashMap<String, ReadCursor>()
+
 
     /** Failed calls of this turn by tool + normalized arguments (tools-redesign 5-4). */
     private val failures = HashMap<String, Int>()
@@ -97,10 +101,15 @@ class ToolExecutor(
     /** Tab and URL an ALWAYS approval was given for; the tool must act on exactly that page. */
     private var approvedPage: Pair<Int, String?>? = null
 
+    /** The current call's work tab and start (uptime): its main-frame requests since then are masked too. */
+    private var workTabRef: BrowserTab? = null
+    private var callStart = 0L
+
     suspend fun execute(call: ToolCallBlock): Result {
         callKey = call.key
         callId = call.callId
         lastTabId = null
+        workTabRef = null
         toolName = call.name
         visited.clear()
         val tool = tools.firstOrNull { it.name == call.name }
@@ -123,35 +132,19 @@ class ToolExecutor(
                 }
                 approvedPage = tabId to url
             }
-            val outcome = tool.run(args, this)
-            // SE 2: the tab may have redirected to a sensitive page after it was acquired.
-            val sensitive = lastTabId?.let(browserPort::tabUrl)?.let(browserPort::isSensitive) == true
-            val block = ToolResultBlock(
-                callId = call.callId,
-                step = call.step,
-                content = if (sensitive) SENSITIVE else seal(outcome.text, lastTabId),
-                isError = outcome.isError || sensitive,
-                summary = outcome.summary.takeUnless { sensitive },
-                sources = outcome.sources,
-                artifactIds = if (sensitive) emptyList() else outcome.artifactIds,
-                imageForModelId = outcome.imageForModelId.takeUnless { sensitive },
-            )
-            val state = when {
-                outcome.denied -> ToolCallState.DENIED
-                outcome.isError -> ToolCallState.FAILED
-                else -> ToolCallState.DONE
-            }
-            done(call, block, state, outcome.handoff)
+            finish(call, tool.run(args, this))
         } catch (e: CancellationException) {
             throw e
         } catch (e: ToolError) {
-            // App-written text: sent as is.
+            // App-written text: sent as is; a stale ref also shows the current page.
+            e.page?.let { finish(call, it) } ?: error(call, e.message ?: TOOL_FAILED)
+        } catch (e: BrowserRefusal) {
             error(call, e.message ?: TOOL_FAILED)
         } catch (e: PageError) {
             // May carry page text (alert(), option labels, a thrown cookie): SE 4.
-            val hint = if (e.message == PageScript.NOT_RUN_AGAIN && "browse" in exposed) " Call browse() to see where it is now." else ""
-            error(call, seal((e.message ?: TOOL_FAILED) + hint, lastTabId))
-        } catch (_: NoSuchElementException) {
+            val hint = if (e.message == PageScript.NOT_RUN_AGAIN && "browse" in exposed) "\nCall browse() to see where it is now." else ""
+            error(call, seal(e.message ?: TOOL_FAILED, lastTabId) + hint)
+        } catch (_: TabClosed) {
             error(call, TAB_CLOSED + if ("browse" in exposed) " Call browse to open it again." else "")
         } catch (e: Exception) {
             // FB3 eng m5: an unplanned exception's text (a path, an internal state, a class name R8 renames) is not
@@ -164,6 +157,32 @@ class ToolExecutor(
         }
         return repeated(call, args, result)
     }
+
+    /** A tool's outcome as the stored result: app lines outside, page text sealed (B-S5); withheld on a sensitive page (SE 2). */
+    private fun finish(call: ToolCallBlock, outcome: ToolOutcome): Result {
+        // SE 2: the tab may have redirected to a sensitive page after it was acquired.
+        val sensitive = lastTabId?.let(browserPort::tabUrl)?.let(browserPort::isSensitive) == true
+        workTabRef?.let { visited += it.mainRequestsSince(callStart) }
+        val block = ToolResultBlock(
+            callId = call.callId,
+            step = call.step,
+            content = if (sensitive) SENSITIVE else content(outcome, lastTabId),
+            isError = outcome.isError || sensitive,
+            summary = outcome.summary.takeUnless { sensitive },
+            sources = outcome.sources,
+            artifactIds = if (sensitive) emptyList() else outcome.artifactIds,
+            imageForModelId = outcome.imageForModelId.takeUnless { sensitive },
+        )
+        val state = when {
+            outcome.denied -> ToolCallState.DENIED
+            outcome.isError -> ToolCallState.FAILED
+            else -> ToolCallState.DONE
+        }
+        return done(call, block, state, outcome.handoff)
+    }
+
+    private fun content(o: ToolOutcome, tabId: Int?): String =
+        listOf(o.lead, if (o.text.isEmpty()) "" else seal(o.text, tabId), o.note).filter { it.isNotEmpty() }.joinToString("\n")
 
     /** tools-redesign 5-4: the second failure of the same call this turn gets an app note, outside the page boundary. */
     private fun repeated(call: ToolCallBlock, args: JsonObject, r: Result): Result {
@@ -199,13 +218,27 @@ class ToolExecutor(
             onResumed = { before?.let { phase -> handle.update { it.copy(phase = phase) } } },
         )
         browserPort.tabUrl(id)?.let(visited::add)
-        approvedPage?.let { (tabId, url) ->
-            if (tabId != id || browserPort.tabUrl(id) != url) throw ToolError("The page changed after approval; ask again.")
-        }
+        checkApproved(id)
         lastTabId = id
         // The panel peeks at the work tab while a tool uses it (B-02).
         handle.update { s -> (s.phase as? RunPhase.RunningTool)?.takeIf { it.callId == callId }?.let { s.copy(phase = it.copy(tabId = id)) } ?: s }
-        return withContext(Dispatchers.Main.immediate) { browserPort.tab(id) }
+        return withContext(Dispatchers.Main.immediate) { browserPort.tab(id) }.also {
+            // Before the tool acts on it: its requests from here on are this call's.
+            if (workTabRef == null) callStart = SystemClock.uptimeMillis()
+            workTabRef = it
+        }
+    }
+
+    override fun checkApprovedPage(tab: BrowserTab) = checkApproved(tab.id)
+
+    override fun markVisited(urls: Collection<String>) {
+        visited += urls
+    }
+
+    private fun checkApproved(id: Int) {
+        approvedPage?.let { (tabId, url) ->
+            if (tabId != id || browserPort.tabUrl(id) != url) throw ToolError(PAGE_CHANGED)
+        }
     }
 
     override suspend fun <T> hiddenTab(url: String, block: suspend (BrowserTab) -> T): T {
@@ -215,11 +248,16 @@ class ToolExecutor(
             withContext(NonCancellable) { id = browserPort.openHiddenTab(sessionId, url) } // Too many tabs throws (AN 1).
             val tabId = checkNotNull(id)
             visited += url
-            val result = withContext(Dispatchers.Main.immediate) { block(browserPort.tab(tabId)) }
-            // A redirect may have landed on a sensitive page (SE 2).
-            val landed = browserPort.tabUrl(tabId)
-            landed?.let(visited::add)
-            if (landed != null && browserPort.isSensitive(landed)) throw ToolError(sensitiveMessage(SensitiveUrls.hostOf(landed).orEmpty()))
+            val tab = withContext(Dispatchers.Main.immediate) { browserPort.tab(tabId) }
+            val result = try {
+                withContext(Dispatchers.Main.immediate) { block(tab) }
+            } finally {
+                // B-S4: every URL of the redirect chain is masked, not only the first and the last.
+                visited += tab.mainRequestsSince(0)
+            }
+            // A redirect may have landed on, or passed through, a sensitive page (SE 2).
+            browserPort.tabUrl(tabId)?.let(visited::add)
+            visited.firstOrNull(browserPort::isSensitive)?.let { throw ToolError(sensitiveMessage(SensitiveUrls.hostOf(it).orEmpty())) }
             return result
         } finally {
             id?.let { withContext(NonCancellable) { browserPort.close(it) } }
@@ -250,31 +288,34 @@ class ToolExecutor(
     override fun numberSource(url: String, title: String, snippet: String?): Int =
         sources.getOrPut(url) { Source(sources.size + 1, url, title, snippet) }.n
 
-    /** B-05: the result of request_handoff once the user gave [tabId] back (tools-redesign 3-7). */
-    suspend fun afterHandoff(tabId: Int): String {
-        val url = browserPort.tabUrl(tabId) ?: return HANDOFF_CLOSED
+    /**
+     * B-05: [handoff]'s result once the user gave [tabId] back (tools-redesign 3-7). The executor checks a closed tab
+     * and a sensitive site; [RequestHandoff.returned] lists the page.
+     */
+    suspend fun afterHandoff(handoff: ToolResultBlock, tabId: Int): ToolResultBlock {
+        val url = browserPort.tabUrl(tabId) ?: return handoff.copy(content = HANDOFF_CLOSED, isError = false)
         if (browserPort.isSensitive(url)) {
-            return "The user gave the tab back. It is on a sensitive site (${SensitiveUrls.hostOf(url)}), so its content is withheld."
+            val host = SensitiveUrls.hostOf(url)
+            return handoff.copy(content = "The user gave the tab back. It is on a sensitive site ($host), so its content is withheld.", isError = false)
         }
-        return try {
-            val page = withContext(Dispatchers.Main.immediate) {
-                val tab = browserPort.tab(tabId)
-                val since = com.ouor.localchat.tools.browser.now()
-                pageResult(tab, ready(tab, since), since)
-            }
-            visited.clear()
-            visited += url
-            seal("The user gave the tab back. They may or may not have finished; check the page below.\n$page", tabId)
+        visited.clear()
+        visited += url
+        val outcome = try {
+            withContext(Dispatchers.Main.immediate) { RequestHandoff.returned(this@ToolExecutor, browserPort.tab(tabId)) }
         } catch (e: CancellationException) {
             throw e
-        } catch (_: NoSuchElementException) {
-            HANDOFF_CLOSED
+        } catch (_: TabClosed) {
+            return handoff.copy(content = HANDOFF_CLOSED, isError = false)
         } catch (e: PageError) {
-            seal("The user gave the tab back. Its page could not be listed: ${e.message}", tabId)
-        } catch (_: Exception) {
-            seal("The user gave the tab back. Its page could not be listed; call browse() to see it.", tabId)
+            ToolOutcome("Its page could not be listed: ${e.message}", lead = RequestHandoff.GIVEN_BACK)
+        } catch (e: Exception) {
+            runCatching { Log.w("localchat", "handoff return failed", e) }
+            ToolOutcome("", lead = RequestHandoff.GIVEN_BACK + hint("browse", " Its page could not be listed; call browse() to see it."))
         }
+        return handoff.copy(content = content(outcome, tabId), isError = false, imageForModelId = outcome.imageForModelId)
     }
+
+    private fun hint(tool: String, text: String) = if (tool in exposed) text else ""
 
     /**
      * Architecture 6.4 post-processing, in this order: cookie mask of every URL the call was on, 50 KB cap, boundary.
@@ -302,6 +343,7 @@ class ToolExecutor(
         const val TOOL_FAILED = "Tool failed unexpectedly (an app error). Do not repeat the same call; continue another way."
         const val TAB_CLOSED = "The tab closed during the call (the page crashed or the user closed it)."
         const val HANDOFF_CLOSED = "The user gave the tab back but closed it."
+        const val PAGE_CHANGED = "The page changed after approval, so the code was not run; ask again."
         const val REPEAT_NOTE = "[App note: this exact call failed twice. Change the approach, or answer with what you have.]"
     }
 }

@@ -49,5 +49,14 @@ sealed interface BrowserPrompt {
 
 enum class DialogKind { ALERT, CONFIRM, PROMPT }
 
-/** A model-facing browser failure (stale ref, page not answering, tab limit). The message goes to the model. */
-class PageError(message: String) : Exception(message)
+/** A model-facing browser failure (page not answering, a script error). The message may carry page text: it is sealed. */
+open class PageError(message: String) : Exception(message)
+
+/** agent.js refused a ref: not a ref, from an earlier page of the tab, or gone. The tool answers with the current list. */
+class StaleRef(message: String) : PageError(message)
+
+/** An app-written browser refusal (no work tab, a sensitive site, the tab limit): sent to the model as is. */
+class BrowserRefusal(message: String) : Exception(message)
+
+/** [BrowserEngine.tab] of a tab that is gone (closed by the user, crashed). */
+class TabClosed(tabId: Int) : Exception("tab $tabId closed")

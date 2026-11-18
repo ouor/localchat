@@ -64,6 +64,9 @@ class BrowserTab internal constructor(
         fun onRendererGone(tab: BrowserTab) {}
         fun onUserTouch(tab: BrowserTab) {}
         fun onExternalLink(tab: BrowserTab, uri: Uri) {}
+
+        /** An AI tool is running on [tab] right now (the engine's aiActivity). */
+        fun aiOperating(tab: BrowserTab): Boolean = false
     }
 
     internal val contextWrapper = MutableContextWrapper(appContext)
@@ -88,10 +91,25 @@ class BrowserTab internal constructor(
     private val lastRequestAt = AtomicLong()
     private val mainRequestAt = AtomicLong()
     @Volatile private var pageStartedAt = 0L
+
+    /** The navigation got an answer without a new document (same-page anchor, history push, a cancelled scheme). */
+    @Volatile private var committedAt = 0L
     private val navErrors = ArrayDeque<NavError>()
 
-    /** A download this hidden tab refused (read reports it); set by the engine. */
+    /** Main-frame request URLs (uptime, url), redirects included, newest last; any thread. */
+    private val mainRequests = ArrayDeque<Pair<Long, String>>()
+
+    /** The latest download the page started; the load that led to it ends there. */
     internal var lastDownload: DownloadNote? = null
+
+    /**
+     * First ref number for the next document (G-M1): refs never repeat within the tab, so a ref from a page that is
+     * gone is always refused, never matched to another element. Raised after every agent.js call.
+     */
+    @Volatile internal var refNext = 1
+
+    /** The document the last list was marked "still changing" for (G-m13). Main thread. */
+    internal var changingDoc: String? = null
 
     /** Dialogs the page showed while the AI used it, newest last (at most [DIALOG_LOG]). */
     private val dialogLog = ArrayDeque<DialogNote>()
@@ -114,6 +132,7 @@ class BrowserTab internal constructor(
         webView.webChromeClient = Chrome()
         webView.setDownloadListener { dlUrl, _, disposition, mime, length ->
             val p = BrowserPrompt.Download(nextPromptId(), id, dlUrl, URLUtil.guessFileName(dlUrl, disposition, mime), mime, length)
+            lastDownload = DownloadNote(SystemClock.uptimeMillis(), dlUrl, mime, p.fileName)
             downloads[p.id] = p
             events.onPrompt(p)
         }
@@ -149,8 +168,20 @@ class BrowserTab internal constructor(
     /** Dialogs shown at or after [since] (uptime). Main thread. */
     fun dialogsSince(since: Long): List<DialogNote> = dialogLog.filter { it.at >= since }
 
-    /** A download refused at or after [since]. */
+    /** A download started at or after [since]. */
     fun downloadSince(since: Long): DownloadNote? = lastDownload?.takeIf { it.at >= since }
+
+    /** Main-frame URLs requested at or after [since] (uptime), redirects included. Any thread. */
+    fun mainRequestsSince(since: Long): List<String> =
+        synchronized(mainRequests) { mainRequests.filter { it.first >= since }.map { it.second } }
+
+    private fun requested(url: String) {
+        val now = SystemClock.uptimeMillis()
+        synchronized(mainRequests) {
+            if (mainRequests.size >= MAIN_REQUESTS) mainRequests.removeFirst()
+            mainRequests.addLast(now to url)
+        }
+    }
 
     /**
      * Waits until the page is ready to read or act on after something that started at [since] (uptime ms;
@@ -179,12 +210,12 @@ class BrowserTab internal constructor(
                 busy = e.message?.startsWith(NOT_ANSWERED) == true
                 null
             }
-            // A page too busy to answer is read as it is.
-            if (busy && settleStart != null) return@withContext Readiness.READY
+            // A page too busy to answer is read as it is, marked as maybe unfinished (A-m5).
+            if (busy && settleStart != null) return@withContext Readiness.CHANGING
             val now = SystemClock.uptimeMillis()
             val input = TabRules.ReadyInput(
                 now, since, docStart, settleStart, _loading.value, mark, settleN, mainRequestAt.get(), pageStartedAt,
-                lastRequestAt.get(), navErrors.lastOrNull { !it.http }?.at, lastDownload?.at,
+                committedAt, lastRequestAt.get(), navErrors.lastOrNull { !it.http }?.at, lastDownload?.at,
             )
             when (val step = TabRules.readyStep(input)) {
                 is TabRules.ReadyStep.Done -> return@withContext step.readiness
@@ -204,7 +235,7 @@ class BrowserTab internal constructor(
 
     /**
      * evaluateJavascript with a timeout. A JS dialog blocks the page's script thread, so the call also returns
-     * early when one opens (architecture 7.4 dialog_handle).
+     * early when one opens (tools-redesign 2-4).
      */
     suspend fun evaluate(script: String, timeoutMs: Long): String = withContext(Dispatchers.Main.immediate) {
         _dialog.value?.let { throw PageError(dialogNote(it)) }
@@ -236,7 +267,10 @@ class BrowserTab internal constructor(
         val up = MotionEvent.obtain(t, t + TAP_MS, MotionEvent.ACTION_UP, x, y, 0)
         injecting = true
         try {
-            return webView.dispatchTouchEvent(down) and webView.dispatchTouchEvent(up)
+            // Taken when the down was: a script click after it would activate the element twice.
+            val a = webView.dispatchTouchEvent(down)
+            val b = webView.dispatchTouchEvent(up)
+            return a || b
         } finally {
             injecting = false
             down.recycle()
@@ -346,8 +380,9 @@ class BrowserTab internal constructor(
             log(DialogNote(kind, message.orEmpty(), accepted = false, text = null, at = now, extra = true))
             return true
         }
-        // tools-redesign 2-4: an alert on a tab the AI operates is confirmed by the app and reported in the tool result.
-        if (kind == DialogKind.ALERT && owner is Owner.Ai && control == Control.AI && !hidden) {
+        // tools-redesign 2-4: an alert on a tab an AI tool is operating right now is confirmed by the app and reported
+        // in the tool result; between tool calls the user sees it (B-m8).
+        if (kind == DialogKind.ALERT && !hidden && events.aiOperating(this)) {
             result.confirm()
             log(DialogNote(kind, message.orEmpty(), accepted = true, text = null, at = now))
             return true
@@ -362,12 +397,14 @@ class BrowserTab internal constructor(
     private inner class Client : WebViewClient() {
         override fun onPageStarted(view: WebView, startUrl: String, favicon: Bitmap?) {
             pageStartedAt = SystemClock.uptimeMillis()
+            requested(startUrl)
             _loading.value = true
             url = startUrl
             events.onChanged(this@BrowserTab)
         }
 
         override fun onPageFinished(view: WebView, finishedUrl: String) {
+            committedAt = SystemClock.uptimeMillis()
             url = view.url ?: finishedUrl
             title = view.title.orEmpty()
             _loading.value = false
@@ -376,13 +413,17 @@ class BrowserTab internal constructor(
         }
 
         override fun doUpdateVisitedHistory(view: WebView, newUrl: String, isReload: Boolean) {
+            committedAt = SystemClock.uptimeMillis()
             url = newUrl
             events.onChanged(this@BrowserTab)
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val scheme = request.url.scheme?.lowercase()
+            if (request.isForMainFrame) requested(request.url.toString())
             if (scheme in WEB_SCHEMES) return false
+            // The navigation ends here without a document (B-m3).
+            if (request.isForMainFrame) committedAt = SystemClock.uptimeMillis()
             // tel:, mailto:, intent:, market: ... only a user tab may leave the app, never an AI tab.
             if (owner == Owner.User && request.hasGesture() && scheme != "intent") events.onExternalLink(this@BrowserTab, request.url)
             return true
@@ -392,12 +433,16 @@ class BrowserTab internal constructor(
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val now = SystemClock.uptimeMillis()
             lastRequestAt.set(now)
-            if (request.isForMainFrame) mainRequestAt.set(now)
+            if (request.isForMainFrame) {
+                mainRequestAt.set(now)
+                requested(request.url.toString())
+            }
             return null
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame) addError(NavError(SystemClock.uptimeMillis(), request.url.toString(), false, error.errorCode, error.description.toString()))
+            // ERR_ABORTED: the navigation was replaced by a newer one (or became a download), not a failure.
+            if (request.isForMainFrame && "ERR_ABORTED" !in error.description.toString()) addError(NavError(SystemClock.uptimeMillis(), request.url.toString(), false, error.errorCode, error.description.toString()))
         }
 
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
@@ -431,10 +476,13 @@ class BrowserTab internal constructor(
         override fun onJsPrompt(view: WebView, u: String, message: String?, default: String?, result: JsPromptResult) =
             hold(DialogKind.PROMPT, message, default, result)
 
-        // "Leave this page?" would block every navigation; leaving is what the navigation asked for.
+        // "Leave this page?": an AI tool's navigation asked to leave, so it leaves; otherwise the user answers (B note).
         override fun onJsBeforeUnload(view: WebView, u: String, message: String?, result: JsResult): Boolean {
-            result.confirm()
-            return true
+            if (hidden || events.aiOperating(this@BrowserTab)) {
+                result.confirm()
+                return true
+            }
+            return hold(DialogKind.CONFIRM, message?.takeIf { it.isNotBlank() } ?: LEAVE_PAGE, null, result)
         }
 
         override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
@@ -459,6 +507,8 @@ class BrowserTab internal constructor(
     companion object {
         const val THUMB_WIDTH = 240
         private const val DIALOG_LOG = 5
+        private const val MAIN_REQUESTS = 20
+        private const val LEAVE_PAGE = "Leave this page? Changes you made may not be saved."
 
         /** The settle phase shows "waiting for the page to finish" only after this long (no flicker on quick pages). */
         private const val SETTLING_SHOWN_MS = 1_000L

@@ -21,6 +21,10 @@ internal object TabRules {
     /** Hidden tabs open at once (web_search, read(url), link prefetch; tool calls run one at a time). */
     const val MAX_HIDDEN_TABS = 3
 
+    /** How long a new hidden tab waits for a free slot before the limit error (B-m9). */
+    const val HIDDEN_WAIT = 20_000L
+    const val HIDDEN_POLL = 200L
+
     /**
      * Why a new tab may not open, null when it may. Visible tabs count toward [BrowserEngine.MAX_TABS]; hidden ones
      * only toward [MAX_HIDDEN_TABS], so a prefetch never takes a slot from the user (FB3 arch M1).
@@ -87,11 +91,14 @@ internal object TabRules {
         /** mark.n when the settle phase started. */
         val settleN: Int?,
         val mainRequestAt: Long,
+        /** A new document started loading. */
         val pageStartedAt: Long,
+        /** The navigation was answered without a new document (anchor, history push, cancelled scheme), or finished. */
+        val committedAt: Long,
         val lastRequestAt: Long,
         /** Latest main-frame failure. */
         val errorAt: Long?,
-        /** Latest refused download (hidden tab): the load ends there. */
+        /** Latest download the page started: the load ends there. */
         val downloadAt: Long?,
     )
 
@@ -111,7 +118,7 @@ internal object TabRules {
         if (settle == null) {
             if (i.now - i.docStart >= LOAD_CAP || i.now - i.since >= LOAD_CAP + SETTLE_CAP) return ReadyStep.Done(Readiness.LOADING)
             // Requested but no response yet (slow first byte, E2): the old document still answers mark().
-            val awaitingResponse = i.mainRequestAt >= i.docStart && i.pageStartedAt < i.mainRequestAt
+            val awaitingResponse = i.mainRequestAt >= i.docStart && maxOf(i.pageStartedAt, i.committedAt) < i.mainRequestAt
             val docIn = !i.loading || (i.mark != null && i.mark.readyState != "loading")
             return if (!awaitingResponse && docIn) ReadyStep.Settle else ReadyStep.Wait(LOAD_POLL)
         }
@@ -119,7 +126,10 @@ internal object TabRules {
         val quiet = minOf(i.mark?.quietMs ?: 0L, i.now - i.lastRequestAt, i.now - i.since)
         val textLen = i.mark?.textLen ?: 0
         val changed = i.mark != null && i.settleN != null && i.mark.n != i.settleN
-        if (quiet >= QUIET && (textLen >= SPARSE_TEXT || changed)) return ReadyStep.Done(Readiness.READY)
+        // Only a document that came in during this wait may still be drawing itself (E7, B-m4): a type or a re-list
+        // on a short page does not wait for it.
+        val newDoc = i.pageStartedAt >= i.since
+        if (quiet >= QUIET && (textLen >= SPARSE_TEXT || changed || !newDoc)) return ReadyStep.Done(Readiness.READY)
         if (i.now - settle >= SETTLE_CAP) {
             // Short and unchanged while we waited: a short page, not an unfinished one.
             return ReadyStep.Done(if (quiet >= QUIET && !changed) Readiness.READY else Readiness.CHANGING)

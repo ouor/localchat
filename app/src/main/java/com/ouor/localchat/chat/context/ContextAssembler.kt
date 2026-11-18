@@ -48,6 +48,8 @@ data class AssemblyInput(
     val note: NotePlacement = NotePlacement.NONE,
     /** The note's text: tools turned off, or the step limit's wrap-up. */
     val noteText: String = SystemPrompt.TOOLS_OFF_NOTE,
+    /** Steps left before the step-limit question; 1-3 adds a note to the newest tool result (tools-redesign 5-4). */
+    val stepsLeft: Int = 0,
 )
 
 enum class NotePlacement {
@@ -94,7 +96,7 @@ object ContextAssembler {
         val replies = kept.mapNotNull { it.body as? MessageBody.Assistant } +
             if (input.continueMode) emptyList() else listOf(input.current)
         // Keys are "reply index/step/callId": step + id repeat across replies on servers that renumber (AN 4).
-        val sendable = ToolResultTrimmer.trim(
+        val trimmed = ToolResultTrimmer.trim(
             replies.flatMapIndexed { reply, body ->
                 val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
                 body.blocks.filterIsInstance<ToolCallBlock>()
@@ -102,6 +104,12 @@ object ContextAssembler {
             },
             input.model.caps.contextWindow.value,
         )
+        // Rule 12 (tools-redesign 5-4, G-m8): near the step limit the newest result says how many steps are left, outside
+        // the page boundary. Only this request has it: it is never stored, so it never goes stale.
+        val sendable = if (input.stepsLeft !in 1..3 || input.continueMode) trimmed else {
+            val last = input.current.blocks.filterIsInstance<ToolCallBlock>().lastOrNull()?.let { "${replies.size - 1}/${it.key}" }
+            if (last == null || last !in trimmed) trimmed else trimmed + (last to trimmed.getValue(last) + "\n\n" + SystemPrompt.stepsLeft(input.stepsLeft))
+        }
 
         val latestImage = replies.flatMap { b -> b.blocks.filterIsInstance<ToolResultBlock>().mapNotNull { it.imageForModelId } }.lastOrNull()
 

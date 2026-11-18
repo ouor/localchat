@@ -3,6 +3,7 @@ package com.ouor.localchat.browser.script
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.SearchEngines
+import com.ouor.localchat.browser.StaleRef
 import android.os.SystemClock
 import com.ouor.localchat.browser.safety.SensitiveFields
 import com.ouor.localchat.core.AppJson
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -49,14 +51,16 @@ object PageScript {
     private fun asset(tab: BrowserTab, name: String): String =
         tab.webView.context.applicationContext.assets.open("browser/$name").bufferedReader().use { it.readText() }
 
+    /** Installs agent.js in a new document with refs numbered from [BrowserTab.refNext] (G-M1). */
     private fun install(tab: BrowserTab): String {
         val lib = agentJs ?: asset(tab, "agent.js").also { agentJs = it }
-        return "var A=window[$keyJs];if(!A){($lib\n)($keyJs,$config);A=window[$keyJs];}"
+        return "var A=window[$keyJs];if(!A){($lib\n)($keyJs,Object.assign($config,{refBase:${tab.refNext}}));A=window[$keyJs];}"
     }
 
     /**
      * Runs agent.js function [fn] and returns its raw result. A document being swapped answers nothing: with [retry]
-     * the call waits for the page to be ready and runs once more (tools-redesign 2-5).
+     * the call waits for the page to be ready and runs once more (tools-redesign 2-5). Functions that change the page
+     * (click, type) pass retry = false, so they never run twice (B-m1). A refused ref throws [StaleRef].
      */
     suspend fun callJson(
         tab: BrowserTab,
@@ -65,14 +69,17 @@ object PageScript {
         timeoutMs: Long = DEFAULT_TIMEOUT,
         retry: Boolean = true,
     ): JsonElement {
-        val js = "(function(){try{${install(tab)}return JSON.stringify({ok:A.call(${JsonPrimitive(fn)},$args)});}" +
-            "catch(e){return JSON.stringify({error:String(e&&e.message||e)});}})()"
+        val js = "(function(){var A;try{${install(tab)}return JSON.stringify({ok:A.call(${JsonPrimitive(fn)},$args),next:A.next()});}" +
+            "catch(e){return JSON.stringify({error:String(e&&e.message||e),next:A&&A.next()});}})()"
         val raw = tab.evaluate(js, timeoutMs).takeUnless { it == "null" } ?: run {
             if (!retry) throw PageError(NOT_RUN)
             tab.awaitReady(SystemClock.uptimeMillis())
             tab.evaluate(js, timeoutMs).takeUnless { it == "null" } ?: throw PageError(NOT_RUN_AGAIN)
         }
-        return okOf(decode(raw))
+        val o = decode(raw)
+        (o["next"] as? JsonPrimitive)?.intOrNull?.let { if (it > tab.refNext) tab.refNext = it }
+        (o["error"] as? JsonPrimitive)?.content?.takeIf { it.startsWith(REF_PREFIX) }?.let { throw StaleRef(it.removePrefix(REF_PREFIX)) }
+        return okOf(o)
     }
 
     /** Runs agent.js function [fn] and decodes its result (see ScriptResults). */
@@ -95,19 +102,19 @@ object PageScript {
 
     /**
      * `execute` (architecture 7.4): [code] runs as an expression, or as a function body when it is not one; it runs
-     * at most once (tools-redesign 3-6). Sensitive input value setters are refused while it runs; a returned Promise
-     * is awaited by polling. Returns the JSON-ish result text (not yet capped or cookie-masked).
+     * at most once (tools-redesign 3-6). Which form parses is checked first without running anything, so an empty
+     * answer afterwards can only mean the document changed while the code ran (B-m2). Sensitive input value setters
+     * are refused while it runs; a returned Promise is awaited by polling. Returns the JSON-ish result text (not yet
+     * capped or cookie-masked).
      */
     suspend fun execute(tab: BrowserTab, code: String, timeoutMs: Long): String {
         val expr = code.trim().trimEnd(';').trim()
-        var raw = tab.evaluate(execWrapper("return ($expr\n);", tab), timeoutMs)
-        if (raw == "null") {
-            // "null" = the wrapper did not parse, or the document was swapped. A live document answers the probe, so the
-            // expression wrapper failed to parse and the code never ran: run it as statements.
-            if (tab.evaluate("1", DEFAULT_TIMEOUT) != "1") throw PageError(EXEC_UNKNOWN)
-            raw = tab.evaluate(execWrapper("$code\n", tab), timeoutMs)
-            if (raw == "null") throw PageError("SyntaxError: the code could not be parsed as an expression or as statements.")
+        val body = listOf("return ($expr\n);", "$code\n").firstOrNull { parses(tab, it) } ?: run {
+            if (tab.evaluate("1", DEFAULT_TIMEOUT) != "1") throw PageError(NOT_RUN)
+            throw PageError("SyntaxError: the code could not be parsed as an expression or as statements.")
         }
+        val raw = tab.evaluate(execWrapper(body, tab), timeoutMs)
+        if (raw == "null") throw PageError(EXEC_UNKNOWN)
         var result = decode(raw)
         val deadline = System.currentTimeMillis() + timeoutMs
         while (result["pending"] != null) {
@@ -123,6 +130,13 @@ object PageScript {
         }
         return okOf(result).jsonPrimitive.content
     }
+
+    /**
+     * [body] parses as a function body: it is declared after a return, so it is compiled and never run. Not
+     * `new Function`, which a page's Content-Security-Policy may forbid.
+     */
+    private suspend fun parses(tab: BrowserTab, body: String): Boolean =
+        tab.evaluate("(function(){return 1;function f(){$body}})()", DEFAULT_TIMEOUT) == "1"
 
     private fun execWrapper(body: String, tab: BrowserTab) =
         "(function(){${install(tab)}A.call('execBegin');var r;try{r=(function(){$body})();}" +
@@ -142,8 +156,11 @@ object PageScript {
 
     const val NOT_RUN = "The page did not run the script (it may still be loading)."
 
-    /** The model-facing text after the one retry; the browse hint is added by the tool layer when browse is exposed. */
+    /** The model-facing text after the one retry; ToolExecutor adds the browse hint when browse is exposed. */
     const val NOT_RUN_AGAIN = "The page was changing and did not run the script."
+
+    /** agent.js marks a refused ref this way. */
+    private const val REF_PREFIX = "REF:"
     const val EXEC_UNKNOWN = "The page changed while the code ran; it may or may not have run. Check with browse() before running it again."
     const val MAX_RESULTS = 8
     const val DEFAULT_TIMEOUT = 10_000L

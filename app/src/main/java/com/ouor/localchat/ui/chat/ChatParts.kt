@@ -35,6 +35,7 @@ import com.ouor.localchat.core.model.ThinkingBlock as ThinkingData
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
+import com.ouor.localchat.core.model.ToolStatus
 import com.ouor.localchat.speech.VoiceState
 import com.ouor.localchat.ui.components.AssistantMessage
 import com.ouor.localchat.ui.components.BranchSwitcher
@@ -141,7 +142,7 @@ internal fun AssistantTurn(
             // BUG-08: the result goes to toolStep too, or counts stay the raw "458 nodes".
             val steps = calls.map { call ->
                 val r = results[call.key]
-                // BUG-17 (B-08): a screenshot step shows its image; tap opens it full screen.
+                // BUG-17 (B-08): a step with a page picture (browse, an action's new page) shows it; tap opens it full screen.
                 val image = r?.artifactIds.orEmpty().firstNotNullOfOrNull { id -> state.attachments[id]?.takeIf { it.mime.startsWith("image/") }?.let(thumbnail) }
                 // tools-redesign 2-7: what the running call waits for takes the result's line (same height).
                 val waiting = (state.runPhase as? com.ouor.localchat.chat.run.RunPhase.RunningTool)?.takeIf { running && it.callId == call.callId }
@@ -270,12 +271,12 @@ internal fun stepState(call: ToolCallBlock, result: ToolResultBlock?, step: com.
 }
 
 @Composable
-private fun statusText(s: com.ouor.localchat.core.model.ToolStatus, engine: String?): String = when (s) {
-    com.ouor.localchat.core.model.ToolStatus.OPENING -> stringResource(R.string.ui_tool_status_opening)
-    com.ouor.localchat.core.model.ToolStatus.SETTLING -> stringResource(R.string.ui_tool_status_settling)
-    com.ouor.localchat.core.model.ToolStatus.RETRYING -> stringResource(R.string.ui_tool_status_retrying)
-    com.ouor.localchat.core.model.ToolStatus.OTHER_ENGINE -> stringResource(R.string.ui_tool_status_other_engine, engine.orEmpty())
-    com.ouor.localchat.core.model.ToolStatus.PAGE_DIALOG -> stringResource(R.string.ui_tool_status_page_dialog)
+private fun statusText(s: ToolStatus, engine: String?): String = when (s) {
+    ToolStatus.OPENING -> stringResource(R.string.ui_tool_status_opening)
+    ToolStatus.SETTLING -> stringResource(R.string.ui_tool_status_settling)
+    ToolStatus.RETRYING -> stringResource(R.string.ui_tool_status_retrying)
+    ToolStatus.OTHER_ENGINE -> stringResource(R.string.ui_tool_status_other_engine, engine.orEmpty())
+    ToolStatus.PAGE_DIALOG -> stringResource(R.string.ui_tool_status_page_dialog)
 }
 
 @Composable

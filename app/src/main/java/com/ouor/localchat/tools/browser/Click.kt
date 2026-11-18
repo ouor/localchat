@@ -1,6 +1,7 @@
 package com.ouor.localchat.tools.browser
 
 import com.ouor.localchat.R
+import com.ouor.localchat.browser.Readiness
 import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.tools.ApprovalMode
@@ -36,24 +37,25 @@ object Click : Tool {
         val ref = args.string("ref")
         return onMain {
             val tab = ctx.workTab()
-            var at = locate(tab, ref)
-            if (at.disabled) throw ToolError("${at.info.label()} is disabled.")
+            var at = ctx.locate(tab, ref)
+            if (at.disabled) throw ToolError("$ref is disabled.")
             val reason = IrreversibleAction.reasonForClick(at.info)
             val label = at.info.label()
             if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED
-            if (reason != null) at = locate(tab, ref) // scroll back to it after the approval wait
+            if (reason != null) at = ctx.locate(tab, ref) // scroll back to it after the approval wait
             ctx.highlight(tab, at, R.string.browser_highlight_click)
             // SE 7: the page may have moved or swapped the element while the user decided or the outline showed.
-            at = locate(tab, ref, scroll = false)
+            at = ctx.locate(tab, ref, scroll = false)
             if (at.info.label() != label || IrreversibleAction.reasonForClick(at.info) != reason) {
-                throw ToolError("The element changed before the click. Use a ref from the latest list.")
+                val lead = "$ref changed before the click, so it was not clicked. Use a ref from the element list below."
+                throw ToolError(lead, ctx.pageResult(tab, Readiness.READY, now()).copy(isError = true, lead = lead))
             }
             val target = at
             val acted = ctx.act(tab) {
-                if (!(target.hit && tab.tap(target.cx, target.cy, target.innerWidth))) PageScript.callJson(tab, "click", refArgs(ref))
+                if (!(target.hit && tab.tap(target.cx, target.cy, target.innerWidth))) PageScript.callJson(tab, "click", refArgs(ref), retry = false)
             }
             val covered = if (target.hit) "" else " (it was covered by another element, so a script click was used)"
-            ctx.actionResult(tab, "Clicked $label$covered", acted, label)
+            ctx.actionResult(tab, "Clicked $ref$covered", acted, label)
         }
     }
 }

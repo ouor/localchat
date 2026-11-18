@@ -2,6 +2,7 @@ package com.ouor.localchat.browser
 
 import com.ouor.localchat.browser.SearchEngines.Next
 import com.ouor.localchat.browser.SearchEngines.Outcome
+import com.ouor.localchat.core.model.SearchEngine
 import com.ouor.localchat.core.model.SearchEngine.BING
 import com.ouor.localchat.core.model.SearchEngine.DUCKDUCKGO
 import com.ouor.localchat.core.model.SearchEngine.GOOGLE
@@ -32,7 +33,7 @@ class SearchEnginesTest {
     }
 
     private val plan = listOf(DUCKDUCKGO, BING, GOOGLE, NAVER)
-    private fun next(vararg tries: Pair<com.ouor.localchat.core.model.SearchEngine, Outcome>) = SearchEngines.next(plan, tries.toList())
+    private fun next(vararg tries: Pair<SearchEngine, Outcome>) = SearchEngines.next(plan, tries.toList(), elapsedMs = 0)
 
     @Test
     fun `switch table`() {
@@ -49,6 +50,17 @@ class SearchEnginesTest {
         )
         assertEquals(Next.ALL_BLOCKED, next(*plan.map { it to Outcome.BLOCKED }.toTypedArray()))
         assertEquals(Next.NO_RESULTS, next(DUCKDUCKGO to Outcome.BLOCKED, BING to Outcome.EMPTY, GOOGLE to Outcome.BLOCKED, NAVER to Outcome.BLOCKED))
+    }
+
+    @Test
+    fun `the budget is checked before every new load, retries included`() { // B-m10
+        val late = SearchEngines.BUDGET_MS
+        assertEquals(Next.TIMED_OUT, SearchEngines.next(plan, listOf(DUCKDUCKGO to Outcome.BLOCKED), late))
+        assertEquals(Next.TIMED_OUT, SearchEngines.next(plan, listOf(DUCKDUCKGO to Outcome.NET_ERROR), late))
+        assertEquals(Next.NEXT_ENGINE, SearchEngines.next(plan, listOf(DUCKDUCKGO to Outcome.BLOCKED), late - 1))
+        // An ending answer stays what it is.
+        assertEquals(Next.DONE, SearchEngines.next(plan, listOf(DUCKDUCKGO to Outcome.RESULTS), late * 2))
+        assertEquals(Next.NO_RESULTS, SearchEngines.next(plan, listOf(DUCKDUCKGO to Outcome.EMPTY, BING to Outcome.EMPTY), late * 2))
     }
 
     @Test

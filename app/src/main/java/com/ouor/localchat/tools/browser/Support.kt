@@ -8,6 +8,7 @@ import com.ouor.localchat.browser.DialogNote
 import com.ouor.localchat.browser.NavError
 import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.Readiness
+import com.ouor.localchat.browser.StaleRef
 import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.browser.safety.ElementInfo
 import com.ouor.localchat.browser.safety.IrreversibleAction
@@ -17,6 +18,7 @@ import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageMark
 import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.core.model.ToolStatus
 import com.ouor.localchat.tools.ApprovalRequest
 import com.ouor.localchat.tools.ParamsBuilder
 import com.ouor.localchat.tools.ToolContext
@@ -35,6 +37,7 @@ import java.io.ByteArrayOutputStream
 
 private const val HIGHLIGHT_LEAD_MS = 250L
 private const val LIST_BUDGET = 8_000
+private const val ACT_UNKNOWN = "The page changed while acting, so it is not known whether the action happened. Check with browse() before trying again."
 
 internal fun ParamsBuilder.refParam() = string("ref", "Element ref, e.g. \"e12\".", required = true)
 
@@ -63,10 +66,10 @@ internal fun sensitiveMessage(host: String) =
     "$host ${SensitiveUrls.REFUSAL} (banking, payment, email, sign-in, government ...). The AI may not open or read it; ask the user to do this part."
 
 /** B-S1 (SE 15): never into password/OTP/card fields or opaque frames. */
-internal fun guardInput(target: ElementInfo?, scriptSensitive: Boolean) {
-    if (target != null && SensitiveFields.refusesInput(target, scriptSensitive)) {
+internal fun guardInput(ref: String, target: ElementInfo, scriptSensitive: Boolean) {
+    if (SensitiveFields.refusesInput(target, scriptSensitive)) {
         throw ToolError(
-            "Refused: ${target.label()} is a password, one-time-code or card field, or a frame whose content cannot be " +
+            "Refused: $ref is a password, one-time-code or card field, or a frame whose content cannot be " +
                 "checked. Only the user may fill it; use request_handoff.",
         )
     }
@@ -106,8 +109,16 @@ internal fun jpeg(bitmap: Bitmap, quality: Int): ByteArray = ByteArrayOutputStre
 /** One-line element description for results and approvals: `button "Log in"`. */
 internal fun ElementInfo.label(): String = (role ?: tag) + (name?.let { " \"$it\"" } ?: "")
 
-internal suspend fun locate(tab: BrowserTab, ref: String, scroll: Boolean = true): Located =
+/**
+ * The element of [ref]. A ref that is not one, is from an earlier page of the tab or is gone is refused with the
+ * current element list, so the next call can use a fresh ref (G-M1).
+ */
+internal suspend fun ToolContext.locate(tab: BrowserTab, ref: String, scroll: Boolean = true): Located = try {
     PageScript.call(tab, "locate", buildJsonObject { put("target", ref); put("scroll", scroll) })
+} catch (e: StaleRef) {
+    val page = pageResult(tab, Readiness.READY, now())
+    throw ToolError(e.message.orEmpty(), page.copy(isError = true, lead = "${e.message} Use a ref from the element list below."))
+}
 
 internal fun refArgs(ref: String, extra: JsonObjectBuilder.() -> Unit = {}) = buildJsonObject { put("target", ref); extra() }
 
@@ -137,7 +148,8 @@ internal class Acted(val change: Change, val readiness: Readiness, val since: Lo
 
 /**
  * Runs [action] on [tab] and waits until the page is ready after it: a document requested after the action is waited
- * for, otherwise the page only has to go quiet. A script cut short by a dialog it opened is not a failure.
+ * for, otherwise the page only has to go quiet. A script cut short by a dialog it opened is not a failure; one whose
+ * answer was lost (the document changed) may have run, so it is never run again (B-m1).
  */
 internal suspend fun ToolContext.act(tab: BrowserTab, action: suspend () -> Unit): Acted {
     val before = mark(tab)
@@ -145,7 +157,9 @@ internal suspend fun ToolContext.act(tab: BrowserTab, action: suspend () -> Unit
     try {
         action()
     } catch (e: PageError) {
-        if (tab.dialog.value == null && tab.dialogsSince(t0).isEmpty()) throw e
+        if (tab.dialog.value == null && tab.dialogsSince(t0).isEmpty()) {
+            throw if (e.message == PageScript.NOT_RUN) PageError(ACT_UNKNOWN) else e
+        }
     }
     val r = ready(tab, t0)
     val after = if (r == Readiness.FAILED) null else mark(tab)
@@ -172,46 +186,80 @@ internal fun DialogNote.describe(): String {
 }
 
 /** `Page: {title} — {url}` plus what is off about it. Main thread. */
-internal fun pageHeader(tab: BrowserTab, readiness: Readiness, error: NavError?): String {
+internal fun pageHeader(tab: BrowserTab, readiness: Readiness, error: NavError?, again: Boolean = false): String {
     val marks = listOfNotNull(
         "(still loading after ${TabRules.LOAD_CAP / 1000} s)".takeIf { readiness == Readiness.LOADING },
-        "(page still changing; content may be incomplete)".takeIf { readiness == Readiness.CHANGING },
+        // G-m13: the second time on the same document, waiting longer will not help.
+        (if (again) "(this page keeps changing; this is as complete as it gets)" else "(page still changing; content may be incomplete)")
+            .takeIf { readiness == Readiness.CHANGING },
         error?.takeIf { it.http }?.let { "(HTTP ${it.code}${it.desc.takeIf(String::isNotBlank)?.let { d -> " $d" }.orEmpty()})" },
     )
     return "Page: ${tab.title.ifBlank { "(untitled)" }} — ${tab.url}" + marks.joinToString("") { " $it" }
 }
 
-/** The page's elements with refs, within [LIST_BUDGET] characters (tools-redesign 3-3). */
-internal suspend fun ToolContext.elementList(tab: BrowserTab): String {
-    val r = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", LIST_BUDGET) })
-    val left = r.above + r.below
-    val more = if (left == 0) "" else
-        "\n($left more elements not listed: ${r.above} above and ${r.below} below the visible part.${hint("read", " Use read() for the page text.")})"
-    return r.text.ifBlank { "(no elements)" } + more
-}
-
-/** Header, a blank line, the element list: browse, handoff return and the end of every action result. */
-internal suspend fun ToolContext.pageResult(tab: BrowserTab, readiness: Readiness, since: Long): String =
-    pageHeader(tab, readiness, tab.navError(since)) + "\n\n" + elementList(tab)
-
 /**
- * click and type: [first] (what was done) + the change, dialog lines, then the page. A failed new page is an error
- * with the load failure (tools-redesign 3-4).
+ * The page as a result (browse, handoff return and the end of every action): inside the boundary [top] (page-derived
+ * lines such as dialogs), the header, a blank line and the element list with refs within [LIST_BUDGET] characters;
+ * after it the note on what was left out (tools-redesign 3-3). [more] continues the last list of the same page (G-M3).
  */
-internal suspend fun ToolContext.actionResult(tab: BrowserTab, first: String, acted: Acted, summary: String): ToolOutcome {
-    val dialogs = acted.dialogs.joinToString("") { "\n" + it.describe() }
-    if (acted.change == Change.FAILED) {
-        val err = tab.navError(acted.since)
-        val why = err?.let { TabRules.navErrorText(it, retried = false) } ?: "the page did not load."
-        return ToolOutcome("$first then the new page failed to open: $why$dialogs", isError = true, summary = summary)
-    }
-    val err = tab.navError(acted.since)
+internal suspend fun ToolContext.pageResult(tab: BrowserTab, readiness: Readiness, since: Long, more: Boolean = false, top: String = ""): ToolOutcome {
+    val again = if (readiness == Readiness.CHANGING) {
+        val doc = mark(tab)?.doc
+        (doc != null && doc == tab.changingDoc).also { tab.changingDoc = doc }
+    } else false
+    val err = tab.navError(since)
+    val r = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", LIST_BUDGET); put("more", more) })
+    val head = pageHeader(tab, readiness, err, again) + if (r.continued) " (elements not listed last time)" else ""
+    val left = r.above + r.below
+    val note = if (left == 0) "" else
+        "($left more elements: ${r.above} above and ${r.below} below the visible part." +
+            hint("browse", " Call browse() again to list them") + hint("read", if ("browse" in exposed) ", or read() for the page text" else " Use read() for the page text") +
+            ".)"
     return ToolOutcome(
-        "$first ${acted.change.line}$dialogs\n" + pageResult(tab, acted.readiness, acted.since),
+        text = listOf(top, head).filter { it.isNotEmpty() }.joinToString("\n") + "\n\n" + r.text.ifBlank { "(no elements)" },
         isError = err?.http == true,
-        summary = summary,
+        summary = tab.title,
+        note = note,
     )
 }
+
+/**
+ * click, type and execute: [first] (what was done, app-written) + the change, then the page. [top] is page-derived
+ * text for the inside of the boundary (a field's value, a script's result); [note] goes after it. A failed new page
+ * is an error with the load failure (tools-redesign 3-4). A vision model gets a picture of the page.
+ */
+internal suspend fun ToolContext.actionResult(
+    tab: BrowserTab,
+    first: String,
+    acted: Acted,
+    summary: String,
+    top: String = "",
+    note: String = "",
+): ToolOutcome {
+    val inside = (listOf(top) + acted.dialogs.map { it.describe() }).filter { it.isNotEmpty() }.joinToString("\n")
+    if (acted.change == Change.FAILED) {
+        val why = tab.navError(acted.since)?.let { TabRules.navErrorText(it, retried = false) } ?: "The page did not load."
+        return ToolOutcome(listOf(inside, why).filter { it.isNotEmpty() }.joinToString("\n"), isError = true, summary = summary,
+            lead = "$first, then the new page failed to open.", note = note)
+    }
+    val page = pageResult(tab, acted.readiness, acted.since, top = inside)
+    return withPicture(tab, page.copy(lead = "$first ${acted.change.line}", summary = summary,
+        note = listOf(note, page.note).filter { it.isNotEmpty() }.joinToString("\n")), keep = false)
+}
+
+/**
+ * A vision model gets a picture of the visible part with every result that lists the page (G-m10); ContextAssembler
+ * sends only the newest. [keep] also shows it in the chat (browse).
+ */
+internal suspend fun ToolContext.withPicture(tab: BrowserTab, o: ToolOutcome, keep: Boolean): ToolOutcome {
+    if (!vision || o.isError) return o
+    val bitmap = onMain { tab.capture() } ?: return o // not laid out: no picture
+    val bytes = withContext(Dispatchers.Default) { jpeg(bitmap, PICTURE_QUALITY) }
+    val id = saveArtifact("page-${System.currentTimeMillis()}.jpg", "image/jpeg", bytes)
+    return o.copy(artifactIds = if (keep) o.artifactIds + id else o.artifactIds, imageForModelId = id)
+}
+
+private const val PICTURE_QUALITY = 80
 
 /**
  * Loads [url] in [tab] (app-opened: one automatic retry of a network error or 429/5xx; tools-redesign 2-2) and waits
@@ -223,7 +271,7 @@ internal suspend fun ToolContext.open(tab: BrowserTab, url: String, alreadyLoadi
     val err = tab.navError(since)
     val delayMs = err?.let(TabRules::netRetry)
     if (delayMs != null && (r == Readiness.FAILED || err.http)) {
-        status(com.ouor.localchat.core.model.ToolStatus.RETRYING)
+        status(ToolStatus.RETRYING)
         delay(delayMs)
         since = now()
         tab.load(url)

@@ -20,7 +20,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * tools-redesign 3-2: a page's main text in parts. With url the page is read in a hidden tab (the work tab is left
- * alone) and kept for the turn, so the next part needs no reload; without url the work tab is read. LinkPrefetcher
+ * alone) and kept for the chat (G-m9), so the next part needs no reload; without url the work tab is read. LinkPrefetcher
  * runs this tool for links in a question to a model without tools.
  */
 object Read : Tool {
@@ -67,7 +67,10 @@ object Read : Tool {
                 return@hiddenTab ToolOutcome(err?.let { TabRules.navErrorText(it, o.retried) } ?: "Could not open $url.", isError = true)
             }
             val t = PageScript.call<ReadText>(tab, "readText")
-            val cursor = newCursor(ctx, t, o.readiness, err)
+            // B-M1: a page reached through a sensitive site is refused before it is kept for the next part.
+            val chain = (listOf(url, tab.url, t.url) + tab.mainRequestsSince(0)).distinct()
+            chain.firstOrNull(ctx.browser.sensitiveUrls::isSensitive)?.let { throw ToolError(sensitiveMessage(SensitiveUrls.hostOf(it).orEmpty())) }
+            val cursor = newCursor(ctx, t, o.readiness, err).copy(urls = chain)
             ctx.readCursors[url] = cursor
             ctx.readCursors[t.url] = cursor
             part(ctx, cursor, url).let { if (err?.http == true) it.copy(isError = true) else it }
@@ -91,24 +94,25 @@ object Read : Tool {
             "web_search" in ctx.exposed -> " Pick another source."
             else -> ""
         }
-        val title = t.title.ifBlank { t.url }
-        val n = ctx.numberSource(t.url, title, null)
-        return ReadCursor(t.url, title, n, TabRules.parts(t.text, TabRules.readChunk(ctx.contextWindow)), 0, marks.joinToString(" ") + way)
+        return ReadCursor(t.url, t.title.ifBlank { t.url }, TabRules.parts(t.text, TabRules.readChunk(ctx.contextWindow)), 0, marks.joinToString(" ") + way)
     }
 
     /** The cursor's next part; [url] = what read was called with (null = the tab). */
     private fun part(ctx: ToolContext, c: ReadCursor, url: String?): ToolOutcome {
+        ctx.markVisited(c.urls + c.url)
         val k = c.parts.size
-        if (c.next >= k) return ToolOutcome("That was the last part ($k of $k).", summary = "${c.title} ($k/$k)")
+        if (c.next >= k) return ToolOutcome("", lead = "That was the last part ($k of $k).", summary = "${c.title} ($k/$k)")
         val i = c.next++
+        // Numbered per message: a cursor kept from an earlier turn gets this message's number.
+        val n = ctx.numberSource(c.url, c.title, null)
         val partOf = if (k > 1) " (part ${i + 1} of $k)" else ""
         val flags = c.flags.takeIf { i == 0 && it.isNotBlank() }?.let { "\n$it" }.orEmpty()
         val call = if (url == null) "read()" else "read(\"$url\")"
-        val more = if (i + 1 < k) ctx.hint("read", "\n\n[more: call $call again for part ${i + 2} of $k]") else ""
         return ToolOutcome(
-            text = "[${c.n}] ${c.title} — ${c.url}$partOf$flags\n\n${c.parts[i].ifBlank { "(no readable text)" }}$more",
+            text = "[$n] ${c.title} — ${c.url}$partOf$flags\n\n${c.parts[i].ifBlank { "(no readable text)" }}",
             summary = "${c.title} (${i + 1}/$k)",
-            sources = listOf(Source(c.n, c.url, c.title, siteName = SensitiveUrls.hostOf(c.url))),
+            sources = listOf(Source(n, c.url, c.title, siteName = SensitiveUrls.hostOf(c.url))),
+            note = if (i + 1 < k) ctx.hint("read", "[more: call $call again for part ${i + 2} of $k]") else "",
         )
     }
 }

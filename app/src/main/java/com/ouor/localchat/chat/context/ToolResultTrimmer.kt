@@ -5,10 +5,11 @@ import com.ouor.localchat.browser.TabRules
 /**
  * A-05 (architecture 5.4 rule 9, tools-redesign 5-3): what older tool results look like when sent. The stored
  * original never changes.
- * - Element lists (browse, click, type, request_handoff): only the newest is sent whole; older ones keep their head
- *   (up to the first blank line), since their refs are stale anyway.
+ * - Element lists (browse, click, type, request_handoff): only the newest result that holds a list is sent whole; an
+ *   error or a refusal after it does not count (G-M2). Older ones keep their head (inside the boundary, up to the
+ *   first blank line), since their refs are stale anyway.
  * - read: whole while the newest-first total stays within [TabRules.readKeep] (the newest always), else cut.
- * - execute: the newest [KEEP] whole, older ones cut.
+ * - execute: the newest [KEEP] whole, older ones cut; one that opened a new page holds a list and is trimmed as one.
  */
 object ToolResultTrimmer {
     val LIST = setOf("browse", "click", "type", "request_handoff")
@@ -19,15 +20,19 @@ object ToolResultTrimmer {
     const val HEAD = 1500
     const val TAIL = 500
     const val STALE = "[older element list omitted; its refs are stale]"
+    private const val OPEN = "<${Untrusted.TAG}>\n"
     private const val CLOSE = "</${Untrusted.TAG}>"
-    private const val APP_NOTE = "\n\n[App note:"
+    private const val APP_NOTE = "[App note:"
+
+    /** A page header line followed by a blank line and the list (Support.pageResult). */
+    private val LIST_HEAD = Regex("(?m)^Page: .*\n\n")
 
     /**
      * [results] in request order as (unique call key, toolName, content); [contextWindow] in tokens (null = unknown).
      * Returns key → content to send.
      */
     fun trim(results: List<Triple<String, String, String>>, contextWindow: Int? = null): Map<String, String> {
-        val newestList = results.lastOrNull { it.second in LIST }?.first
+        val newestList = results.lastOrNull { listed(it.second, it.third) }?.first
         val wholeExec = results.filter { it.second == EXECUTE }.takeLast(KEEP).map { it.first }.toSet()
         val wholeRead = HashSet<String>()
         var used = 0
@@ -39,7 +44,7 @@ object ToolResultTrimmer {
         }
         return results.associate { (id, name, content) ->
             id to when {
-                name in LIST && id != newestList -> head(content)
+                listed(name, content) && id != newestList -> head(content)
                 name == READ && id !in wholeRead -> cut(content)
                 name == EXECUTE && id !in wholeExec -> cut(content)
                 else -> content
@@ -47,13 +52,30 @@ object ToolResultTrimmer {
         }
     }
 
-    /** The result's head (what was done, the Page line) without the list; boundary and app notes stay. */
+    /** A list result; execute holds one when its code opened a new page (G-m7). */
+    private fun listed(name: String, content: String) = (name in LIST || name == EXECUTE) && hasList(content)
+
+    /** The result holds an element list. */
+    fun hasList(content: String): Boolean = inner(content)?.let(LIST_HEAD::containsMatchIn) == true
+
+    private fun inner(content: String): String? {
+        val open = content.indexOf(OPEN)
+        val close = content.lastIndexOf(CLOSE)
+        return if (open < 0 || close < open) null else content.substring(open + OPEN.length, close)
+    }
+
+    /**
+     * The result's head without the list: the app line before the boundary, the boundary with what precedes the first
+     * blank line inside (dialogs, the Page line), and any [App note]. The notes about the old list are dropped.
+     */
     fun head(content: String): String {
-        val blank = content.indexOf("\n\n")
+        val open = content.indexOf(OPEN)
+        val close = content.lastIndexOf(CLOSE)
+        if (open < 0 || close < open) return content
+        val blank = content.substring(open + OPEN.length, close).indexOf("\n\n")
         if (blank < 0) return content
-        val note = content.indexOf(APP_NOTE).takeIf { it > blank }?.let { content.substring(it) }.orEmpty()
-        val closed = if (content.startsWith("<${Untrusted.TAG}>")) "\n$CLOSE" else ""
-        return content.substring(0, blank) + "\n" + STALE + closed + note
+        val note = content.indexOf(APP_NOTE, close).takeIf { it >= 0 }?.let { "\n\n" + content.substring(it) }.orEmpty()
+        return content.substring(0, open + OPEN.length + blank) + "\n" + STALE + "\n" + CLOSE + note
     }
 
     fun cut(content: String): String {

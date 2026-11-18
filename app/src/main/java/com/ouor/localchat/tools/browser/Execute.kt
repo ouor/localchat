@@ -37,12 +37,21 @@ object Execute : Tool {
         return onMain {
             val tab = ctx.workTab()
             ctx.ready(tab, now())
+            // B-M2: the wait may have ended on another page than the one the user approved the code for.
+            ctx.checkApprovedPage(tab)
             var result = ""
             val acted = ctx.act(tab) { result = PageScript.execute(tab, code, TIMEOUT_MS) }
+            val res = "Result: $result"
+            // A new page (or its failure) is reported like a click's: its element list, or the load error (G-m7, A-m7).
+            if (acted.change == Change.NEW_PAGE || acted.change == Change.FAILED) {
+                return@onMain ctx.actionResult(tab, "Ran the code", acted, result.take(100), top = res)
+            }
             val dialogs = acted.dialogs.joinToString("") { "\n" + it.describe() }
-            val page = "Page: ${tab.title.ifBlank { "(untitled)" }} — ${tab.url}" +
-                if (acted.change == Change.FAILED) " (the new page failed to open)" else " (${acted.change.words})"
-            ToolOutcome("Result: $result\n$page$dialogs", summary = result.take(100))
+            ToolOutcome(
+                "$res\n" + pageHeader(tab, acted.readiness, tab.navError(acted.since)) + dialogs,
+                summary = result.take(100),
+                lead = "Ran the code ${acted.change.line}",
+            )
         }
     }
 }

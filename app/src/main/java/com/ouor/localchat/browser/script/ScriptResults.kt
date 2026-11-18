@@ -37,9 +37,12 @@ data class PageMark(
     val title: String = "",
 )
 
-/** `pageList`: element lines within the budget; [above]/[below] count the left-out ones by side of the visible part. */
+/**
+ * `pageList`: element lines within the budget; [above]/[below] count the left-out ones by side of the visible part;
+ * [continued] = these are the lines the last list of the page left out.
+ */
 @Serializable
-data class PageList(val text: String, val listed: Int, val above: Int = 0, val below: Int = 0)
+data class PageList(val text: String, val listed: Int, val above: Int = 0, val below: Int = 0, val continued: Boolean = false)
 
 /** `readText`: main text; [flags] = "bot" (bot check) and/or "login" (sign-in page). */
 @Serializable
@@ -47,7 +50,11 @@ data class ReadText(val title: String, val url: String, val text: String, val fl
 
 /** `type`: the field's value after typing ([selected] = the chosen option of a select); [submitRef] = the form's submit control. */
 @Serializable
-data class TypeResult(val value: String, val selected: String? = null, val submitRef: String? = null, val submitLabel: String? = null)
+data class TypeResult(val value: String, val selected: String? = null, val submitRef: String? = null)
+
+/** `suggestions`: visible ARIA options and listboxes (an autocomplete list opening after type). */
+@Serializable
+data class Suggestions(val n: Int)
 
 @Serializable
 data class SearchResult(val title: String, val url: String, val snippet: String? = null)

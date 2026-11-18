@@ -5,6 +5,7 @@ import com.ouor.localchat.R
 import com.ouor.localchat.browser.safety.ElementInfo
 import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.browser.script.Suggestions
 import com.ouor.localchat.browser.script.TypeResult
 import com.ouor.localchat.tools.ApprovalMode
 import com.ouor.localchat.tools.Tool
@@ -16,12 +17,14 @@ import com.ouor.localchat.tools.optString
 import com.ouor.localchat.tools.params
 import com.ouor.localchat.tools.string
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
  * Sets a field's value through the native setter + input/change events (React-compatible, architecture 7.4), or
- * chooses a select's option (tools-redesign 3-5). Search boxes get Enter by themselves; elsewhere a trailing newline
- * is Enter. Never into password/OTP/card fields (B-S1); Enter in a POST form and any input on a plain-http page ask first.
+ * chooses a select's option (tools-redesign 3-5). Search boxes get Enter by themselves unless suggestions open;
+ * elsewhere a trailing newline in a one-line field is Enter. Never into password/OTP/card fields (B-S1); Enter in a
+ * POST form and any input on a plain-http page ask first.
  */
 object Type : Tool {
     override val name = "type"
@@ -30,8 +33,9 @@ object Type : Tool {
     override val labelRes = R.string.tool_type
     override val description =
         "Fill a text field, or choose an option of a select, by its ref from the latest element list. Replaces the field's " +
-            "value. Search boxes are submitted automatically; to press Enter in any other field, end text with a newline. " +
-            "Password, one-time-code and card fields are refused: use request_handoff. Returns the page after typing."
+            "value; empty text clears it. Fields listed as searchbox are submitted automatically, unless suggestions open. " +
+            "To press Enter in another one-line field, end text with a newline (in a multi-line field the newline stays as " +
+            "text). Password, one-time-code and card fields are refused: use request_handoff. Returns the page after typing."
     override val parameters = params {
         refParam()
         string("text", "Text to enter, or the visible text or value of the option to choose.", required = true)
@@ -44,36 +48,47 @@ object Type : Tool {
         val text = args.optString("text") ?: throw ToolError("Missing required argument 'text'.")
         return onMain {
             val tab = ctx.workTab()
-            val at = locate(tab, ref)
-            guardInput(at.info, at.sensitive)
+            val at = ctx.locate(tab, ref)
+            guardInput(ref, at.info, at.sensitive)
             val label = at.info.label()
             val select = at.info.tag == "select"
-            if (!select && !at.editable) throw ToolError("$label is not a text field or select; use click.")
-            val (value, enter) = if (select) text to false else TypeRules.enter(at.info, text)
+            if (!select && !at.editable) throw ToolError("$ref is not a text field or select; use click.")
+            val plan = if (select) TypeRules.Plan(text, enter = false) else TypeRules.plan(at.info, text)
             val reason = when {
-                enter && IrreversibleAction.reasonForEnter(at.info) != null -> IrreversibleAction.Reason.POST_FORM
+                plan.enter && IrreversibleAction.reasonForEnter(at.info) != null -> IrreversibleAction.Reason.POST_FORM
                 tab.url.startsWith("http://", ignoreCase = true) -> IrreversibleAction.Reason.INSECURE_INPUT
                 else -> null
             }
             if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED
             ctx.highlight(tab, at, if (select) R.string.browser_highlight_select else R.string.browser_highlight_type)
             var typed: TypeResult? = null
+            var suggested = false
             val acted = ctx.act(tab) {
-                typed = PageScript.call<TypeResult>(tab, "type", refArgs(ref) { put("text", value) })
-                if (enter) tab.key(KeyEvent.KEYCODE_ENTER, 0)
+                val before = if (plan.auto) PageScript.call<Suggestions>(tab, "suggestions").n else 0
+                typed = PageScript.call<TypeResult>(tab, "type", refArgs(ref) { put("text", plan.value) }, retry = false)
+                if (plan.auto) {
+                    // G-m2: an autocomplete field opens its suggestions; Enter there would submit before one is chosen.
+                    tab.awaitReady(now())
+                    suggested = PageScript.call<Suggestions>(tab, "suggestions").n > before
+                }
+                if (plan.enter && !suggested) tab.key(KeyEvent.KEYCODE_ENTER, 0)
             }
+            val pressed = plan.enter && !suggested
             val r = typed
-            val first = if (select) {
-                "Selected \"${r?.selected ?: value}\" in $label"
-            } else {
-                "Typed \"${value.take(100)}\" into $label" + if (enter) " and pressed Enter" else ""
+            // The model's own text, escaped so a newline in it cannot break the line (G-m12).
+            val shown = JsonPrimitive(plan.value.take(100)).toString()
+            val first = when {
+                select -> "Selected $shown in $ref"
+                else -> "Typed $shown into $ref" + (if (pressed) " and pressed Enter" else "") +
+                    if (plan.keptNewline) " (in this multi-line field the newline stays as text; Enter was not pressed)" else ""
             }
-            val shows = r?.value?.takeIf { !select && norm(it) != norm(value).take(200) }?.let { " The field now shows \"$it\"." }.orEmpty()
-            val submit = r?.submitRef?.takeIf { !enter }?.let { " Not submitted; the form's submit button is ${r.submitLabel} [ref=$it]." }.orEmpty()
-            val result = ctx.actionResult(tab, first, acted, label)
-            // The notes go after the change on the first line.
-            val lines = result.text.split('\n', limit = 2)
-            result.copy(text = lines[0] + shows + submit + lines.drop(1).joinToString("") { "\n$it" })
+            val shows = r?.value?.takeIf { !select && norm(it) != norm(plan.value).take(200) }?.let { "The field now shows \"$it\"." }.orEmpty()
+            val notes = listOfNotNull(
+                "Suggestions opened under the field, so Enter was not pressed. Click one in the list below, or type again ending with a newline to submit."
+                    .takeIf { suggested },
+                r?.submitRef?.takeIf { !pressed }?.let { "Not submitted; the form's submit button is $it." },
+            )
+            ctx.actionResult(tab, first, acted, label, top = shows, note = notes.joinToString("\n"))
         }
     }
 
@@ -82,19 +97,14 @@ object Type : Tool {
 
 /** type's Enter (tools-redesign 3-5), pure. */
 object TypeRules {
-    private val SEARCH_NAMES = setOf("q", "query", "search", "keyword", "keywords", "s", "search_query", "wd")
-    private val SEARCH_WORD = Regex("search|검색", RegexOption.IGNORE_CASE)
+    /** [value] goes in; [enter] = press Enter after it; [auto] = Enter only because it is a search box; [keptNewline] = a multi-line field kept it. */
+    data class Plan(val value: String, val enter: Boolean, val auto: Boolean = false, val keptNewline: Boolean = false)
 
-    /** A one-line search field: Enter only runs the search. A combobox is left out (Enter may pick a suggestion). */
-    fun isSearchBox(i: ElementInfo): Boolean = i.role != "combobox" && (
-        i.type == "search" || i.role == "searchbox" || i.search || i.nameAttr?.lowercase() in SEARCH_NAMES ||
-            i.name?.let(SEARCH_WORD::containsMatchIn) == true || i.placeholder?.let(SEARCH_WORD::containsMatchIn) == true
-        )
-
-    /** (text to put in, press Enter after). Multi-line fields keep newlines as text; a trailing newline elsewhere is Enter. */
-    fun enter(i: ElementInfo, text: String): Pair<String, Boolean> = when {
-        i.tag != "input" -> text to false
-        text.endsWith("\n") -> text.trimEnd('\n', '\r') to true
-        else -> text to isSearchBox(i)
+    /** Empty text only clears; multi-line fields keep newlines as text; a trailing newline elsewhere is Enter; search boxes get Enter. */
+    fun plan(i: ElementInfo, text: String): Plan = when {
+        text.isEmpty() -> Plan(text, enter = false)
+        i.tag != "input" -> Plan(text, enter = false, keptNewline = text.endsWith("\n"))
+        text.endsWith("\n") -> Plan(text.trimEnd('\n', '\r'), enter = true)
+        else -> Plan(text, enter = i.search, auto = i.search)
     }
 }

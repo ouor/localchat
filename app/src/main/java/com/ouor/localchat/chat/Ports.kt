@@ -67,7 +67,7 @@ interface BrowserPort {
     /** The chat's work tab id, null when it has none. */
     suspend fun workTabId(sessionId: String): Int?
 
-    /** Main thread. Throws NoSuchElementException for a closed tab. */
+    /** Main thread. Throws TabClosed for a closed tab. */
     fun tab(tabId: Int): BrowserTab
 
     /**

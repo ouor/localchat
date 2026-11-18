@@ -35,6 +35,7 @@ import com.ouor.localchat.llm.LlmError
 import com.ouor.localchat.llm.toChatError
 import com.ouor.localchat.llm.LlmEvent
 import com.ouor.localchat.storage.SettingsStore
+import com.ouor.localchat.tools.ReadCursor
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolExposure
 import kotlinx.coroutines.CancellationException
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -66,6 +68,14 @@ class TurnRunner @Inject constructor(
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     enum class Mode { NEW, CONTINUE }
+
+    /** read continuations per chat, kept across turns in this process (G-m9); the least recent chats are dropped. */
+    private val cursors = object : LinkedHashMap<String, MutableMap<String, ReadCursor>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MutableMap<String, ReadCursor>>) = size > CURSOR_CHATS
+    }
+
+    private fun readCursors(sessionId: String): MutableMap<String, ReadCursor> =
+        synchronized(cursors) { cursors.getOrPut(sessionId) { ConcurrentHashMap() } }
 
     /** Runs until the reply is DONE, ERROR or cancelled; the reply is always saved at the end. */
     suspend fun run(handle: RunRegistry.RunHandle, mode: Mode) {
@@ -142,6 +152,7 @@ class TurnRunner @Inject constructor(
             val executor = ToolExecutor(
                 sessionId, browser, attachments, browserPort, handle, listed, existingSources,
                 contextWindow = model.caps.contextWindow.value, vision = model.caps.imageInput.value,
+                readCursors = readCursors(sessionId),
             ) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
@@ -188,7 +199,8 @@ class TurnRunner @Inject constructor(
                 val shape = policy.shape(listed.isNotEmpty(), executor.tools.isNotEmpty(), mode == Mode.NEW, body.blocks.any { it is ToolCallBlock })
                 val stepTools = if (shape.sendTools) listed else emptyList()
 
-                var request = assemble(path, model, stepTools, system, shape)
+                val left = if (mode == Mode.NEW) StepPolicy.stepsLeft(step, maxSteps) else 0
+                var request = assemble(path, model, stepTools, system, shape, left)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -201,7 +213,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, stepTools, system, shape)
+                    request = assemble(path, model, stepTools, system, shape, left)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
@@ -279,7 +291,6 @@ class TurnRunner @Inject constructor(
                         // SE 24: one response cannot fan out into an unbounded run of tools.
                         calls.take(MAX_CALLS_PER_STEP).forEach { narrow(); runTool(executor, it) }
                         policy = policy.afterCalls(calls.all { executor.isOff(it.name) }, shape)
-                        if (mode == Mode.NEW) noteStepsLeft(step, maxSteps)
                         calls.drop(MAX_CALLS_PER_STEP).forEach { skipped ->
                             publish(
                                 body.copy(
@@ -309,7 +320,7 @@ class TurnRunner @Inject constructor(
                     // Also on stop: a tab left in USER would stall the next run's first tool (AN 13, SE 22).
                     browserPort.setControl(handoff.tabId, Control.AI)
                 }
-                block = block.copy(content = executor.afterHandoff(handoff.tabId), isError = false)
+                block = executor.afterHandoff(block, handoff.tabId)
             }
             val now = clock.now()
             publish(
@@ -323,16 +334,7 @@ class TurnRunner @Inject constructor(
             save()
         }
 
-        /** tools-redesign 5-4: near the step limit, the step's last result tells the model how many steps are left (outside the page boundary, stored). */
-        fun noteStepsLeft(step: Int, maxSteps: Int) {
-            val left = StepPolicy.stepsLeft(step + 1, maxSteps)
-            if (left !in 1..3) return
-            val last = body.blocks.lastOrNull { it is ToolResultBlock && it.step == step } as? ToolResultBlock ?: return
-            val note = "[App note: $left step(s) left before the user is asked whether to continue. Answer soon if you can.]"
-            publish(body.copy(blocks = body.blocks.map { if (it === last) last.copy(content = last.content + "\n\n" + note) else it }))
-        }
-
-        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, shape: StepPolicy.Shape) =
+        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, shape: StepPolicy.Shape, stepsLeft: Int) =
             ContextAssembler.build(
                 AssemblyInput(
                     system = system,
@@ -347,6 +349,7 @@ class TurnRunner @Inject constructor(
                     noCalls = shape.noCalls,
                     note = shape.note,
                     noteText = shape.noteText,
+                    stepsLeft = stepsLeft,
                 ),
             )
 
@@ -398,6 +401,7 @@ class TurnRunner @Inject constructor(
         /** Architecture 8.1: streaming writes at most once a second, plus at step boundaries and the end. */
         const val SAVE_INTERVAL_MS = 1000L
         const val MAX_CALLS_PER_STEP = 10
+        const val CURSOR_CHATS = 8
         /** A class name would be R8-obfuscated in release builds, so a message-less exception gets fixed text. */
         const val UNEXPECTED = "Unexpected error"
         const val TOO_MANY_CALLS = "Not run: at most 10 tool calls per step. Call it again in the next step if still needed."

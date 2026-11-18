@@ -101,6 +101,8 @@ class ToolsTest {
         override suspend fun <T> hiddenTab(url: String, block: suspend (BrowserTab) -> T): T = throw AssertionError("hiddenTab used")
         override fun status(s: ToolStatus?, engine: String?) = Unit
         override val readCursors = HashMap<String, ReadCursor>()
+        override fun markVisited(urls: Collection<String>) = Unit
+        override fun checkApprovedPage(tab: BrowserTab) = Unit
         override suspend fun requireApproval(request: ApprovalRequest) = throw AssertionError("approval asked")
         override fun numberSource(url: String, title: String, snippet: String?) = 1
         override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "id"
@@ -138,6 +140,11 @@ class ToolsTest {
         assertFalse(Browse.isUrl("kotlin coroutines"))
         assertFalse(Browse.isUrl("what is 3.5 mm"))
         assertFalse(Browse.isUrl("weather"))
+        // G-m5: a path from a list is opened on the current site, not searched for.
+        assertTrue(Browse.isPath("/p/123"))
+        assertTrue(Browse.isPath("../up"))
+        assertFalse(Browse.isPath("p/123"))
+        assertFalse(Browse.isPath("/ not a path"))
     }
 
     // --- type's Enter (tools-redesign 3-5)
@@ -147,16 +154,18 @@ class ToolsTest {
 
     @Test
     fun `search boxes get Enter by themselves, other fields only with a trailing newline`() {
-        assertEquals("lamp" to true, TypeRules.enter(input(type = "search", role = "searchbox"), "lamp"))
-        assertEquals("lamp" to true, TypeRules.enter(input(role = "searchbox"), "lamp"))
-        assertEquals("lamp" to true, TypeRules.enter(input(search = true), "lamp"))
-        assertEquals("lamp" to true, TypeRules.enter(input(nameAttr = "q"), "lamp"))
-        assertEquals("lamp" to true, TypeRules.enter(input(placeholder = "상품 검색"), "lamp"))
-        assertEquals("lamp" to false, TypeRules.enter(input(role = "combobox", nameAttr = "q"), "lamp")) // Enter may pick a suggestion
-        assertEquals("Kim" to false, TypeRules.enter(input(name = "Name"), "Kim"))
-        assertEquals("hi" to true, TypeRules.enter(input(name = "Message"), "hi\n"))
-        assertEquals("a\nb\n" to false, TypeRules.enter(ElementInfo(tag = "textarea", role = "textbox"), "a\nb\n"))
-        assertEquals("x\n" to false, TypeRules.enter(ElementInfo(tag = "div", role = "textbox", nameAttr = "q"), "x\n")) // contenteditable
+        // agent.js decides what a search box is (info.search, shown as searchbox in the list).
+        assertEquals(TypeRules.Plan("lamp", enter = true, auto = true), TypeRules.plan(input(role = "searchbox", search = true), "lamp"))
+        assertEquals(TypeRules.Plan("lamp", enter = false), TypeRules.plan(input(role = "combobox", nameAttr = "q"), "lamp"))
+        assertEquals(TypeRules.Plan("Kim", enter = false), TypeRules.plan(input(name = "Name"), "Kim"))
+        assertEquals(TypeRules.Plan("hi", enter = true), TypeRules.plan(input(name = "Message"), "hi\n"))
+        assertEquals(TypeRules.Plan("hi", enter = true), TypeRules.plan(input(search = true), "hi\n")) // asked for: no suggestion check
+        // G-m2: clearing a search box submits nothing.
+        assertEquals(TypeRules.Plan("", enter = false), TypeRules.plan(input(search = true), ""))
+        // G-m3: multi-line fields keep the newline as text, and the result says so.
+        assertEquals(TypeRules.Plan("a\nb\n", enter = false, keptNewline = true), TypeRules.plan(ElementInfo(tag = "textarea", role = "textbox"), "a\nb\n"))
+        assertEquals(TypeRules.Plan("x\n", enter = false, keptNewline = true), TypeRules.plan(ElementInfo(tag = "div", role = "textbox", search = true), "x\n"))
+        assertEquals(TypeRules.Plan("x", enter = false), TypeRules.plan(ElementInfo(tag = "textarea", role = "textbox"), "x"))
     }
 
     private inline fun expectToolError(fragment: String, context: String = "", block: () -> Unit) {

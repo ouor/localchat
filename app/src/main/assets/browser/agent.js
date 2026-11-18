@@ -2,14 +2,16 @@
  * localchat page agent (architecture 7.3). Evaluated by browser.script.PageScript as
  *   (this function)(K, CFG)
  * once per document; it installs a non-enumerable window[K] whose call(fn, args) runs one function below.
- * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs.
+ * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs. Ref
+ * numbers start at CFG.refBase, which the app raises past every ref the tab handed out, so a ref never repeats in a tab.
  * The file must stay a single function expression (no trailing semicolon or call).
  */
 (function (K, CFG) {
   'use strict';
   if (window[K]) return;
 
-  var refs = [];               // ref "e<n>" -> refs[n - 1] = WeakRef(element)
+  var base = CFG.refBase || 1; // first ref number of this document
+  var refs = [];               // ref "e<n>" -> refs[n - base] = WeakRef(element)
   var refOf = new WeakMap();   // element -> "e<n>": an element keeps its ref across snapshots
   var pend = {};               // execute promises: id -> null (running) | {ok} | {error}
   var pendSeq = 0;
@@ -39,11 +41,31 @@
   function mark() {
     var r = resources();
     if (r.n !== resCount) { resCount = r.n; if (r.end > lastChange) lastChange = r.end; }
-    var b = document.body;
     return {
       doc: docId, n: changes, quietMs: Math.max(0, Math.round(performance.now() - lastChange)),
-      textLen: b ? (b.innerText || '').length : 0, readyState: document.readyState, url: location.href, title: norm(document.title)
+      textLen: textLen(), readyState: document.readyState, url: location.href, title: norm(document.title)
     };
+  }
+
+  // Whether the page has SPARSE characters of text, without layout (no innerText): text nodes and open shadow
+  // roots, scripts and styles left out. A document that once had enough is not measured again.
+  var SPARSE = 200, enoughText = false;
+  function textLen() {
+    if (enoughText) return SPARSE;
+    var n = countText(document.body, 0);
+    if (n >= SPARSE) enoughText = true;
+    return n;
+  }
+  function countText(root, n) {
+    if (!root) return n;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (x) { return x.nodeType === 1 && SKIP_TAGS[x.localName] ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+    });
+    for (var x = w.nextNode(); x && n < SPARSE; x = w.nextNode()) {
+      if (x.nodeType === 3) n += x.data.trim().length;
+      else if (x.shadowRoot) n = countText(x.shadowRoot, n);
+    }
+    return n;
   }
 
   // ---------- text helpers
@@ -233,43 +255,58 @@
     var r = refOf.get(el);
     if (!r) {
       refs.push(new WeakRef(el));
-      r = 'e' + refs.length;
+      r = 'e' + (base + refs.length - 1);
       refOf.set(el, r);
     }
     return r;
   }
 
-  function deepQuery(root, sel) {
-    var found = root.querySelector(sel);
-    if (found) return found;
-    var all = root.querySelectorAll('*');
-    for (var i = 0; i < all.length; i++) {
-      var sub = all[i].shadowRoot;
-      if (!sub && (all[i].localName === 'iframe' || all[i].localName === 'frame')) sub = all[i].contentDocument;
-      if (sub) { found = deepQuery(sub, sel); if (found) return found; }
-    }
-    return null;
+  // "e12", "@e12", "#e12", "[ref=e12]"
+  var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?[@#]?e(\d+)\s*\]?\s*$/i;
+
+  /** The element of a ref; anything else is refused with a "REF:" message (the app then shows the current list). */
+  function resolve(target) {
+    var m = REF_RE.exec(target == null ? '' : String(target));
+    if (!m) throw new Error('REF:' + q(cut(String(target == null ? '' : target), 40)) + ' is not a ref. Pass a ref from the element list, e.g. e12.');
+    var n = +m[1];
+    if (n < base) throw new Error('REF:Ref e' + n + ' is from an earlier page of this tab, not this one.');
+    var w = refs[n - base], el = w && w.deref();
+    if (!w) throw new Error('REF:Ref e' + n + ' is not on this page.');
+    if (!el || !el.isConnected) throw new Error('REF:Ref e' + n + ' is gone; the page changed.');
+    return el;
   }
 
-  var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?e(\d+)\s*\]?\s*$/;
+  // ---------- search boxes (type presses Enter in them by itself; the list shows them as searchbox)
 
-  function resolve(target) {
-    if (!target) throw new Error('missing ref: pass a ref from the latest element list (e.g. e12)');
-    var m = REF_RE.exec(target);
-    if (m) {
-      var w = refs[+m[1] - 1];
-      var el = w && w.deref();
-      if (!el || !el.isConnected) throw new Error('Ref e' + m[1] + ' is from an older page; use a ref from the latest element list.');
-      return el;
-    }
-    var found = deepQuery(document, target);
-    if (!found) throw new Error('no element matches selector ' + target);
-    return found;
+  var SEARCH_NAMES = { q: 1, query: 1, search: 1, keyword: 1, keywords: 1, s: 1, search_query: 1, wd: 1 };
+  var SEARCH_WORD = /search|검색/i;
+
+  /** A one-line search field. A combobox is left out: Enter may pick one of its suggestions. */
+  function isSearchBox(el) {
+    if (el.localName !== 'input' || !isEditable(el)) return false;
+    var role = (el.getAttribute('role') || '').trim().toLowerCase();
+    if (role === 'combobox') return false;
+    if ((el.getAttribute('type') || '').toLowerCase() === 'search' || role === 'searchbox') return true;
+    if (el.closest('[role=search]')) return true;
+    if (SEARCH_NAMES[(el.getAttribute('name') || '').toLowerCase()]) return true;
+    return SEARCH_WORD.test(nameOf(el, 'textbox')) || SEARCH_WORD.test(el.getAttribute('placeholder') || '');
+  }
+
+  function roleShown(el) {
+    var r = roleOf(el);
+    return r === 'textbox' && isSearchBox(el) ? 'searchbox' : r;
+  }
+
+  /** Visible suggestion lists (ARIA options): type compares the count before and after typing. */
+  function suggestions() {
+    var n = 0, all = document.querySelectorAll('[role=option], [role=listbox]');
+    for (var i = 0; i < all.length; i++) if (visibleBox(all[i])) n++;
+    return { n: n };
   }
 
   function info(el) {
     var form = el.form || (el.closest && el.closest('form'));
-    var role = roleOf(el);
+    var role = roleShown(el);
     return {
       tag: el.localName,
       role: role,
@@ -282,7 +319,7 @@
       formMethod: form ? (el.getAttribute('formmethod') || form.getAttribute('method') || 'get').toLowerCase() : null,
       formAction: form ? (el.getAttribute('formaction') || form.getAttribute('action') || '') : null,
       href: el.getAttribute('href'),
-      search: !!(el.closest && el.closest('[role=search]'))
+      search: isSearchBox(el)
     };
   }
 
@@ -342,7 +379,8 @@
       if (v) s += ' value=' + q(cut(v, 100));
     }
     if (role === 'link') {
-      var href = el.getAttribute('href') || '';
+      // Absolute, so browse() and read() can take it as it is (G-m5).
+      var href = typeof el.href === 'string' ? el.href : (el.getAttribute('href') || '');
       if (href && !/^javascript:/i.test(href)) s += ' -> ' + cut(href, 150);
     }
     return s;
@@ -351,18 +389,25 @@
   /**
    * Lines of the page's elements within budget characters. When everything does not fit, interactive elements and
    * headings on screen come first, then those off screen (nearest first), then text on screen, then other text;
-   * the chosen lines are printed in document order.
+   * the chosen lines are printed in document order. With more, a page that is (nearly) the same as at the last call
+   * lists the lines that call left out (G-M3); otherwise it starts over.
    */
+  var lastList = null; // { all: Set of every line, shown: Set of listed lines }
+
   function pageList(a) {
     var budget = a.budget || 8000, vh = innerHeight;
     var items = [];
-    var MAX_ITEMS = 4000;
+    var MAX_ITEMS = 4000, dropped = { above: 0, below: 0 };
 
     function emit(depth, line, el, important) {
-      if (items.length >= MAX_ITEMS) return;
       var r = rectInTop(el), side = 0, dist = 0;
       if (r.top + r.height <= 0) { side = -1; dist = -(r.top + r.height); }
       else if (r.top >= vh) { side = 1; dist = r.top - vh; }
+      // Past the cap only what is on screen and actionable is kept; the rest is counted (B-M4).
+      if (items.length >= MAX_ITEMS && !(important && side === 0)) {
+        if (side < 0) dropped.above++; else dropped.below++;
+        return;
+      }
       items.push({ s: new Array(depth + 1).join('  ') + '- ' + line, pri: (important ? 0 : 2) + (side ? 1 : 0), dist: dist, side: side });
     }
 
@@ -384,7 +429,8 @@
       var doc = null;
       try { doc = el.contentDocument; } catch (e) { doc = null; }
       if (!doc || !doc.documentElement) {
-        emit(depth, 'iframe' + (title ? ' ' + q(title) : '') + ' (cross-origin, not accessible)', el, true);
+        // A ref, so a click on it reaches the frame approval (the page inside cannot be listed).
+        emit(depth, 'iframe' + (title ? ' ' + q(title) : '') + ' (cross-origin, not accessible) [ref=' + refFor(el) + ']', el, true);
         return;
       }
       emit(depth, 'iframe' + (title ? ' ' + q(title) : ''), el, true);
@@ -396,7 +442,7 @@
       if (el.localName === 'iframe' || el.localName === 'frame') return frame(el, depth);
       if (el.localName === 'option' && el.closest('select')) return;
       if (el.localName === 'slot') return children(el, depth, false); // no box of its own; walk assigned nodes
-      var role = roleOf(el);
+      var role = roleShown(el);
       var inner = el.shadowRoot || el;
       var field = isField(el) || el.localName === 'select';
       if (!role) {
@@ -420,24 +466,35 @@
     }
 
     children(document.body || document.documentElement, 0, false);
-    var total = 0;
-    items.forEach(function (it) { total += it.s.length + 1; });
-    var keep = items.map(function () { return true; });
-    var above = 0, below = 0;
-    if (total > budget) {
-      var order = items.map(function (it, i) { return i; }).sort(function (x, y) {
-        return (items[x].pri - items[y].pri) || (items[x].dist - items[y].dist) || (x - y);
-      });
-      var used = 0;
-      keep = items.map(function () { return false; });
-      order.forEach(function (i) {
-        var len = items[i].s.length + 1;
-        if (used + len <= budget) { keep[i] = true; used += len; }
-      });
-      items.forEach(function (it, i) { if (!keep[i]) { if (it.side < 0) above++; else below++; } });
+
+    // Continue the last list when most of its lines are still here and some were left out.
+    var shown = new Set(), continued = false;
+    if (a.more && lastList) {
+      var same = 0, open = 0;
+      items.forEach(function (it) { if (lastList.all.has(it.s)) same++; if (!lastList.shown.has(it.s)) open++; });
+      if (open > 0 && same >= 0.9 * items.length) { shown = lastList.shown; continued = true; }
     }
-    var out = items.filter(function (it, i) { return keep[i]; }).map(function (it) { return it.s; });
-    return { text: out.join('\n'), listed: out.length, above: above, below: below };
+    var cand = items.map(function (it, i) { return i; }).filter(function (i) { return !shown.has(items[i].s); });
+    var total = 0;
+    cand.forEach(function (i) { total += items[i].s.length + 1; });
+    var keep = new Set(cand);
+    if (total > budget) {
+      cand.sort(function (x, y) { return (items[x].pri - items[y].pri) || (items[x].dist - items[y].dist) || (x - y); });
+      var used = 0;
+      keep = new Set();
+      cand.forEach(function (i) {
+        var len = items[i].s.length + 1;
+        if (used + len <= budget) { keep.add(i); used += len; }
+      });
+    }
+    var out = [], above = dropped.above, below = dropped.below, all = new Set(), nowShown = new Set(shown);
+    items.forEach(function (it, i) {
+      all.add(it.s);
+      if (keep.has(i)) { out.push(it.s); nowShown.add(it.s); }
+      else if (!nowShown.has(it.s) && !shown.has(it.s)) { if (it.side < 0) above++; else below++; }
+    });
+    lastList = { all: all, shown: nowShown };
+    return { text: out.join('\n'), listed: out.length, above: above, below: below, continued: continued };
   }
 
   // ---------- main text (read)
@@ -455,8 +512,11 @@
    */
   function readText() {
     var body = document.body || document.documentElement;
-    var cands = document.querySelectorAll('main, [role=main], article'), root = null;
+    var cands = document.querySelectorAll('main, [role=main]'), root = null;
     for (var i = 0; i < cands.length && !root; i++) if (norm(cands[i].textContent).length >= 500) root = cands[i];
+    // One article is the page's text; several (posts, comments, a feed) are all read from the body (B-m11).
+    var arts = root ? [] : document.querySelectorAll('article');
+    if (arts.length === 1 && norm(arts[0].textContent).length >= 500) root = arts[0];
     var text = textOf(root || body, !root);
     if (root && text.length < 200) text = textOf(body, true);
     return { title: norm(document.title), url: location.href, text: text, flags: flags(text) };
@@ -507,12 +567,16 @@
     return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  /** "bot": a bot check or consent wall; "login": a visible password field on a short page. */
+  /**
+   * On a short page only (a long one is an article that may mention them, B-M3): "bot" = bot check or consent
+   * wording; "login" = a visible password field.
+   */
   function flags(text) {
     var f = [];
-    if (botRe.test(text.slice(0, 3000))) f.push('bot');
+    if (text.length >= 1500) return f;
+    if (botRe.test(text)) f.push('bot');
     var pw = document.querySelector('input[type=password]');
-    if (pw && visible(pw) && text.length < 1500) f.push('login');
+    if (pw && visible(pw)) f.push('login');
     return f;
   }
 
@@ -526,7 +590,7 @@
     var el = resolve(a.target);
     if (el.localName === 'select') return chooseOption(el, a.text);
     if (isSensitive(el)) throw new Error('refused: password, OTP and card fields are filled by the user only (use request_handoff)');
-    if (!isEditable(el)) throw new Error('element is not a text field (' + el.localName + (roleOf(el) ? ', ' + roleOf(el) : '') + ')');
+    if (!isEditable(el)) throw new Error('The element is not a text field (' + el.localName + (roleOf(el) ? ', ' + roleOf(el) : '') + ').');
     if (el.disabled || el.readOnly) throw new Error('text field is disabled or read-only');
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     el.focus();
@@ -542,7 +606,7 @@
     events(el, ['change']);
     var res = { value: cut(el.value, 200) };
     var sub = el.form && el.form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
-    if (sub && visibleBox(sub)) { res.submitRef = refFor(sub); res.submitLabel = roleOf(sub) + (nameOf(sub, roleOf(sub)) ? ' ' + q(nameOf(sub, roleOf(sub))) : ''); }
+    if (sub && visibleBox(sub)) res.submitRef = refFor(sub);
     return res;
   }
 
@@ -636,7 +700,8 @@
 
   var FNS = {
     mark: mark, pageList: pageList, readText: readText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
-    click: click, type: typeText, execBegin: execBegin, execEnd: execEnd, execResult: execResult, execPoll: execPoll
+    click: click, type: typeText, suggestions: suggestions, execBegin: execBegin, execEnd: execEnd, execResult: execResult,
+    execPoll: execPoll
   };
 
   var api = {
@@ -644,7 +709,9 @@
       var f = FNS[fn];
       if (!f) throw new Error('unknown page function ' + fn);
       return f(args || {});
-    }
+    },
+    /** The ref number after the last one this document handed out. */
+    next: function () { return base + refs.length; }
   };
   Object.defineProperty(window, K, { value: api, enumerable: false, configurable: false, writable: false });
 })

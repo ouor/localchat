@@ -1,8 +1,8 @@
 /*
  * Search result extractors (S-01, architecture 7.4, R8). Evaluated by browser.script.PageScript as
  *   (this function)(engine, max, cfg)
- * on a loaded result page; returns {results: [{title, url, snippet}], blocked}. blocked = a bot check or consent page
- * (cfg.bot is SearchEngines.BOT_PATTERN); then nothing is extracted. Engine markup changes are fixed here only.
+ * on a loaded result page; returns {results: [{title, url, snippet}], blocked}. blocked = no results and the page reads
+ * as a bot check or consent page (cfg.bot is SearchEngines.BOT_PATTERN; results that mention "captcha" stay results). Engine markup changes are fixed here only.
  * The file must stay a single function expression.
  */
 (function (engine, max, cfg) {
@@ -34,16 +34,14 @@
   var RULES = {
     // html.duckduckgo.com/html: no JS, stable markup
     DUCKDUCKGO: { card: '.result:not(.result--ad)', link: 'a.result__a', snippet: '.result__snippet' },
-    GOOGLE: { card: '#rso div.MjjYud, #search div.MjjYud, #rso div.g', link: 'a:has(h3), a:has([role=heading])', title: 'h3, [role=heading]', snippet: '.VwiC3b, [data-sncf]' },
+    // site: the shown source line; a /goto result's URL does not name the site (B-m7)
+    GOOGLE: { card: '#rso div.MjjYud, #search div.MjjYud, #rso div.g', link: 'a:has(h3), a:has([role=heading])', title: 'h3, [role=heading]', snippet: '.VwiC3b, [data-sncf]', site: 'cite, .VuuXrf' },
     // Some layouts put the site attribution (.tilk/.tptt/cite) inside the title link or h2.
     BING: { card: 'li.b_algo', link: 'h2 a:not(.tilk), a:has(h2)', strip: '.b_tpcn, .tilk, .tptt, .b_attribution, cite, h2', snippet: '.b_caption p, .b_rcGenCap p, .b_algoSlug, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4' },
     // m.search.naver.com: hashed sds-comps classes; profile = site name/url/date row
     // (fds-default-mode skips ad boxes; help/keep/search links are Naver chrome)
     NAVER: { card: '.api_subject_bx.fds-default-mode, .total_wrap', strip: '.sds-comps-profile, .thumb-area, .source_box', skipHost: /(^|\.)(help|keep|ader|search)\.naver\.com$/ }
   };
-
-  var body = document.body ? (document.body.innerText || '') : '';
-  if (new RegExp(cfg.bot, 'i').test(body.slice(0, 3000))) return { results: [], blocked: true };
 
   var r = RULES[engine] || {};
   var out = [], seen = {};
@@ -89,7 +87,13 @@
     var card = cards[i], a = titleLink(card, r);
     if (!a) continue;
     var title = (r.title && txt(a, r.title)) || titleText(a, r);
-    add(title, a.getAttribute('href'), txt(card, r.snippet) || rest(card, a, r));
+    var snippet = txt(card, r.snippet) || rest(card, a, r), site = r.site ? txt(card, r.site) : '';
+    add(title, a.getAttribute('href'), site ? site + ' · ' + snippet : snippet);
+  }
+  // A bot check is judged only when nothing was found (B-M3).
+  if (!out.length) {
+    var body = document.body ? (document.body.innerText || '') : '';
+    if (new RegExp(cfg.bot, 'i').test(body.slice(0, 3000))) return { results: [], blocked: true };
   }
   // Fallback when the markup changed: external links with real titles.
   if (!out.length) {
