@@ -133,6 +133,11 @@ private fun MarkdownBlock(
     val codeStyle = SpanStyle(fontFamily = t.code.fontFamily, fontSize = 14.sp, background = c.surfaceSunken)
     val annotator = remember(parts, mathOk, codeStyle) {
         markdownAnnotator { content, child ->
+            // QA m3: the parser makes `<a>` an HTML tag, even inside a code span, and the library draws no HTML: shown as written.
+            if (child.type == MarkdownTokenTypes.HTML_TAG) {
+                append(child.getTextInNode(content).toString())
+                return@markdownAnnotator true
+            }
             if (child.type != MarkdownTokenTypes.TEXT) return@markdownAnnotator false
             val node = child.getTextInNode(content).toString()
             if (!node.contains(TOKEN_OPEN)) return@markdownAnnotator false

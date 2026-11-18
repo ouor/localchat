@@ -58,6 +58,17 @@ class MarkdownTableTest {
         rule.onAllNodesWithText(TOKEN_OPEN.toString(), substring = true).assertCountEquals(0)
     }
 
+    @Test fun htmlInInlineCodeAndTextShowsAsWritten() {
+        // QA m3: `<a>` drew an empty code box (the parser's HTML tag token was dropped).
+        rule.setContent {
+            LocalchatTheme(darkTheme = false) {
+                MarkdownMessage("The page has one `<a>` link and a <b> tag.", emptyList(), streaming = false, onLinkClick = {}, onCitationClick = {}, modifier = Modifier.width(360.dp))
+            }
+        }
+        rule.onNodeWithText("<a>", substring = true).assertExists()
+        rule.onNodeWithText("<b> tag", substring = true).assertExists()
+    }
+
     @Test fun anotherTableInTheSameSlotDoesNotInheritColumnWidths() {
         val wide = "W".repeat(80) // clamps both columns to 240dp
         var md by mutableStateOf("| A | B |\n|---|---|\n| $wide | $wide |")
