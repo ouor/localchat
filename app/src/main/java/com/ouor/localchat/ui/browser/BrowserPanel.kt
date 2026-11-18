@@ -82,7 +82,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.pointerInteropFilter
-import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInRoot
 import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserPrompt
@@ -134,6 +136,8 @@ interface BrowserActions {
     fun answerDownload(p: BrowserPrompt.Download, allow: Boolean)
     /** Engine-owned WebView for [BrowserSurface]; null in tests (a blank page is drawn). */
     fun webView(id: Int): android.webkit.WebView?
+    /** [BrowserSurface] shows / is done with the tab's WebView (paired; the engine counts holders). */
+    fun show(id: Int)
     fun park(id: Int)
 }
 
@@ -363,8 +367,8 @@ private const val SCROLL_FOCUSED_INTO_VIEW =
  * it is parked) and is placed under this area, which is cleared to a hole, so it is drawn before everything else in
  * the window. Moving it into the panel rebuilt its draw functor on every open, new tab and tab switch (devphone02
  * atrace), and a new WebView's first draws blanked the window buffer drawn before it: the app went black (s25 still,
- * with a hardware layer). Requires the app's Compose root to be an offscreen layer (MainActivity), so the hole is
- * transparent. Touches on the area go to the WebView.
+ * with a hardware layer). Requires [WebViewHoleRoot] around the app (MainActivity), so the hole is transparent.
+ * Touches, wheel and hover on the area go to the WebView.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -373,13 +377,22 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
         androidx.compose.runtime.key(tabId) {
             val view = remember(tabId) { actions.webView(tabId) }
             if (view != null) {
+                val holes = LocalWebViewHoles.current
                 Box(
                     Modifier.fillMaxSize()
                         .drawBehind { drawRect(androidx.compose.ui.graphics.Color.Black, blendMode = androidx.compose.ui.graphics.BlendMode.Clear) }
-                        .onPlaced { view.placeUnder(it.positionInRoot(), it.size) }
-                        .pointerInteropFilter { view.dispatchTouchEvent(it) },
+                        .onGloballyPositioned { view.placeUnder(it.positionInRoot(), it.size) }
+                        // Not a child of the ComposeView: its requestDisallowInterceptTouchEvent reaches no Compose
+                        // ancestor (none intercepts the page area today).
+                        .pointerInteropFilter { e -> if (e.isGeneric()) view.dispatchGenericMotionEvent(e) else view.dispatchTouchEvent(e) },
                 )
-                DisposableEffect(view) { onDispose { actions.park(tabId) } }
+                // In composition's apply step, before this frame is drawn: the root layer, the hole and the visible
+                // WebView land in the same frame (FB5 M1; on the next draw pass the dark window showed for a frame).
+                DisposableEffect(view) {
+                    holes.intValue++
+                    actions.show(tabId)
+                    onDispose { holes.intValue--; actions.park(tabId) }
+                }
             }
             else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
             // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
@@ -402,6 +415,36 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     }
 }
 
+/** BrowserSurfaces showing a page; while any, the root is one offscreen layer so their holes are transparent. */
+private val LocalWebViewHoles = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.MutableIntState> {
+    error("BrowserSurface needs WebViewHoleRoot around the app")
+}
+
+/**
+ * App root for [BrowserSurface] (MainActivity; tests wrap their content the same way). The WebView host must be the
+ * sibling under this content's ComposeView, at the same origin. The offscreen layer costs a full-window buffer and a
+ * composite per frame, so it is on only while a page is shown (FB5 M2); read in the layer block, it flips without
+ * recomposition.
+ */
+@Composable
+fun WebViewHoleRoot(content: @Composable () -> Unit) {
+    val holes = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalWebViewHoles provides holes) {
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                compositingStrategy = if (holes.intValue > 0) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+            },
+        ) { content() }
+    }
+}
+
+/** Mouse wheel and hover (DeX, trackpad, S Pen; TalkBack touch exploration) take the generic-motion path. */
+private fun android.view.MotionEvent.isGeneric() = isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER) &&
+    actionMasked in intArrayOf(
+        android.view.MotionEvent.ACTION_SCROLL, android.view.MotionEvent.ACTION_HOVER_ENTER,
+        android.view.MotionEvent.ACTION_HOVER_MOVE, android.view.MotionEvent.ACTION_HOVER_EXIT,
+    )
+
 /** Puts the host's WebView exactly under the page area: moved by translation, resized only when the size changes. */
 private fun WebView.placeUnder(at: androidx.compose.ui.geometry.Offset, size: androidx.compose.ui.unit.IntSize) {
     if (size.width <= 0 || size.height <= 0) return // a 0-sized view drops its focus (QA F6)
@@ -409,11 +452,12 @@ private fun WebView.placeUnder(at: androidx.compose.ui.geometry.Offset, size: an
     translationY = at.y
     if (width != size.width || height != size.height) {
         layoutParams = android.widget.FrameLayout.LayoutParams(size.width, size.height)
-        // Laid out now, not on the next pass: the hole and the page stay the same size in every frame.
+        // Runs inside the ComposeView's draw, after the host recorded this frame: the new size shows from the next
+        // frame, so for one frame the page keeps its old size under the new hole (the window background shows at a
+        // growing edge; FB5 m5). Laid out now so the page's own size is right before that frame.
         measure(View.MeasureSpec.makeMeasureSpec(size.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(size.height, View.MeasureSpec.EXACTLY))
         layout(0, 0, size.width, size.height)
     }
-    visibility = View.VISIBLE
 }
 
 /** SC-12. */
