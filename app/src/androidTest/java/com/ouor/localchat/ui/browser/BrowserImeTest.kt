@@ -81,6 +81,7 @@ class BrowserImeTest {
         override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
         override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
         override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
+        override fun savePdf(id: Int, uri: android.net.Uri, done: (Boolean) -> Unit) {}
         override fun webView(id: Int): WebView? = web
         override fun show(id: Int) {}
         override fun park(id: Int) {}

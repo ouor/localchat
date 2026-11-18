@@ -135,6 +135,7 @@ class ChatScreenTest {
         override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
         override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
         override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
+        override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {}
         override fun webView(id: Int): WebView? = null
         override fun show(id: Int) {}
         override fun park(id: Int) {}
@@ -280,7 +281,7 @@ class ChatScreenTest {
     }
 
     @Test fun failedStepShowsItsReason() { // BUG-10
-        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "page_text", "{}", 0, com.ouor.localchat.core.model.ToolCallState.FAILED, 1)
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "read", "{}", 0, com.ouor.localchat.core.model.ToolCallState.FAILED, 1)
         val body = MessageBody.Assistant(listOf(call, TextBlock("Done", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
         show(ChatUiState(loading = false, turns = listOf(turn("read it", body))))
         rule.onNodeWithText(ctx.getString(R.string.ui_steps_failed, 1, 1)).performClick()

@@ -1,200 +1,93 @@
 package com.ouor.localchat.browser
 
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.ouor.localchat.MainActivity
-import com.ouor.localchat.testing.ScreenOnRule
-import com.ouor.localchat.chat.CatalogToolPort
-import com.ouor.localchat.chat.ChatEngine
-import com.ouor.localchat.chat.ClientLlmPort
-import com.ouor.localchat.chat.EngineBrowserPort
-import com.ouor.localchat.chat.FakeAttachments
-import com.ouor.localchat.chat.FakeChatStore
-import com.ouor.localchat.chat.MemoryDataStore
-import com.ouor.localchat.chat.wireEngine
-import com.ouor.localchat.chat.ModelPort
-import com.ouor.localchat.chat.ResolvedModel
-import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
-import com.ouor.localchat.chat.run.RunPhase
-import com.ouor.localchat.chat.run.RunState
-import com.ouor.localchat.chat.run.TurnRunner
-import com.ouor.localchat.core.Clock
-import com.ouor.localchat.core.model.AppSettings
-import com.ouor.localchat.core.model.CapSource
-import com.ouor.localchat.core.model.Draft
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.MessageBody
-import com.ouor.localchat.core.model.ModelCapabilities
-import com.ouor.localchat.core.model.ModelRef
-import com.ouor.localchat.core.model.ReasoningSpec
-import com.ouor.localchat.core.model.ReasoningWire
 import com.ouor.localchat.core.model.ReplyStatus
-import com.ouor.localchat.core.model.Sourced
-import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
-import com.ouor.localchat.core.model.ToolResultBlock
-import com.ouor.localchat.core.AppJson
-import com.ouor.localchat.llm.ChatCompletionsClient
-import com.ouor.localchat.llm.LlmTarget
-import com.ouor.localchat.storage.SettingsStore
-import com.ouor.localchat.testing.FakeOpenAiServer
+import com.ouor.localchat.tools.ToolOutcome
 import com.ouor.localchat.testing.Scenario
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
-import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
-import okhttp3.OkHttpClient
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.Collections
 
-/**
- * Whole tool flow on a device (B's checklist): FakeOpenAiServer scripts the model's tool calls, the real
- * ChatEngine/TurnRunner/ToolExecutor run them through ToolContext against the real BrowserEngine attached
- * to MainActivity, on pages from a local MockWebServer (plain http, so `type` always needs approval).
- */
+/** Tool flows end to end (B's checklist, tools-redesign 7); the harness is [ToolFlowBase]. */
 @RunWith(AndroidJUnit4::class)
-class ToolFlowE2eTest {
+class ToolFlowE2eTest : ToolFlowBase() {
 
-    @get:Rule val screen = ScreenOnRule()
-
-    private lateinit var pages: MockWebServer
-    private val pageHits: MutableList<String> = Collections.synchronizedList(mutableListOf())
-    private lateinit var llm: FakeOpenAiServer
-    private lateinit var scenario: ActivityScenario<MainActivity>
-    private lateinit var browser: BrowserEngine
-    private lateinit var scope: CoroutineScope
-    private lateinit var store: FakeChatStore
-    private lateinit var attachments: FakeAttachments
-    private lateinit var engine: ChatEngine
-    private var caps = caps(tools = true)
-
-    @Before
-    fun setUp() {
-        pages = MockWebServer()
-        pages.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse {
-                val path = request.url.encodedPath
-                pageHits += path
-                val b = MockResponse.Builder().addHeader("Content-Type", "text/html; charset=utf-8")
-                if (path == "/start") b.addHeader("Set-Cookie", "sid=$COOKIE; Path=/")
-                return b.body(PAGES[path] ?: "<!doctype html><title>$path</title><p>Page $path body text</p>").build()
-            }
-        }
-        pages.start()
-        llm = FakeOpenAiServer()
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        scenario.onActivity { browser = it.browserEngine }
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        store = FakeChatStore()
-        attachments = FakeAttachments()
-        val client = ClientLlmPort(ChatCompletionsClient(OkHttpClient(), AppJson))
-        val models = object : ModelPort {
-            override suspend fun resolve(ref: ModelRef) = ResolvedModel(ref, LlmTarget(llm.baseUrl, null, 0, allowHttp = true), caps)
-            override suspend fun markUsed(ref: ModelRef) = Unit
-        }
-        val tools = CatalogToolPort()
-        val port = EngineBrowserPort(browser)
-        val settings = SettingsStore(MemoryDataStore(AppSettings()))
-        val wired = wireEngine(scope, store, client, models, tools, attachments, port, settings, Clock.System) { browser }
-        runBlocking { wired.recovery.run() }
-        engine = wired.engine
+    override fun respond(path: String, request: RecordedRequest): MockResponse? {
+        val body = PAGES[path] ?: return null
+        val b = MockResponse.Builder().addHeader("Content-Type", "text/html; charset=utf-8")
+        if (path == "/start") b.addHeader("Set-Cookie", "sid=$COOKIE; Path=/")
+        return b.body(body).build()
     }
-
-    @After
-    fun tearDown() {
-        scope.cancel()
-        runBlocking(Dispatchers.Main) { browser.tabs.value.forEach { browser.close(it.id) } }
-        scenario.close()
-        llm.close()
-        pages.close()
-    }
-
-    private fun url(path: String) = pages.url(path).toString()
-
-    private fun send(text: String, browserOn: Boolean = true) = runBlocking {
-        engine.send(null, Draft(Draft.NEW_CHAT, text, emptyList(), 0), GenOptions(browser = browserOn), MODEL)
-    }
-
-    private fun awaitRun(sid: String, what: String, predicate: (RunState?) -> Boolean): RunState? = runBlocking {
-        try {
-            withTimeout(30_000) { engine.runs.first { predicate(it[sid]) }[sid] }
-        } catch (e: Exception) {
-            val last = store.messages.values.lastOrNull { it.sessionId == sid && it.body is MessageBody.Assistant }?.body
-            throw AssertionError("timed out waiting for $what; phase=${engine.runs.value[sid]?.phase}; reply=$last", e)
-        }
-    }
-
-    private var lastPause: Pause? = null
-
-    /** Next pause after the one answered last (resolve is async: the old pause can still be showing). */
-    private fun awaitPause(sid: String): Pause =
-        (awaitRun(sid, "pause") { (it?.phase as? RunPhase.Paused)?.pause.let { p -> p != null && p != lastPause } }!!.phase as RunPhase.Paused)
-            .pause.also { lastPause = it }
-
-    private fun awaitEnd(sid: String): MessageBody.Assistant {
-        awaitRun(sid, "end of run") { it == null }
-        return store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }.body as MessageBody.Assistant
-    }
-
-    private fun awaitControl(tabId: Int, control: Control) = runBlocking {
-        withTimeout(5_000) { browser.tabs.first { l -> l.any { it.id == tabId && it.control == control } } }
-    }
-
-    private fun MessageBody.Assistant.calls() = blocks.filterIsInstance<ToolCallBlock>()
-    private fun MessageBody.Assistant.results() = blocks.filterIsInstance<ToolResultBlock>()
 
     @Test
-    fun openSnapshotClickReadMultiStep() {
+    fun browseClickReadMultiStep() {
         llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
-            Scenario.toolCall("snapshot", "{}"),
-            Scenario.toolCall("click", """{"target":"#go"}"""),
-            Scenario.toolCall("page_text", "{}"),
+            Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("click", """{"ref":"#go"}"""),
+            Scenario.toolCall("read", "{}"),
             Scenario.text("done"),
         )
         val sid = send("go")
         val reply = awaitEnd(sid)
         assertEquals(ReplyStatus.DONE, reply.status)
-        assertEquals(listOf("open_tab", "snapshot", "click", "page_text"), reply.calls().map { it.name })
-        assertEquals(reply.results().joinToString { it.content }, List(4) { ToolCallState.DONE }, reply.calls().map { it.state })
+        assertEquals(listOf("browse", "click", "read"), reply.calls().map { it.name })
+        assertEquals(reply.results().joinToString { it.content }, List(3) { ToolCallState.DONE }, reply.calls().map { it.state })
         // Results are wrapped as untrusted page content (B-S5), in the reply and in what the model got.
         reply.results().forEach { assertTrue(it.content, it.content.startsWith("<untrusted_page_content>")) }
-        assertTrue(reply.results()[1].content, "Next page" in reply.results()[1].content)
-        assertTrue(reply.results()[3].content, "Page /next body text" in reply.results()[3].content)
+        assertTrue(reply.results()[0].content, "link \"Next page\" [ref=" in reply.results()[0].content)
+        // An action's result says what changed and lists the new page (tools-redesign 4).
+        assertTrue(reply.results()[1].content, "→ new page." in reply.results()[1].content)
+        assertTrue(reply.results()[2].content, "Page /next body text" in reply.results()[2].content)
         val tab = browser.tabs.value.single()
         assertTrue(tab.url, tab.url.endsWith("/next"))
         assertEquals(Owner.Ai(sid), tab.owner)
         val sent = modelRequests()
-        // sent[5], if any, is the title request.
-        assertTrue(sent.size >= 5)
-        assertTrue(sent[4], sent[4].contains("untrusted_page_content"))
+        // sent[4], if any, is the title request.
+        assertTrue(sent.size >= 4)
+        assertTrue(sent[3], sent[3].contains("untrusted_page_content"))
+    }
+
+    @Test
+    fun readUrlUsesAHiddenTabAndLeavesNone() {
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/p1")}"}"""), Scenario.text("done"))
+        val reply = awaitEnd(send("read p1"))
+        assertEquals(ToolCallState.DONE, reply.calls().single().state)
+        assertTrue(reply.results().single().content, "Page /p1 body text" in reply.results().single().content)
+        assertTrue(browser.tabs.value.isEmpty())
+    }
+
+    @Test
+    fun actionsWithoutATabSayToBrowseFirst() {
+        llm.enqueue(Scenario.toolCall("click", """{"ref":"e1"}"""), Scenario.text("done"))
+        val reply = awaitEnd(send("click"))
+        assertEquals(ToolCallState.FAILED, reply.calls().single().state)
+        assertTrue(reply.results().single().content, BrowserEngine.NO_TAB in reply.results().single().content)
+        assertTrue(browser.tabs.value.isEmpty())
     }
 
     @Test
     fun cookieValuesAreMaskedInResults() {
         llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
             Scenario.toolCall("execute", """{"code":"document.cookie"}"""),
-            Scenario.toolCall("page_text", "{}"),
+            Scenario.toolCall("read", "{}"),
             Scenario.text("done"),
         )
         val sid = send("cookies")
@@ -212,17 +105,18 @@ class ToolFlowE2eTest {
     @Test
     fun conditionalAndAlwaysApprovals() {
         llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/form")}"}"""),
-            Scenario.toolCall("click", """{"target":"#plain"}"""), // harmless button: no approval
-            Scenario.toolCall("type", """{"target":"#q","text":"hello"}"""), // http page: approval every time
-            Scenario.toolCall("click", """{"target":"#send"}"""), // POST submit: denied
-            Scenario.toolCall("click", """{"target":"#del"}"""), // risky keyword: allowed
+            Scenario.toolCall("browse", """{"url":"${url("/form")}"}"""),
+            Scenario.toolCall("click", """{"ref":"#plain"}"""), // harmless button: no approval
+            Scenario.toolCall("type", """{"ref":"#q","text":"hello"}"""), // http page: approval every time
+            Scenario.toolCall("click", """{"ref":"#send"}"""), // POST submit: denied
+            Scenario.toolCall("click", """{"ref":"#del"}"""), // risky keyword: allowed
             Scenario.toolCall("execute", """{"code":"document.getElementById('q').value"}"""), // always
             Scenario.text("done"),
         )
         val sid = send("form")
         val type = awaitPause(sid) as Pause.Approval
         assertEquals("type", type.request.toolName)
+        assertEquals("INSECURE_INPUT", type.request.reason?.name)
         engine.resolve(sid, Resolution.ApprovalAnswer(type.id, allow = true))
         val post = awaitPause(sid) as Pause.Approval
         assertEquals("click", post.request.toolName)
@@ -242,15 +136,35 @@ class ToolFlowE2eTest {
             listOf(ToolCallState.DONE, ToolCallState.DONE, ToolCallState.DONE, ToolCallState.DENIED, ToolCallState.DONE, ToolCallState.DONE),
             reply.calls().map { it.state },
         )
-        assertTrue(reply.results()[3].content, SystemPrompt.DENIED in reply.results()[3].content)
+        // A field outside a search box is not submitted; the result points at the submit button.
+        assertTrue(reply.results()[2].content, "Not submitted; the form's submit button is button \"Send\" [ref=" in reply.results()[2].content)
+        assertTrue(reply.results()[3].content, ToolOutcome.DENIED_TEXT in reply.results()[3].content)
+        assertTrue(reply.results()[4].content, "button \"gone\"" in reply.results()[4].content)
         assertTrue(reply.results()[5].content, "hello" in reply.results()[5].content)
         assertTrue("POST must not reach the server", pageHits.none { it == "/submit" })
     }
 
     @Test
+    fun typeInASearchBoxPressesEnter() {
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/search")}"}"""),
+            Scenario.toolCall("type", """{"ref":"#q","text":"lamps"}"""),
+            Scenario.text("done"),
+        )
+        val sid = send("search")
+        val p = awaitPause(sid) as Pause.Approval // http page
+        engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = true))
+        val reply = awaitEnd(sid)
+        val typed = reply.results()[1].content
+        assertTrue(typed, "Typed \"lamps\" into" in typed && "and pressed Enter → new page." in typed)
+        assertTrue(typed, "Page /results body text" in typed)
+        assertTrue(pageHits.toString(), pageHits.any { it == "/results" })
+    }
+
+    @Test
     fun handoffRoundTrip() {
         llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
             Scenario.toolCall("request_handoff", """{"reason":"Please sign in"}"""),
             Scenario.text("done"),
         )
@@ -262,14 +176,17 @@ class ToolFlowE2eTest {
         engine.resolve(sid, Resolution.HandoffReturned)
         val reply = awaitEnd(sid)
         awaitControl(h.tabId, Control.AI)
-        assertEquals(SystemPrompt.HANDOFF_DONE, reply.results()[1].content)
+        // The result is the page as the user left it (tools-redesign 3-7).
+        val back = reply.results()[1].content
+        assertTrue(back, back.startsWith("<untrusted_page_content>\nThe user gave the tab back. They may or may not have finished"))
+        assertTrue(back, "link \"Next page\" [ref=" in back)
         assertEquals(ReplyStatus.DONE, reply.status)
     }
 
     @Test
     fun waitsWhileUserControlsTheTab() {
         llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
             Scenario.toolCall("execute", """{"code":"location.pathname"}"""),
             Scenario.text("done"),
         )
@@ -288,21 +205,22 @@ class ToolFlowE2eTest {
     @Test
     fun toolCapableModelWithSwitchesOffGetsNoToolsAndCannotOpenATab() {
         // The model tries anyway: the call is not in the exposed list, so nothing opens.
-        llm.enqueue(Scenario.toolCall("open_tab", """{"url":"${url("/start")}"}"""), Scenario.text("plain"))
+        llm.enqueue(Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""), Scenario.text("plain"))
         val sid = send("open the start page", browserOn = false)
         val reply = awaitEnd(sid)
         assertFalse(modelRequests().first().contains("\"tools\""))
         assertTrue(reply.calls().none { it.state == ToolCallState.DONE })
+        assertTrue(reply.results().single().content, "Unknown tool: browse. No tools can be called now." == reply.results().single().content)
         assertTrue("/start" !in pageHits)
         assertTrue(browser.tabs.value.isEmpty())
     }
 
     @Test
     fun regenerateWithSwitchesOffSendsNoTools() {
-        llm.enqueue(Scenario.toolCall("open_tab", """{"url":"${url("/p1")}"}"""), Scenario.text("first"))
+        llm.enqueue(Scenario.toolCall("browse", """{"url":"${url("/p1")}"}"""), Scenario.text("first"))
         val sid = send("open p1")
         val first = store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }
-        assertEquals(listOf("open_tab"), awaitEnd(sid).calls().map { it.name })
+        assertEquals(listOf("browse"), awaitEnd(sid).calls().map { it.name })
         modelRequests()
         llm.enqueue(Scenario.text("second"))
         runBlocking { engine.regenerate(first.id, MODEL, GenOptions()) }
@@ -338,12 +256,11 @@ class ToolFlowE2eTest {
     }
 
     @Test
-    fun keyboardIsRefusedInPasswordFieldAndFrames() {
+    fun typeIsRefusedInPasswordFieldAndFramesAsk() {
         llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/login")}"}"""),
-            Scenario.toolCall("click", """{"target":"#pw"}"""),
-            Scenario.toolCall("keyboard", """{"key":"a"}"""),
-            Scenario.toolCall("click", """{"target":"#f"}"""), // opaque frame: approval (denied)
+            Scenario.toolCall("browse", """{"url":"${url("/login")}"}"""),
+            Scenario.toolCall("type", """{"ref":"#pw","text":"a"}"""),
+            Scenario.toolCall("click", """{"ref":"#f"}"""), // opaque frame: approval (denied)
             Scenario.text("done"),
         )
         val sid = send("login")
@@ -351,48 +268,19 @@ class ToolFlowE2eTest {
         assertEquals("FRAME", frame.request.reason?.name)
         engine.resolve(sid, Resolution.ApprovalAnswer(frame.id, allow = false))
         val reply = awaitEnd(sid)
-        assertEquals(reply.results().joinToString { it.content }, listOf(ToolCallState.DONE, ToolCallState.DONE, ToolCallState.FAILED, ToolCallState.DENIED), reply.calls().map { it.state })
-        assertTrue(reply.results()[2].content, "Refused" in reply.results()[2].content)
-    }
-
-    @Test
-    fun enterOnFocusedRiskyButtonAsks() {
-        llm.enqueue(
-            Scenario.toolCall("open_tab", """{"url":"${url("/danger")}"}"""),
-            Scenario.toolCall("keyboard", """{"key":"Enter"}"""),
-            Scenario.toolCall("keyboard", """{"key":"Space"}"""),
-            Scenario.text("done"),
-        )
-        val sid = send("danger")
-        repeat(2) {
-            val p = awaitPause(sid) as Pause.Approval
-            assertEquals("keyboard", p.request.toolName)
-            assertEquals("RISKY_KEYWORD", p.request.reason?.name)
-            engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = false))
-        }
-        val reply = awaitEnd(sid)
-        assertEquals(listOf(ToolCallState.DONE, ToolCallState.DENIED, ToolCallState.DENIED), reply.calls().map { it.state })
-    }
-
-    @Test
-    fun getTabsShowsOnlyTheDomainOfUserTabs() {
-        runBlocking(Dispatchers.Main) { browser.openUserTab(url("/private-wiki?token=abc123")) }
-        llm.enqueue(Scenario.toolCall("get_tabs", "{}"), Scenario.text("done"))
-        val reply = awaitEnd(send("tabs"))
-        val out = reply.results().single().content
-        assertTrue(out, "(user's tab: localhost)" in out)
-        assertFalse(out, "token" in out || "private-wiki" in out)
+        assertEquals(reply.results().joinToString { it.content }, listOf(ToolCallState.DONE, ToolCallState.FAILED, ToolCallState.DENIED), reply.calls().map { it.state })
+        assertTrue(reply.results()[1].content, "Refused" in reply.results()[1].content)
     }
 
     @Test
     fun acquireAiTabMarksActivityAndWaitsForControl() = runBlocking<Unit> {
-        val tab = browser.acquireAiTab("s1", null, "snapshot")
-        assertEquals("snapshot", browser.aiActivity.value[tab.id])
+        val tab = browser.acquireAiTab("s1", "browse", navigating = true)
+        assertEquals("browse", browser.aiActivity.value[tab.id])
         browser.setControl(tab.id, Control.USER) // from a worker thread: posted to main (F-10)
         withTimeout(5_000) { browser.tabs.first { l -> l.any { it.id == tab.id && it.control == Control.USER } } }
         val events = Collections.synchronizedList(mutableListOf<String>())
         val waiting = async(Dispatchers.Default) {
-            browser.acquireAiTab("s1", tab.id, "click", onUserControl = { events += "user $it" }, onResumed = { events += "resumed" })
+            browser.acquireAiTab("s1", "click", navigating = false, onUserControl = { events += "user $it" }, onResumed = { events += "resumed" })
         }
         withTimeout(5_000) { while (events.isEmpty()) delay(50) }
         assertFalse(waiting.isCompleted)
@@ -405,14 +293,22 @@ class ToolFlowE2eTest {
     }
 
     @Test
-    fun prefetchTabStaysHiddenAndNeverBecomesTheDefaultTab() = runBlocking<Unit> {
+    fun onlyBrowseCreatesTheWorkTab() = runBlocking<Unit> {
+        assertTrue(runCatching { browser.acquireAiTab("s1", "click", navigating = false) }.exceptionOrNull()?.message == BrowserEngine.NO_TAB)
+        assertTrue(browser.tabs.value.isEmpty())
+        val tab = browser.acquireAiTab("s1", "browse", navigating = true)
+        assertEquals(tab.id, browser.acquireAiTab("s1", "click", navigating = false).id) // one work tab per chat
+        assertEquals(listOf(tab.id), browser.tabs.value.map { it.id })
+    }
+
+    @Test
+    fun prefetchTabStaysHiddenAndNeverBecomesTheWorkTab() = runBlocking<Unit> {
         // FB3 eng M2, arch M1.
-        val default = browser.acquireAiTab("s1", null, "snapshot")
+        val work = browser.acquireAiTab("s1", "browse", navigating = true)
         val hidden = withContext(Dispatchers.Main) { browser.openAiTab("s1", url("/p1"), hidden = true) }
-        browser.acquireAiTab("s1", hidden, "page_text")
-        assertEquals(default.id, withContext(Dispatchers.Main) { browser.currentAiTab("s1") })
-        assertEquals(listOf(default.id), browser.visibleTabs.value.map { it.id })
-        assertEquals(listOf(default.id), browser.sessionTabs("s1").first().map { it.id })
+        assertEquals(work.id, withContext(Dispatchers.Main) { browser.workTab("s1") })
+        assertEquals(listOf(work.id), browser.visibleTabs.value.map { it.id })
+        assertEquals(listOf(work.id), browser.sessionTabs("s1").first().map { it.id })
         assertTrue(browser.tabs.value.any { it.id == hidden })
     }
 
@@ -438,32 +334,22 @@ class ToolFlowE2eTest {
 
     @Test
     fun tabsAndActivityPerChatAndCloseOnDelete() = runBlocking<Unit> {
-        val a = browser.acquireAiTab("chatA", null, "snapshot")
-        val b = browser.acquireAiTab("chatB", null, "click")
+        val a = browser.acquireAiTab("chatA", "browse", navigating = true)
+        val b = browser.acquireAiTab("chatB", "browse", navigating = true)
+        browser.acquireAiTab("chatB", "click", navigating = false)
         assertEquals(listOf(a.id), browser.sessionTabs("chatA").first().map { it.id })
         assertEquals(mapOf(b.id to "click"), browser.sessionActivity("chatB").first())
         browser.clearAiActivity("chatB")
         withTimeout(5_000) { browser.sessionActivity("chatB").first { it.isEmpty() } }
-        assertEquals(mapOf(a.id to "snapshot"), browser.sessionActivity("chatA").first()) // other chat untouched
+        assertEquals(mapOf(a.id to "browse"), browser.sessionActivity("chatA").first()) // other chat untouched
         browser.closeSessionTabs("chatA") // from a worker thread
         withTimeout(5_000) { browser.sessionTabs("chatA").first { it.isEmpty() } }
         assertEquals(listOf(b.id), browser.tabs.value.map { it.id })
         assertTrue(a.id !in browser.aiActivity.value)
     }
 
-    /** Chat request bodies sent to the fake model so far. */
-    private fun modelRequests(): List<String> {
-        val out = mutableListOf<String>()
-        while (true) {
-            val r = runCatching { llm.takeRequest(1) }.getOrNull() ?: break
-            if (r.url.encodedPath.endsWith("/chat/completions")) out += r.body?.utf8().orEmpty()
-        }
-        return out.filter { "\"stream\":true" in it }
-    }
-
     private companion object {
         const val COOKIE = "SECRETCOOKIE123"
-        val MODEL = ModelRef("ep", "fake-model", "Fake")
         val PAGES = mapOf(
             "/start" to """<!doctype html><title>Start</title><a id="go" href="/next">Next page</a>
                 <p id="c"></p><script>document.getElementById('c').textContent = 'cookie: ' + document.cookie</script>""",
@@ -471,20 +357,11 @@ class ToolFlowE2eTest {
             "/alert" to """<!doctype html><title>Before</title><script>alert('hi'); confirm('ok?'); document.title = 'After'</script>""",
             "/login" to """<!doctype html><title>Login</title><input id="user"><input id="pw" type="password">
                 <iframe id="f" src="data:text/html,<button>Pay</button>" style="width:300px;height:80px"></iframe>""",
-            "/danger" to """<!doctype html><title>Danger</title><button id="del" onclick="this.textContent='gone'">Delete account</button>
-                <script>document.getElementById('del').focus()</script>""",
+            "/search" to """<!doctype html><title>Search</title><form action="/results"><input id="q" type="search" name="q"></form>""",
             "/form" to """<!doctype html><title>Form</title>
                 <button id="plain" onclick="this.textContent='pressed'">Show more</button>
-                <form method="post" action="/submit"><input id="q" name="q"><button id="send" type="submit">Send</button></form>
+                <form method="post" action="/submit"><input id="q" name="msg"><button id="send" type="submit">Send</button></form>
                 <button id="del" onclick="this.textContent='gone'">Delete account</button>""",
-        )
-
-        fun caps(tools: Boolean) = ModelCapabilities(
-            toolCalling = Sourced(tools, CapSource.DEFAULT),
-            imageInput = Sourced(false, CapSource.DEFAULT),
-            reasoning = Sourced(ReasoningSpec(emptyList(), null, ReasoningWire.DEEPSEEK_THINKING), CapSource.DEFAULT),
-            contextWindow = Sourced(64_000, CapSource.DEFAULT),
-            maxOutputTokens = Sourced(null, CapSource.DEFAULT),
         )
     }
 }

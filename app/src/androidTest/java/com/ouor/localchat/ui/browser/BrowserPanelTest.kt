@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.captureToImage
@@ -73,6 +74,7 @@ class BrowserPanelTest {
         override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
         override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
         override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
+        override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {}
         override fun webView(id: Int): WebView? = page
         override fun show(id: Int) {}
         override fun park(id: Int) {}
@@ -163,6 +165,31 @@ class BrowserPanelTest {
         handle().performSemanticsAction(SemanticsActions.OnClick)
         rule.waitForIdle()
         assertEquals(PanelState.Full, panels.last())
+    }
+
+    /** P-STABLE: the toolbar's ⋮ stays in one place whatever the tab does; its menu offers Save as PDF. */
+    @Test fun moreMenuStaysPutAndOffersPdf() {
+        show(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "A", running = true))
+        val more = rule.onNodeWithTag(MORE_TAG)
+        val at = more.fetchSemanticsNode().boundsInRoot
+        listOf(
+            aiTab.copy(loading = true),
+            aiTab.copy(title = "아주 긴 제목 ".repeat(10), url = "https://wiki.corp.example/" + "x".repeat(200)),
+            aiTab.copy(control = Control.USER),
+            aiTab.copy(owner = Owner.User, url = "http://plain.example/"),
+        ).forEach { t ->
+            rule.runOnIdle { s = s.copy(tabs = listOf(t)) }
+            rule.waitForIdle()
+            assertEquals("⋮ for $t", at, more.fetchSemanticsNode().boundsInRoot)
+        }
+        more.performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_save_pdf)).assertIsDisplayed()
+    }
+
+    @Test fun pdfNamesAreSafeFileNames() {
+        assertEquals("인사_규정_-_회사.pdf", pdfName("인사 규정 - 회사"))
+        assertEquals("a_b_c.pdf", pdfName("a/b:c?"))
+        assertEquals("page.pdf", pdfName("  "))
     }
 
     /** Device check: handle drags move the panel, page drags scroll the real WebView and never move the panel. */

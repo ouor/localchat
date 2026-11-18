@@ -10,25 +10,18 @@ import com.ouor.localchat.MainActivity
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.browser.safety.IrreversibleAction.Reason
-import com.ouor.localchat.browser.script.FocusResult
 import com.ouor.localchat.browser.script.Located
+import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageScript
-import com.ouor.localchat.browser.script.PageTextResult
-import com.ouor.localchat.browser.script.SearchResult
-import com.ouor.localchat.browser.script.SelectResult
-import com.ouor.localchat.browser.script.SnapshotResult
+import com.ouor.localchat.browser.script.ReadText
 import com.ouor.localchat.browser.script.TypeResult
 import com.ouor.localchat.core.model.SearchEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -90,38 +83,19 @@ class AgentScriptTest {
         server.close()
     }
 
+    /** Loads [page] and waits the way the tools do: no fixed sleep (tools-redesign 2-1). */
     private fun load(page: String) = runBlocking {
+        val since = android.os.SystemClock.uptimeMillis()
         withContext(Dispatchers.Main) { tab.load(server.url("/pages/$page").toString()) }
-        assertTrue("load $page", tab.awaitLoaded(15_000))
-        delay(300) // custom elements, srcdoc iframe
+        assertEquals("load $page", Readiness.READY, tab.awaitReady(since))
     }
 
-    private suspend fun snapshot() = PageScript.call<SnapshotResult>(tab, "snapshot").text
+    private suspend fun snapshot() = PageScript.call<PageList>(tab, "pageList").text
     private suspend fun locate(target: String) = PageScript.call<Located>(tab, "locate", buildJsonObject { put("target", target) })
     private suspend fun js(code: String) = PageScript.execute(tab, code, 5_000)
     private suspend fun text(id: String) = js("document.getElementById('$id').textContent").trim('"')
     private fun refOf(snap: String, line: String): String =
         Regex(Regex.escape(line) + "[^\\n]*\\[ref=(e\\d+)]").find(snap)?.groupValues?.get(1) ?: error("no ref for '$line' in\n$snap")
-
-    @Test
-    fun focusInfoReportsSensitiveFieldsAndFrames() = runBlocking<Unit> {
-        load("snapshot.html")
-        js("document.getElementById('pw').focus()")
-        val pw = PageScript.call<FocusResult>(tab, "focusInfo")
-        assertTrue(pw.sensitive)
-        js("document.getElementById('cross').focus()")
-        assertEquals("iframe", PageScript.call<FocusResult>(tab, "focusInfo").info?.tag)
-    }
-
-    @Test
-    fun consoleIsClearedOnNavigation() = runBlocking<Unit> {
-        load("snapshot.html")
-        js("console.log('old-page-secret')")
-        delay(200)
-        assertTrue(tab.consoleLines().any { "old-page-secret" in it })
-        load("forms.html")
-        assertTrue(tab.consoleLines().toString(), tab.consoleLines().none { "old-page-secret" in it })
-    }
 
     @Test
     fun thumbnailAfterLoad() {
@@ -135,11 +109,9 @@ class AgentScriptTest {
     }
 
     @Test
-    fun snapshotFormat() = runBlocking<Unit> {
+    fun elementListFormat() = runBlocking<Unit> {
         load("snapshot.html")
         val s = snapshot()
-        val lines = s.lines()
-        assertTrue(lines[0], lines[0].startsWith("page: Snapshot test — http://"))
         listOf(
             "- navigation \"Main\"",
             "  - link \"Next page\" [ref=",
@@ -166,7 +138,7 @@ class AgentScriptTest {
         listOf("hunter22", "123456", "4111", "hidden-value", "Invisible", "Hidden from AT").forEach {
             assertFalse("'$it' leaked into\n$s", it in s)
         }
-        // Same element keeps its ref across snapshots; the page DOM has no marker attributes.
+        // Same element keeps its ref across lists; the page DOM has no marker attributes.
         assertEquals(refOf(s, "button \"Press me\""), refOf(snapshot(), "button \"Press me\""))
         assertEquals("0", js("document.querySelectorAll('[data-ref],[data-tandem-snap],[data-ref-id]').length"))
     }
@@ -196,7 +168,7 @@ class AgentScriptTest {
             locate(ref)
             fail("expected stale ref")
         } catch (e: PageError) {
-            assertTrue(e.message, e.message!!.startsWith("stale ref $ref: take a new snapshot"))
+            assertEquals("Ref $ref is from an older page; use a ref from the latest element list.", e.message)
         }
         try {
             locate("#nope")
@@ -259,10 +231,11 @@ class AgentScriptTest {
         assertEquals(Reason.RISKY_KEYWORD, reason("#del"))
         assertEquals(Reason.RISKY_KEYWORD, reason("#buy"))
         assertEquals(Reason.RISKY_KEYWORD, reason("#article")) // SE 18: the label start is checked even on long links
-        PageScript.callJson(tab, "type", buildJsonObject { put("target", "#user"); put("text", "kim") })
-        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(PageScript.call<FocusResult>(tab, "focusInfo").info))
-        PageScript.callJson(tab, "type", buildJsonObject { put("target", "#sq"); put("text", "cats") })
-        assertNull(IrreversibleAction.reasonForEnter(PageScript.call<FocusResult>(tab, "focusInfo").info))
+        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(locate("#user").info))
+        assertNull(IrreversibleAction.reasonForEnter(locate("#sq").info))
+        // type reports the form's submit button for the "not submitted" note.
+        val typed = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#user"); put("text", "kim") })
+        assertNotNull(typed.submitRef)
     }
 
     @Test
@@ -279,16 +252,20 @@ class AgentScriptTest {
     }
 
     @Test
-    fun selectContentEditableAndPageText() = runBlocking<Unit> {
+    fun typeChoosesOptionsAndEditsContentEditable_readTextReadsThePage() = runBlocking<Unit> {
         load("snapshot.html")
-        val sel = PageScript.call<SelectResult>(tab, "select", buildJsonObject {
-            put("target", "#color"); putJsonArray("values") { add(JsonPrimitive("blue")) }
-        })
-        assertEquals(listOf("Blue"), sel.selected)
-        val t = PageScript.call<PageTextResult>(tab, "pageText")
+        // A select takes the option's text or value through type (tools-redesign 3-5).
+        assertEquals("Blue", PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#color"); put("text", "blue") }).selected)
+        try {
+            PageScript.callJson(tab, "type", buildJsonObject { put("target", "#color"); put("text", "Purple") })
+            fail("no such option")
+        } catch (e: PageError) {
+            assertTrue(e.message, e.message!!.startsWith("No option matches \"Purple\". Options: Red, Green, Blue"))
+        }
+        val t = PageScript.call<ReadText>(tab, "readText")
         assertTrue(t.text, "Plain paragraph text." in t.text)
         assertFalse("hunter22" in t.text)
-        assertEquals(1, t.pages)
+        assertEquals("Snapshot test", t.title)
         load("forms.html")
         val r = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#editor"); put("text", "new text") })
         assertEquals("new text", r.value)
@@ -297,17 +274,11 @@ class AgentScriptTest {
     @Test
     fun dialogsAreHeldAndAnswered() = runBlocking<Unit> {
         load("dialog.html")
-        // The console message reaches the app on its own channel, not ordered with onPageFinished: wait for it
-        // (read on the main thread, where the buffer is written).
-        val ready = withTimeoutOrNull(5_000) {
-            while (withContext(Dispatchers.Main) { tab.consoleLines() }.none { "dialog page ready" in it }) delay(50)
-        }
-        assertNotNull(withContext(Dispatchers.Main) { tab.consoleLines() }.toString(), ready)
         try {
             PageScript.callJson(tab, "click", buildJsonObject { put("target", "#ask") })
             fail("click should be cut short by confirm()")
         } catch (e: PageError) {
-            assertTrue(e.message, "confirm dialog is open: \"Really delete?\"" in e.message!!)
+            assertTrue(e.message, "confirm dialog is open: \"Really delete?\". The page is waiting for the user to answer a dialog." in e.message!!)
         }
         val d = tab.dialog.value!!
         assertEquals(DialogKind.CONFIRM, d.kind)
@@ -320,6 +291,8 @@ class AgentScriptTest {
         assertEquals("anon", tab.dialog.value?.defaultText)
         withContext(Dispatchers.Main) { tab.answerDialog(true, "Kim") }
         assertEquals("prompt=Kim", text("r"))
+        // Both answers are logged for the next tool result (tools-redesign 2-4).
+        assertEquals(listOf(DialogKind.CONFIRM to true, DialogKind.PROMPT to true), tab.dialogsSince(0).map { it.kind to it.accepted })
     }
 
     @Test
@@ -334,10 +307,13 @@ class AgentScriptTest {
     /** Live DuckDuckGo HTML results (R8). Skipped without network. */
     @Test
     fun duckDuckGoExtractorOnTheRealSite() = runBlocking<Unit> {
+        assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
+        val since = android.os.SystemClock.uptimeMillis()
         withContext(Dispatchers.Main) { tab.load(SearchEngines.url(SearchEngine.DUCKDUCKGO, "android webview")) }
-        assumeTrue("network", tab.awaitLoaded(20_000) && tab.url.contains("duckduckgo"))
-        val results: List<SearchResult> = PageScript.search(tab, SearchEngine.DUCKDUCKGO, 8)
-        assumeTrue("no CAPTCHA page", results.isNotEmpty() || !snapshot().contains("robot", ignoreCase = true))
+        assumeTrue("network", tab.awaitReady(since) == Readiness.READY && tab.url.contains("duckduckgo"))
+        val page = PageScript.search(tab, SearchEngine.DUCKDUCKGO)
+        assumeTrue("no bot check", !page.blocked)
+        val results = page.results
         assertTrue("results: $results", results.size >= 3)
         results.forEach {
             assertTrue(it.url, it.url.startsWith("http") && "duckduckgo.com/l/" !in it.url)
