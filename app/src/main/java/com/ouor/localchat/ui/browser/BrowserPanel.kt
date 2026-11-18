@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.drop
@@ -220,9 +221,22 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             val imeTarget = WindowInsets.imeAnimationTarget
             val settledAt by remember { derivedStateOf { state.anchors.positionOf(state.settledValue) } }
             val view = LocalView.current
+            // FB5 B1: a keyboard for the panel (a page field or the address) makes it Full; when the keyboard closes the
+            // panel goes back to the height the user had (P-STABLE keyboard exception). The U-2 rise above keeps that
+            // change seamless: the panel is already risen by the keyboard while it animates to Full.
+            val keyboardUp = imeTarget.getBottom(LocalDensity.current) > 0
+            var panelFocus by remember { mutableStateOf(false) }
+            var restore by remember { mutableStateOf<PanelState?>(null) }
+            LaunchedEffect(keyboardUp, panelFocus) {
+                if (keyboardUp && panelNow < PanelState.Full && (panelFocus || actions.webView(t.id)?.hasFocus() == true)) {
+                    restore = panelNow
+                    actions.setPanel(PanelState.Full)
+                } else if (!keyboardUp) restore?.let { restore = null; actions.setPanel(it) }
+            }
             LaunchedEffect(state) {
                 snapshotFlow { state.settledValue == PanelState.Full && state.offset > 1f }.collect { leaving ->
-                    if (leaving) ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime())
+                    // The user drags it down: where they drop it wins over the height to go back to.
+                    if (leaving) { restore = null; ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime()) }
                 }
             }
             Column(
@@ -237,6 +251,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                     // QA O5: the panel is a hit target over its whole area, so a tap on a gap (banner, handle row) never
                     // reaches the chat behind it; it consumes nothing, so its children keep their own gestures.
                     .pointerInput(Unit) {}
+                    .onFocusChanged { panelFocus = it.hasFocus }
                     .windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
             ) {
                 BrowserPanelFrame(

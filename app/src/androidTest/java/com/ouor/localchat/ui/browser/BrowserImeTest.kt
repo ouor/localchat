@@ -18,6 +18,10 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.test.performTouchInput
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -92,15 +96,16 @@ class BrowserImeTest {
     private fun pageBounds(): Rect = rule.onNodeWithTag(PAGE_TAG).fetchSemanticsNode().boundsInRoot
 
     /** Handoff on a user-controlled AI tab, panel at [panel], showing [html]. */
-    private fun open(panel: PanelState, html: String) {
+    private fun open(panel: PanelState, html: String, mine: Boolean = false, outside: @androidx.compose.runtime.Composable () -> Unit = {}) {
         rule.runOnUiThread {
             rule.activity.enableEdgeToEdge()
             @Suppress("DEPRECATION") rule.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             web = com.ouor.localchat.browser.WebViewFactory.create(rule.activity) // the app's settings (wide viewport, zoom)
         }
-        val tab = TabInfo(1, "Login", "https://login.example/", Owner.Ai("A"), Control.USER, loading = false)
-        s = BrowserUiState(panel, listOf(tab), sessionId = "A", running = true, handoff = Pause.Handoff(1, "로그인이 필요합니다"))
-        rule.setContent { LocalchatTheme(false) { Box(Modifier.fillMaxSize()) { BrowserOverlay(s, actions) } } }
+        s = if (mine) BrowserUiState(panel, listOf(TabInfo(1, "Google", "https://www.google.com/", Owner.User, Control.USER, loading = false)), sessionId = "A")
+        else BrowserUiState(panel, listOf(TabInfo(1, "Login", "https://login.example/", Owner.Ai("A"), Control.USER, loading = false)), sessionId = "A", running = true,
+            handoff = Pause.Handoff(1, "로그인이 필요합니다"))
+        rule.setContent { LocalchatTheme(false) { Box(Modifier.fillMaxSize()) { outside(); BrowserOverlay(s, actions) } } }
         rule.waitForIdle()
         rule.runOnUiThread { web!!.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) } // loaded once on screen
         rule.waitUntil(10_000) { rule.runOnUiThread<Boolean> { web?.progress == 100 } }
@@ -164,6 +169,47 @@ class BrowserImeTest {
         Shots.save("fb4-u2-3-closed")
         assertEquals(before, giveBack())
         assertEquals(pageBefore, pageBounds())
+    }
+
+    @Test fun pageKeyboardMakesThePanelFullAndBack() { // FB5 B1: the user's own tab ("나"), as in the s25 feedback
+        open(PanelState.Half, page, mine = true)
+        rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, bottom - 20f)) }
+        rule.waitUntil(10_000) { imeBottom() > 0 }
+        rule.waitUntil(5_000) { s.panel == PanelState.Full }
+        Thread.sleep(1200) // keyboard animation and page resize
+        rule.waitForIdle()
+        Shots.save("fb5-b1-full-keyboard")
+        val imeTop = rule.runOnUiThread<Int> { rule.activity.window.decorView.height } - imeBottom()
+        assertTrue("page (and the field at its bottom) above the keyboard: ${pageBounds().bottom} <= $imeTop", pageBounds().bottom <= imeTop + 0.5f)
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStringSync("seoul")
+        rule.waitUntil(5_000) { js("document.getElementById('f').value") == "\"seoul\"" }
+        closeKeyboard()
+        rule.waitUntil(5_000) { s.panel == PanelState.Half } // back to the user's height
+        Shots.save("fb5-b1-back-to-half")
+    }
+
+    @Test fun addressKeyboardMakesThePanelFull() { // FB5 B1 + B2: editing the address opens the keyboard for the panel too
+        open(PanelState.Half, page, mine = true)
+        rule.onNodeWithText("google.com/").performClick()
+        rule.waitUntil(10_000) { imeBottom() > 0 }
+        rule.waitUntil(5_000) { s.panel == PanelState.Full }
+        rule.waitForIdle()
+        Shots.save("fb5-b2-address-editing")
+        closeKeyboard()
+        rule.waitUntil(5_000) { s.panel == PanelState.Half }
+    }
+
+    @Test fun aKeyboardOutsideThePanelLeavesItsHeight() { // FB5 B1: only a keyboard for the panel resizes it
+        open(PanelState.Half, page, mine = true) {
+            androidx.compose.material3.TextField("", {}, Modifier.statusBarsPadding().testTag("outside"))
+        }
+        rule.onNodeWithTag("outside").performClick()
+        rule.waitUntil(10_000) { imeBottom() > 0 }
+        Thread.sleep(1000)
+        rule.waitForIdle()
+        assertEquals(PanelState.Half, s.panel)
+        closeKeyboard()
+        assertEquals(PanelState.Half, s.panel)
     }
 
     @Test fun halfKeyboardTypesIntoTheField() { // FB4 QA F6: the keyboard was attached but the text never reached the page
