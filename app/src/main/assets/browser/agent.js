@@ -372,6 +372,14 @@
     return el.ownerDocument !== document ? el.ownerDocument.location.href : null;
   }
 
+  /** What a tap at a point would reach, for a click that cannot: `<div#id.cls> "text"`. */
+  function brief(el) {
+    if (!el) return 'nothing';
+    var cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+    var t = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    return '<' + el.localName + (el.id ? '#' + el.id : '') + (cls ? '.' + cls : '') + '>' + (t ? ' "' + t + '"' : '');
+  }
+
   function locate(el, scroll) {
     if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     var r = rectInTop(el);
@@ -382,6 +390,7 @@
       (el.labels ? Array.prototype.some.call(el.labels, function (l) { return within(l, hitEl); }) : false));
     return {
       info: info(el), rect: r, innerWidth: innerWidth, cx: cx, cy: cy, hit: hit,
+      atPoint: hit ? null : (inView ? brief(hitEl) : 'nothing (its centre is outside the viewport)'),
       editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
       formSubmitLabel: submitLabel(el), frame: frameOf(el)
     };

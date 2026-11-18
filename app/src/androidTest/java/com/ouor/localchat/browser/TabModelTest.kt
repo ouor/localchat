@@ -69,6 +69,8 @@ class TabModelTest {
             <a id="file" href="/file" style="display:block;height:60px">File</a>""")
         "/file" -> MockResponse.Builder().addHeader("Content-Type", "text/plain")
             .addHeader("Content-Disposition", "attachment; filename*=UTF-8''%ED%85%8C%EC%8A%A4%ED%8A%B8.txt").body("file body").build()
+        "/rows" -> html("<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Rows</title>" +
+            (0 until 80).joinToString("") { "<a href=\"/row$it\" style=\"display:block;height:40px\">Row $it</a>" } + "<a id=\"more\" href=\"/more\">More</a>")
         else -> html("<!doctype html><title>${path.trim('/')}</title><p>Page $path</p>")
     }
 
@@ -102,6 +104,28 @@ class TabModelTest {
             Thread.sleep(100)
         }
         throw AssertionError("timed out: $what")
+    }
+
+    /**
+     * QA B1: after a script scroll, the AI's tap lands on the element in a parked tab and in a shown one. The tap does
+     * not give the WebView focus (taking focus moved the page back to the top before the click, so a row was clicked).
+     */
+    @Test fun aTapAfterAScrollLandsOnTheElementAndTakesNoFocus() {
+        for (shown in listOf(false, true)) {
+            val tab = openReady("/rows")
+            if (shown) main { engine.show(tab.id) }
+            try {
+                val w = main { tab.webView.value!! }
+                main { tab.evaluate("document.getElementById('more').scrollIntoView({block:'center',behavior:'instant'})", 5_000) }
+                Thread.sleep(300)
+                tapOn(tab, "more")
+                eventually("shown=$shown: More reached") { tab.url.takeIf { it.endsWith("/more") } }
+                assertFalse("shown=$shown: no focus taken", main { w.hasFocus() })
+            } finally {
+                if (shown) main { engine.park(tab.id) }
+                main { engine.close(tab.id) }
+            }
+        }
     }
 
     @Test fun openDoesNotMoveTheFrontAndClosingTheFrontPicksItsNeighbour() {

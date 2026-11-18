@@ -13,6 +13,8 @@ import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.testing.Scenario
 import com.ouor.localchat.tools.ToolOutcome
 import com.ouor.localchat.tools.browser.AskUser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.RecordedRequest
 import org.junit.Assert.assertEquals
@@ -59,6 +61,39 @@ class ToolFlowE2eTest : ToolFlowBase() {
         assertTrue(t[2], t[2].startsWith("Went back → new page.") && "Page: Start" in t[2])
         // The front stays where the user left it: nothing the AI did picked a tab.
         assertEquals(null, browser.front.value)
+    }
+
+    /** QA B1 on the real site (liveWeb=true): HN /newest, scrolled to the bottom, then More at the bottom, drawer closed. */
+    @Test
+    fun liveHnMoreInAHiddenTab() {
+        org.junit.Assume.assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"https://news.ycombinator.com/newest"}"""),
+            *Array(3) { Scenario.toolCall("scroll", "{}") },
+            Scenario.toolCall("look", "{}"),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"More\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("more"), 90_000)
+        val t = reply.results().map { it.modelText }
+        assertTrue(t[5], "→ new page." in t[5])
+        assertTrue(browser.tabs.value.single().url, "next=" in browser.tabs.value.single().url)
+    }
+
+    /** QA B1 (2): a point another element covers is not pressed; the result names what is there. */
+    @Test
+    fun aCoveredClickIsNotPressedAndSaysWhatIsThere() {
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/covered")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Press\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("press"))
+        val r = reply.results()[1]
+        assertEquals(r.modelText, ToolCallState.FAILED, reply.calls()[1].state)
+        assertTrue(r.modelText, "did not reach" in r.modelText && "<div#cover> \"Cookie wall\"" in r.modelText)
+        val tab = runBlocking(Dispatchers.Main) { browser.tab(browser.tabs.value.single().id) }
+        assertEquals("\"Press\"", runBlocking { tab.evaluate("document.querySelector('button').textContent", 5_000) })
     }
 
     @Test
@@ -257,6 +292,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
             "/search" to """<!doctype html><title>Search</title><form action="/results"><input id="q" type="search" name="q"></form>""",
             "/shop" to """<!doctype html><title>Shop</title><button onclick="this.textContent='ordered'">Place order</button>
                 <button onclick="this.textContent='more'">Show more</button>""",
+            "/covered" to """<!doctype html><title>Covered</title><button onclick="this.textContent='pressed'">Press</button>
+                <div id="cover" style="position:fixed;inset:0;background:#fff">Cookie wall</div>""",
         )
     }
 }

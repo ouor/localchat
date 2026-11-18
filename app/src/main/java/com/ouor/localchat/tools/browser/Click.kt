@@ -17,7 +17,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * browser-layers 3-5: a native tap at the element centre when elementFromPoint lands on it (after the user's finger is
- * up and a fling has stopped), a script click() otherwise. The ref is the DOM element itself, so the same ref is the
+ * up and a fling has stopped). Otherwise nothing is pressed and the result says what is at that point (QA B1). The ref is the DOM element itself, so the same ref is the
  * same element. The result is the page after the click.
  */
 object Click : Tool {
@@ -40,23 +40,19 @@ object Click : Tool {
             if (first.disabled) throw ToolError("$ref is disabled.")
             val label = first.info.label()
             ctx.highlight(tab, first, R.string.browser_highlight_click)
-            // The page may have moved while the outline showed.
-            val at = ctx.locate(tab, ref, scroll = false)
-            var scripted = !at.hit
             val acted = ctx.act(tab) {
-                if (at.hit && tap(tab, at.cx, at.cy, at.innerWidth)) return@act
-                scripted = true
-                PageScript.callJson(tab, "click", refArgs(ref), retry = false)
+                // The page may have moved while the outline showed; a fling gets one more look.
+                repeat(2) { attempt ->
+                    val at = ctx.locate(tab, ref, scroll = false)
+                    if (!at.hit) throw ToolError("click did not reach $ref: at that point is ${at.atPoint}.")
+                    when (tab.tap(at.cx, at.cy, at.innerWidth)) {
+                        BrowserTab.Tap.DONE -> return@act
+                        BrowserTab.Tap.FAILED -> throw ToolError("click did not reach $ref: the tab's view did not take the tap (not attached or not laid out).")
+                        BrowserTab.Tap.MOVING -> if (attempt == 1) throw ToolError("click did not reach $ref: the page kept scrolling.")
+                    }
+                }
             }
-            val covered = if (scripted) " (it was covered or still moving, so a script click was used)" else ""
-            ctx.actionResult(tab, "Clicked $ref$covered", acted, label, top = "$ref: $label")
+            ctx.actionResult(tab, "Clicked $ref", acted, label, top = "$ref: $label")
         }
-    }
-
-    /** A native tap; false when it could not be made (the script clicks instead). MOVING waits for the fling once. */
-    private suspend fun tap(tab: BrowserTab, x: Float, y: Float, w: Float): Boolean = when (tab.tap(x, y, w)) {
-        BrowserTab.Tap.DONE -> true
-        BrowserTab.Tap.FAILED -> false
-        BrowserTab.Tap.MOVING -> false
     }
 }

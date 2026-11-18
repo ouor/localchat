@@ -436,16 +436,24 @@ class BrowserTab internal constructor(
         val t = SystemClock.uptimeMillis()
         val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0)
         val up = MotionEvent.obtain(t, t + TAP_MS, MotionEvent.ACTION_UP, x, y, 0)
-        injecting = true
+        // The AI's tap does not take the app's focus (the user may be typing in the chat). A WebView that gains focus
+        // from a touch also moves its page back to the top before the click lands (QA B1, measured on devphone03).
+        val blockFocus = !w.hasFocus()
+        val focusable = w.isFocusable to w.isFocusableInTouchMode
+        if (blockFocus) { w.isFocusable = false; w.isFocusableInTouchMode = false }
         try {
-            // Taken when the down was: a script click after it would activate the element twice.
-            val a = w.dispatchTouchEvent(down)
-            val b = w.dispatchTouchEvent(up)
-            if (a || b) Tap.DONE else Tap.FAILED
+            injecting = true
+            val taken = try {
+                w.dispatchTouchEvent(down) or w.dispatchTouchEvent(up)
+            } finally {
+                injecting = false
+                down.recycle()
+                up.recycle()
+            }
+            if (blockFocus) delay(FOCUS_HOLD_MS) // the page asks for focus after it handled the tap
+            if (taken) Tap.DONE else Tap.FAILED
         } finally {
-            injecting = false
-            down.recycle()
-            up.recycle()
+            if (blockFocus) { w.isFocusable = focusable.first; w.isFocusableInTouchMode = focusable.second }
         }
     }
 
@@ -787,6 +795,7 @@ class BrowserTab internal constructor(
         /** Pages keep painting after onPageFinished (fonts, images). */
         private const val THUMB_DELAY_MS = 800L
         private const val TAP_MS = 50L
+        private const val FOCUS_HOLD_MS = 300L
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript")
         private val eventIds = AtomicLong()
         internal fun nextEventId() = eventIds.incrementAndGet()

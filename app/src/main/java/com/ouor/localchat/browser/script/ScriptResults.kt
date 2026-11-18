@@ -20,6 +20,8 @@ data class Located(
     val cx: Float,
     val cy: Float,
     val hit: Boolean,
+    /** What elementFromPoint finds at the centre when it is not the element (or "outside the viewport"). */
+    val atPoint: String? = null,
     val editable: Boolean,
     val disabled: Boolean,
     val formSubmitLabel: String? = null,
