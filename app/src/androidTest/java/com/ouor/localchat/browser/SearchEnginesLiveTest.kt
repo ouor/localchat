@@ -64,6 +64,7 @@ class SearchEnginesLiveTest {
         val page = PageScript.search(tab, engine)
         val results = page.results
         Log.i(TAG, "$engine ${tab.url} blocked=${page.blocked} -> ${results.size}: " + results.joinToString(" | ") { "${it.title} <${it.url}> «${it.snippet?.take(60)}»" })
+        if (results.isEmpty()) Log.i(TAG, "$engine empty page: " + tab.evaluate(PAGE_SHAPE, 5_000))
         assumeTrue("blocked page on $engine", !page.blocked)
         assertTrue("$engine results: $results", results.size >= 3)
         results.forEach { r ->
@@ -81,5 +82,7 @@ class SearchEnginesLiveTest {
 
     private companion object {
         const val TAG = "SearchLive"
+        /** What an empty result page looks like, for diagnosing markup changes. */
+        const val PAGE_SHAPE = "document.readyState + ' h3=' + document.querySelectorAll('h3').length + ' text=' + document.body.innerText.slice(0, 300)"
     }
 }

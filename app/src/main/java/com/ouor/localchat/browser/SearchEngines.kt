@@ -89,10 +89,13 @@ object SearchEngines {
         return url.substring(0, q) + (if (kept.isEmpty()) "" else "?" + kept.joinToString("&")) + url.substring(hash)
     }
 
-    /** A link back into a search engine itself (not a result). */
+    /** A link back into a search engine itself (not a result). Google's /goto and /url redirects are results. */
     fun isEngineLink(url: String): Boolean {
-        val host = runCatching { URI(url).host?.lowercase() }.getOrNull() ?: return false
-        return Regex("(^|\\.)google\\.[a-z.]+$").containsMatchIn(host) || host == "bing.com" || host.endsWith(".bing.com") ||
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        val google = Regex("(^|\\.)google\\.[a-z.]+$").containsMatchIn(host)
+        if (google && (uri.path == "/goto" || uri.path == "/url")) return false
+        return google || host == "bing.com" || host.endsWith(".bing.com") ||
             host == "duckduckgo.com" || host.endsWith(".duckduckgo.com") || host == "search.naver.com" || host == "m.search.naver.com"
     }
 }

@@ -57,6 +57,7 @@ class SearchEnginesTest {
         assertEquals("https://a.test/p", SearchEngines.clean("https://a.test/p?fbclid=1"))
         assertEquals("https://a.test/p", SearchEngines.clean("https://a.test/p"))
         assertTrue(SearchEngines.isEngineLink("https://www.google.co.kr/search?q=a"))
+        assertFalse(SearchEngines.isEngineLink("https://www.google.com/goto?url=CAES1")) // an opaque result redirect
         assertTrue(SearchEngines.isEngineLink("https://m.search.naver.com/x"))
         assertTrue(SearchEngines.isEngineLink("https://duckduckgo.com/?q=a"))
         assertFalse(SearchEngines.isEngineLink("https://blog.naver.com/x"))

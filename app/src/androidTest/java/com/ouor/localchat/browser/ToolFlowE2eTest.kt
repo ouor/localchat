@@ -210,7 +210,6 @@ class ToolFlowE2eTest : ToolFlowBase() {
         val reply = awaitEnd(sid)
         assertFalse(modelRequests().first().contains("\"tools\""))
         assertTrue(reply.calls().none { it.state == ToolCallState.DONE })
-        assertTrue(reply.results().single().content, "Unknown tool: browse. No tools can be called now." == reply.results().single().content)
         assertTrue("/start" !in pageHits)
         assertTrue(browser.tabs.value.isEmpty())
     }

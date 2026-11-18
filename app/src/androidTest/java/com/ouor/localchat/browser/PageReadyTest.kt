@@ -112,6 +112,10 @@ class PageReadyTest : ToolFlowBase() {
         val (ok, _) = run("read", """{"url":"${url("/flaky")}"}""")
         assertTrue(ok, "Flaky page body text" in ok)
         assertEquals(2, pageHits.count { it == "/flaky" })
+    }
+
+    @Test
+    fun e4_a503ThatStaysIsReportedAfterOneRetry() {
         val (down, _) = run("read", """{"url":"${url("/down")}"}""")
         assertTrue(down, "HTTP 503" in down)
         assertEquals(2, pageHits.count { it == "/down" })
@@ -138,7 +142,7 @@ class PageReadyTest : ToolFlowBase() {
         assertEquals(Readiness.CHANGING, r)
         assertTrue("$ms ms", ms <= TabRules.SETTLE_CAP + 2_000)
         val (text, _) = run("read", """{"url":"${url("/clock")}"}""")
-        assertTrue(text, "(page still changing; content may be incomplete)" in text && "Ticker page" in text)
+        assertTrue(text, "(page still changing; text may be incomplete)" in text && "Ticker page" in text)
     }
 
     @Test

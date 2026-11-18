@@ -19,7 +19,9 @@
         if (b && b.indexOf('a1') === 0) return atob(b.slice(2).replace(/-/g, '+').replace(/_/g, '/'));
       }
       if (/google\./.test(u.hostname) && (u.pathname === '/url' || u.pathname === '/goto')) {
-        return u.searchParams.get('q') || u.searchParams.get('url') || href;
+        // /goto's url is opaque since 2026-11 (measured): the absolute redirect then, which lands on the site when opened.
+        var g = u.searchParams.get('q') || u.searchParams.get('url');
+        return g && /^https?:/i.test(g) ? g : u.href;
       }
       return u.href;
     } catch (e) {
@@ -32,7 +34,6 @@
   var RULES = {
     // html.duckduckgo.com/html: no JS, stable markup
     DUCKDUCKGO: { card: '.result:not(.result--ad)', link: 'a.result__a', snippet: '.result__snippet' },
-    // Organic links are opaque /goto redirects; the absolute redirect URL is returned (opening it lands on the site).
     GOOGLE: { card: '#rso div.MjjYud, #search div.MjjYud, #rso div.g', link: 'a:has(h3), a:has([role=heading])', title: 'h3, [role=heading]', snippet: '.VwiC3b, [data-sncf]' },
     // Some layouts put the site attribution (.tilk/.tptt/cite) inside the title link or h2.
     BING: { card: 'li.b_algo', link: 'h2 a:not(.tilk), a:has(h2)', strip: '.b_tpcn, .tilk, .tptt, .b_attribution, cite, h2', snippet: '.b_caption p, .b_rcGenCap p, .b_algoSlug, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4' },
