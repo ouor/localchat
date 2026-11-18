@@ -3,7 +3,7 @@ package com.ouor.localchat.browser
 /**
  * Something a page asks of the user (B-06, B-S2, B-S6). Listed in [BrowserEngine.prompts] until answered with
  * the matching `BrowserEngine.answer*` call. Downloads, permissions and file choosers always go to the user,
- * even on AI tabs; JS dialogs on AI tabs are answered by the dialog_handle tool (UI shows only user-tab dialogs).
+ * even on AI tabs; an alert on a tab the AI operates is confirmed by the app, other JS dialogs go to the user (tools-redesign 2-4).
  */
 sealed interface BrowserPrompt {
     val id: Long

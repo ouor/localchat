@@ -10,7 +10,7 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** B-08 print_to_pdf without the print UI (Phase 0 spike (c), android.print.PdfPrintBridge). Call after the page loaded. */
+/** Panel "Save as PDF" without the print UI (Phase 0 spike (c), android.print.PdfPrintBridge). Call after the page loaded. */
 object PdfPrinter {
 
     private val A4 = PrintAttributes.Builder()

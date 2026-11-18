@@ -17,6 +17,34 @@
   var sensRe = new RegExp(CFG.pattern, 'i');
   var inputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   var textareaValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  var botRe = new RegExp(CFG.bot, 'i');
+
+  // ---------- readiness (tools-redesign 2-1): installed with the agent, so the first check of a document is real
+  var docId = Math.random().toString(36).slice(2);
+  var changes = 0, lastChange = 0, resCount = -1;
+  try { performance.setResourceTimingBufferSize(1000); } catch (e) { /* older engines */ }
+  function resources() {
+    var es = performance.getEntriesByType('resource'), end = 0;
+    for (var i = 0; i < es.length; i++) if (es[i].responseEnd > end) end = es[i].responseEnd;
+    return { n: es.length, end: end };
+  }
+  (function () {
+    var nav = performance.getEntriesByType('navigation')[0];
+    lastChange = Math.max(nav ? (nav.loadEventEnd || nav.domContentLoadedEventEnd || nav.responseEnd) : 0, resources().end);
+    // Attribute-only changes (animations, focus rings) do not count as the page changing.
+    new MutationObserver(function (recs) { changes += recs.length; lastChange = performance.now(); })
+      .observe(document, { subtree: true, childList: true, characterData: true });
+  })();
+
+  function mark() {
+    var r = resources();
+    if (r.n !== resCount) { resCount = r.n; if (r.end > lastChange) lastChange = r.end; }
+    var b = document.body;
+    return {
+      doc: docId, n: changes, quietMs: Math.max(0, Math.round(performance.now() - lastChange)),
+      textLen: b ? (b.innerText || '').length : 0, readyState: document.readyState, url: location.href, title: norm(document.title)
+    };
+  }
 
   // ---------- text helpers
 
@@ -226,12 +254,12 @@
   var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?e(\d+)\s*\]?\s*$/;
 
   function resolve(target) {
-    if (!target) throw new Error('missing target: pass a ref from snapshot (e.g. e12) or a CSS selector');
+    if (!target) throw new Error('missing ref: pass a ref from the latest element list (e.g. e12)');
     var m = REF_RE.exec(target);
     if (m) {
       var w = refs[+m[1] - 1];
       var el = w && w.deref();
-      if (!el || !el.isConnected) throw new Error('stale ref ' + target.trim() + ': take a new snapshot');
+      if (!el || !el.isConnected) throw new Error('Ref e' + m[1] + ' is from an older page; use a ref from the latest element list.');
       return el;
     }
     var found = deepQuery(document, target);
@@ -253,7 +281,8 @@
       placeholder: el.getAttribute('placeholder'),
       formMethod: form ? (el.getAttribute('formmethod') || form.getAttribute('method') || 'get').toLowerCase() : null,
       formAction: form ? (el.getAttribute('formaction') || form.getAttribute('action') || '') : null,
-      href: el.getAttribute('href')
+      href: el.getAttribute('href'),
+      search: !!(el.closest && el.closest('[role=search]'))
     };
   }
 
@@ -271,7 +300,7 @@
     };
   }
 
-  // ---------- snapshot
+  // ---------- element list (browse and action results)
 
   function textLeaf(el) {
     if (el.shadowRoot) return false;
@@ -319,24 +348,30 @@
     return s;
   }
 
-  function snapshot(a) {
-    var maxNodes = a.maxNodes || 500, maxChars = a.maxChars || 20000;
-    var out = ['page: ' + norm(document.title) + ' — ' + location.href];
-    var count = 0, chars = 0, truncated = false;
+  /**
+   * Lines of the page's elements within budget characters. When everything does not fit, interactive elements and
+   * headings on screen come first, then those off screen (nearest first), then text on screen, then other text;
+   * the chosen lines are printed in document order.
+   */
+  function pageList(a) {
+    var budget = a.budget || 8000, vh = innerHeight;
+    var items = [];
+    var MAX_ITEMS = 4000;
 
-    function emit(depth, line) {
-      if (truncated) return;
-      var s = new Array(depth + 1).join('  ') + '- ' + line;
-      if (count >= maxNodes || chars + s.length > maxChars) { truncated = true; return; }
-      out.push(s); count++; chars += s.length + 1;
+    function emit(depth, line, el, important) {
+      if (items.length >= MAX_ITEMS) return;
+      var r = rectInTop(el), side = 0, dist = 0;
+      if (r.top + r.height <= 0) { side = -1; dist = -(r.top + r.height); }
+      else if (r.top >= vh) { side = 1; dist = r.top - vh; }
+      items.push({ s: new Array(depth + 1).join('  ') + '- ' + line, pri: (important ? 0 : 2) + (side ? 1 : 0), dist: dist, side: side });
     }
 
     function children(parent, depth, skipText) {
       var kids = parent.localName === 'slot' ? parent.assignedNodes({ flatten: true }) : parent.childNodes;
-      for (var i = 0; i < kids.length && !truncated; i++) {
+      for (var i = 0; i < kids.length; i++) {
         var n = kids[i];
         if (n.nodeType === 3) {
-          if (!skipText) { var t = norm(n.data); if (t) emit(depth, 'text: ' + q(cut(t, 200))); }
+          if (!skipText && n.parentElement) { var t = norm(n.data); if (t) emit(depth, 'text: ' + q(cut(t, 100)), n.parentElement, false); }
         } else if (n.nodeType === 1) {
           element(n, depth);
         }
@@ -349,10 +384,10 @@
       var doc = null;
       try { doc = el.contentDocument; } catch (e) { doc = null; }
       if (!doc || !doc.documentElement) {
-        emit(depth, 'iframe' + (title ? ' ' + q(title) : '') + ' (cross-origin, not accessible)');
+        emit(depth, 'iframe' + (title ? ' ' + q(title) : '') + ' (cross-origin, not accessible)', el, true);
         return;
       }
-      emit(depth, 'iframe' + (title ? ' ' + q(title) : ''));
+      emit(depth, 'iframe' + (title ? ' ' + q(title) : ''), el, true);
       children(doc.body || doc.documentElement, depth + 1, false);
     }
 
@@ -367,42 +402,118 @@
       if (!role) {
         if (!textLeaf(el)) return children(inner, depth, false);
         var t = norm(el.innerText);
-        if (t && visibleBox(el)) emit(depth, 'text: ' + q(cut(t, 200)));
+        if (t && visibleBox(el)) emit(depth, 'text: ' + q(cut(t, 100)), el, false);
         return;
       }
       if (!visibleBox(el)) return field ? undefined : children(inner, depth, false);
       var name = nameOf(el, role);
       var line = describeLine(el, role, name);
+      var important = role === 'heading' || line.indexOf('[ref=') >= 0;
       if (!FROM_CONTENT[role] && !field && role !== 'img' && textLeaf(el)) {
         var lt = norm(el.innerText);
-        if (lt && lt !== name) line += ': ' + q(cut(lt, 200));
-        return emit(depth, line);
+        if (lt && lt !== name) line += ': ' + q(cut(lt, 100));
+        return emit(depth, line, el, important);
       }
-      emit(depth, line);
+      emit(depth, line, el, important);
       if (el.localName === 'select' || el.localName === 'textarea') return;
       children(inner, depth + 1, !!FROM_CONTENT[role]);
     }
 
     children(document.body || document.documentElement, 0, false);
-    if (truncated) {
-      out.push('[snapshot truncated at ' + count + ' nodes / ' + chars + ' chars: use page_text for content, ' +
-        'or scroll and snapshot again]');
+    var total = 0;
+    items.forEach(function (it) { total += it.s.length + 1; });
+    var keep = items.map(function () { return true; });
+    var above = 0, below = 0;
+    if (total > budget) {
+      var order = items.map(function (it, i) { return i; }).sort(function (x, y) {
+        return (items[x].pri - items[y].pri) || (items[x].dist - items[y].dist) || (x - y);
+      });
+      var used = 0;
+      keep = items.map(function () { return false; });
+      order.forEach(function (i) {
+        var len = items[i].s.length + 1;
+        if (used + len <= budget) { keep[i] = true; used += len; }
+      });
+      items.forEach(function (it, i) { if (!keep[i]) { if (it.side < 0) above++; else below++; } });
     }
-    return { text: out.join('\n'), nodes: count, truncated: truncated };
+    var out = items.filter(function (it, i) { return keep[i]; }).map(function (it) { return it.s; });
+    return { text: out.join('\n'), listed: out.length, above: above, below: below };
   }
 
-  // ---------- page text
+  // ---------- main text (read)
 
-  function pageText(a) {
+  var BLOCK = {
+    p: 1, div: 1, section: 1, article: 1, main: 1, header: 1, footer: 1, aside: 1, nav: 1, ul: 1, ol: 1, li: 1, dl: 1,
+    dt: 1, dd: 1, table: 1, tr: 1, blockquote: 1, pre: 1, figure: 1, figcaption: 1, details: 1, summary: 1, form: 1,
+    fieldset: 1, address: 1, hr: 1, br: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, caption: 1
+  };
+  var CHROME = 'nav, footer, aside, [role=navigation], [role=banner], [role=contentinfo], [role=complementary]';
+
+  /**
+   * Text of the page's main part: open shadow roots, same-origin frames, closed <details> and hidden=until-found
+   * included; scripts, aria-hidden and display:none left out (and site chrome when the root is the body).
+   */
+  function readText() {
     var body = document.body || document.documentElement;
-    var root = document.querySelector('main, [role=main], article') || body;
-    var clean = function (s) { return (s || '').replace(/[ \t ]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(); };
-    var t = clean(root.innerText);
-    if (root !== body && t.length < 200) t = clean(body.innerText);
-    var size = a.size || 20000;
-    var pages = Math.max(1, Math.ceil(t.length / size));
-    var p = Math.min(Math.max(1, a.page || 1), pages);
-    return { title: norm(document.title), url: location.href, page: p, pages: pages, text: t.slice((p - 1) * size, p * size) };
+    var cands = document.querySelectorAll('main, [role=main], article'), root = null;
+    for (var i = 0; i < cands.length && !root; i++) if (norm(cands[i].textContent).length >= 500) root = cands[i];
+    var text = textOf(root || body, !root);
+    if (root && text.length < 200) text = textOf(body, true);
+    return { title: norm(document.title), url: location.href, text: text, flags: flags(text) };
+  }
+
+  function textOf(root, skipChrome) {
+    var lines = [], cur = '', prefix = '';
+    function flush() {
+      var t = cur.replace(/\s+/g, ' ').trim();
+      if (t) lines.push(prefix + t);
+      cur = ''; prefix = '';
+    }
+    function kids(n) {
+      var list = n.localName === 'slot' ? n.assignedNodes({ flatten: true }) : n.childNodes;
+      if (n.localName === 'slot' && !list.length) list = n.childNodes;
+      for (var i = 0; i < list.length; i++) walk(list[i]);
+    }
+    function walk(n) {
+      if (n.nodeType === 3) { cur += n.data; return; }
+      if (n.nodeType !== 1) return;
+      var t = n.localName;
+      if (SKIP_TAGS[t] || n.getAttribute('aria-hidden') === 'true') return;
+      if (t === 'input' && (n.getAttribute('type') || '').toLowerCase() === 'hidden') return;
+      if (skipChrome && n.matches(CHROME)) return;
+      if (n.getAttribute('hidden') !== 'until-found' && styleOf(n).display === 'none') return;
+      if (t === 'iframe' || t === 'frame') {
+        var doc = null;
+        try { doc = n.contentDocument; } catch (e) { doc = null; }
+        if (doc && doc.body) { flush(); kids(doc.body); flush(); }
+        return;
+      }
+      if (t === 'br') { flush(); return; }
+      if (t === 'td' || t === 'th') {
+        if (norm(cur)) cur += ' | ';
+        kids(n.shadowRoot || n);
+        return;
+      }
+      if (!BLOCK[t]) { kids(n.shadowRoot || n); return; }
+      flush();
+      if (HEADINGS[t]) { lines.push(''); prefix = '## '; }
+      else if (t === 'li') prefix = '- ';
+      kids(n.shadowRoot || n);
+      flush();
+      if (HEADINGS[t] || t === 'p' || t === 'table' || t === 'pre' || t === 'blockquote') lines.push('');
+    }
+    walk(root);
+    flush();
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  /** "bot": a bot check or consent wall; "login": a visible password field on a short page. */
+  function flags(text) {
+    var f = [];
+    if (botRe.test(text.slice(0, 3000))) f.push('bot');
+    var pw = document.querySelector('input[type=password]');
+    if (pw && visible(pw) && text.length < 1500) f.push('login');
+    return f;
   }
 
   // ---------- actions
@@ -413,23 +524,39 @@
 
   function typeText(a) {
     var el = resolve(a.target);
+    if (el.localName === 'select') return chooseOption(el, a.text);
     if (isSensitive(el)) throw new Error('refused: password, OTP and card fields are filled by the user only (use request_handoff)');
     if (!isEditable(el)) throw new Error('element is not a text field (' + el.localName + (roleOf(el) ? ', ' + roleOf(el) : '') + ')');
     if (el.disabled || el.readOnly) throw new Error('text field is disabled or read-only');
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     el.focus();
-    var clear = a.clear !== false;
     if (el.isContentEditable) {
       var doc = el.ownerDocument;
-      if (clear) doc.execCommand('selectAll', false, null);
-      if (!doc.execCommand('insertText', false, a.text)) el.textContent = (clear ? '' : el.textContent) + a.text;
+      doc.execCommand('selectAll', false, null);
+      if (!doc.execCommand('insertText', false, a.text)) el.textContent = a.text;
       return { value: cut(norm(el.innerText), 200) };
     }
     var desc = el.localName === 'textarea' ? textareaValue : inputValue;
-    desc.set.call(el, clear ? a.text : el.value + a.text);
+    desc.set.call(el, a.text);
     el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: a.text }));
     events(el, ['change']);
-    return { value: cut(el.value, 200) };
+    var res = { value: cut(el.value, 200) };
+    var sub = el.form && el.form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
+    if (sub && visibleBox(sub)) { res.submitRef = refFor(sub); res.submitLabel = roleOf(sub) + (nameOf(sub, roleOf(sub)) ? ' ' + q(nameOf(sub, roleOf(sub))) : ''); }
+    return res;
+  }
+
+  function chooseOption(el, text) {
+    var opts = Array.prototype.slice.call(el.options), want = norm(text).toLowerCase();
+    var o = opts.filter(function (x) { return norm(x.text).toLowerCase() === want; })[0] ||
+      opts.filter(function (x) { return x.value.toLowerCase() === want; })[0];
+    if (!o) {
+      throw new Error('No option matches ' + q(text) + '. Options: ' + opts.slice(0, 30).map(function (x) { return norm(x.text); }).join(', ') +
+        (opts.length > 30 ? ' …' : ''));
+    }
+    opts.forEach(function (x) { x.selected = x === o; });
+    events(el, ['input', 'change']);
+    return { value: norm(o.text), selected: norm(o.text) };
   }
 
   function click(a) {
@@ -437,67 +564,6 @@
     if (el.focus) el.focus();
     el.click();
     return {};
-  }
-
-  function scroll(a) {
-    var el = a.target ? resolve(a.target) : null;
-    var se = document.scrollingElement || document.documentElement;
-    if (el && !a.dx && !a.dy) el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    else (el || se).scrollBy({ left: a.dx || 0, top: a.dy || 0, behavior: 'instant' });
-    var res = { x: Math.round(scrollX), y: Math.round(scrollY), maxY: Math.max(0, Math.round(se.scrollHeight - innerHeight)) };
-    if (el) { res.elementY = Math.round(el.scrollTop); res.elementMaxY = Math.max(0, el.scrollHeight - el.clientHeight); }
-    return res;
-  }
-
-  function hover(a) {
-    var el = resolve(a.target);
-    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    var r = el.getBoundingClientRect();
-    var o = { bubbles: true, cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, view: el.ownerDocument.defaultView };
-    ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove'].forEach(function (t) {
-      el.dispatchEvent(t.indexOf('pointer') === 0 ? new PointerEvent(t, o) : new MouseEvent(t, o));
-    });
-    return {};
-  }
-
-  function selectOption(a) {
-    var el = resolve(a.target);
-    if (el.localName !== 'select') throw new Error('element is not a <select>; for custom dropdowns click the option instead');
-    var opts = Array.prototype.slice.call(el.options);
-    var want = a.values.map(function (w) { return norm(w).toLowerCase(); });
-    var picked = opts.filter(function (o) { return want.indexOf(o.value.toLowerCase()) >= 0 || want.indexOf(norm(o.text).toLowerCase()) >= 0; });
-    if (!picked.length) {
-      throw new Error('no option matches ' + q(a.values) + '. Options: ' + opts.slice(0, 30).map(function (o) { return norm(o.text); }).join(', '));
-    }
-    if (!el.multiple) picked = picked.slice(0, 1);
-    opts.forEach(function (o) { o.selected = picked.indexOf(o) >= 0; });
-    events(el, ['input', 'change']);
-    return { selected: picked.map(function (o) { return norm(o.text); }) };
-  }
-
-  function query(a) {
-    var el;
-    try { el = resolve(a.target); } catch (e) {
-      if (/^stale ref/.test(e.message)) return { attached: false, visible: false, stale: true };
-      if (/^no element/.test(e.message)) return { attached: false, visible: false };
-      throw e;
-    }
-    return { attached: true, visible: visible(el) };
-  }
-
-  function focusInfo() {
-    var el = document.activeElement, guard = 0;
-    while (el && guard++ < 20) {
-      if (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-      else if ((el.localName === 'iframe' || el.localName === 'frame') && el.contentDocument && el.contentDocument.activeElement) el = el.contentDocument.activeElement;
-      else break;
-    }
-    if (!el || el.localName === 'body' || el.localName === 'html') return { info: null };
-    return { info: info(el), sensitive: isSensitive(el) };
-  }
-
-  function state() {
-    return { url: location.href, title: norm(document.title), readyState: document.readyState };
   }
 
   // ---------- execute (architecture 7.4): sensitive value setter refused while user code runs
@@ -569,9 +635,8 @@
   }
 
   var FNS = {
-    snapshot: snapshot, pageText: pageText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
-    click: click, type: typeText, scroll: scroll, hover: hover, select: selectOption, query: query,
-    focusInfo: focusInfo, state: state, execBegin: execBegin, execEnd: execEnd, execResult: execResult, execPoll: execPoll
+    mark: mark, pageList: pageList, readText: readText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
+    click: click, type: typeText, execBegin: execBegin, execEnd: execEnd, execResult: execResult, execPoll: execPoll
   };
 
   var api = {

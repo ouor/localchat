@@ -27,4 +27,6 @@ data class ElementInfo(
     val formMethod: String? = null,
     val formAction: String? = null,
     val href: String? = null,
+    /** Inside a `[role=search]` landmark (type's automatic Enter). */
+    val search: Boolean = false,
 )

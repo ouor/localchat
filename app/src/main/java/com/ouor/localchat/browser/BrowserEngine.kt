@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.MainThread
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +22,8 @@ import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
 import com.ouor.localchat.core.model.SearchEngine
 import com.ouor.localchat.core.model.AppSettings
+import com.ouor.localchat.core.model.AppLanguage
+import java.util.Locale
 import com.ouor.localchat.storage.SettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -60,7 +63,7 @@ class BrowserEngine @Inject constructor(
     private val byId = LinkedHashMap<Int, BrowserTab>()
     private var nextId = 1
 
-    /** sessionId -> tab the AI acts on when a tool omits tabId. */
+    /** sessionId -> the chat's work tab: the one tab its AI tools act on (tools-redesign 4). */
     private val defaultAiTab = mutableMapOf<String, Int>()
 
     private var host: FrameLayout? = null
@@ -68,12 +71,12 @@ class BrowserEngine @Inject constructor(
 
     private val _tabs = MutableStateFlow<List<TabInfo>>(emptyList())
 
-    /** Every tab, S-03 hidden link-prefetch tabs included (the run loop's own checks). */
+    /** Every tab, hidden tool tabs included (the run loop's own checks). */
     val tabs: StateFlow<List<TabInfo>> = _tabs.asStateFlow()
 
     private val _visibleTabs = MutableStateFlow<List<TabInfo>>(emptyList())
 
-    /** [tabs] without hidden link-prefetch tabs: what the panel, tab list and get_tabs show. */
+    /** [tabs] without hidden tool tabs: what the panel and tab list show. */
     val visibleTabs: StateFlow<List<TabInfo>> = _visibleTabs.asStateFlow()
 
     private val _highlight = MutableStateFlow<Highlight?>(null)
@@ -111,9 +114,19 @@ class BrowserEngine @Inject constructor(
     /** Current [sensitive] rule; callers read it at each check. */
     val sensitiveUrls: SensitiveUrls get() = _sensitive.value
 
-    /** S-05 engine for web_search. */
+    /** S-05 engine for web_search (tried first). */
     @Volatile
     var searchEngine: SearchEngine = SearchEngine.DUCKDUCKGO
+        private set
+
+    /** App language code for result pages (Google hl, Bing setlang). */
+    @Volatile
+    var searchLanguage: String = Locale.getDefault().language
+        private set
+
+    /** The user's region (Bing cc), null when unset. */
+    @Volatile
+    var region: String? = null
         private set
 
     init {
@@ -121,6 +134,12 @@ class BrowserEngine @Inject constructor(
             settings.settings.collect { s ->
                 _sensitive.value = sensitiveRule(builtInDomains, s)
                 searchEngine = s.searchEngine
+                searchLanguage = when (s.language) {
+                    AppLanguage.KO -> "ko"
+                    AppLanguage.EN -> "en"
+                    AppLanguage.SYSTEM -> Locale.getDefault().language
+                }
+                region = s.region
             }
         }
     }
@@ -131,9 +150,9 @@ class BrowserEngine @Inject constructor(
     fun openUserTab(url: String): Int = open(Owner.User, url)
 
     /**
-     * Throws [PageError] at [MAX_TABS] visible tabs. A [hidden] tab (S-03 link prefetch) never shows in the panel or
+     * Throws [PageError] at [MAX_TABS] visible tabs. A [hidden] tab (one tool call's) never shows in the panel or
      * tab list, never counts toward [MAX_TABS] (its own cap is [TabRules.MAX_HIDDEN_TABS]) and never becomes the
-     * chat's default AI tab; its opener must close it.
+     * chat's work tab; its opener must close it.
      */
     @MainThread
     fun openAiTab(sessionId: String, url: String?, hidden: Boolean = false): Int {
@@ -329,28 +348,27 @@ class BrowserEngine @Inject constructor(
         w.layout(0, 0, width, height)
     }
 
-    // ---------- AI access (architecture 6.4: ToolContext.aiTab)
+    // ---------- AI access (architecture 6.4, tools-redesign 4: ToolContext.workTab)
 
     /**
-     * The one way the run loop gets the tab an AI tool acts on (F-02): [tabId] or the session's default AI tab
-     * (created when missing), owned by this session, not on a sensitive site (B-03, B-04, B-S3, B-S6), under AI
-     * control. While the user holds control it calls [onUserControl] (the loop shows Pause.UserControl), waits for
-     * control to come back (B-09 ③), calls [onResumed] and checks again. Marks [toolName] as the tab's AI activity
-     * (B-09 ②) until [clearAiActivity]. Any thread. Throws [PageError] when denied.
+     * The one way the run loop gets the tab an AI tool acts on (F-02): the session's work tab, owned by this session,
+     * not on a sensitive site (B-03, B-04, B-S3, B-S6), under AI control. Only a [navigating] tool (browse) creates
+     * the work tab when there is none, and only it may use one on a sensitive site, since it leaves the site. While
+     * the user holds control it calls [onUserControl] (the loop shows Pause.UserControl), waits for control to come
+     * back (B-09 ③), calls [onResumed] and checks again. Marks [toolName] as the tab's AI activity (B-09 ②) until
+     * [clearAiActivity]. Any thread. Throws [PageError] when denied.
      */
     suspend fun acquireAiTab(
         sessionId: String,
-        tabId: Int?,
         toolName: String,
+        navigating: Boolean,
         onUserControl: suspend (tabId: Int) -> Unit = {},
         onResumed: suspend () -> Unit = {},
     ): BrowserTab {
         while (true) {
-            val tab = withContext(Dispatchers.Main.immediate) { aiTabFor(sessionId, tabId) }
+            val tab = withContext(Dispatchers.Main.immediate) { aiTabFor(sessionId, navigating) }
             if (tab.control == Control.AI) {
                 withContext(Dispatchers.Main.immediate) {
-                    // A link-prefetch tab is read once and closed; the chat keeps its own default tab.
-                    if (!tab.hidden) defaultAiTab[sessionId] = tab.id
                     aiUsedAt[tab.id] = clock.now()
                     _aiActivity.value += (tab.id to toolName)
                 }
@@ -365,29 +383,21 @@ class BrowserEngine @Inject constructor(
         }
     }
 
-    /** The tab tools use when tabId is omitted, if it is still open and owned by the session. */
+    /** The chat's work tab, if it is still open and owned by the session. */
     @MainThread
-    fun currentAiTab(sessionId: String): Int? = defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
+    fun workTab(sessionId: String): Int? = defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
 
-    /** Ownership only (no sensitive-URL or control check): close_tab and request_handoff. */
+    /** The work tab by ownership only (no sensitive-URL or control check): request_handoff. */
     @MainThread
-    fun ownedAiTab(sessionId: String, tabId: Int?): BrowserTab {
-        val id = tabId ?: defaultAiTab[sessionId] ?: throw PageError("You have no open tab.")
-        val tab = byId[id] ?: throw PageError("Tab $id does not exist. Use get_tabs.")
-        if (tab.owner != Owner.Ai(sessionId)) throw PageError(NOT_YOURS.format(id))
-        return tab
-    }
+    fun ownedAiTab(sessionId: String): BrowserTab = workTab(sessionId)?.let(byId::get) ?: throw PageError(NO_TAB)
 
-    /** [acquireAiTab] without the control wait: default tab (created when missing), ownership, B-S3. */
+    /** [acquireAiTab] without the control wait: the work tab (created when [navigating] and missing), B-S3. */
     @MainThread
-    fun aiTabFor(sessionId: String, tabId: Int?): BrowserTab {
-        val id = tabId
-            ?: defaultAiTab[sessionId]?.takeIf { byId[it]?.owner == Owner.Ai(sessionId) }
-            ?: openAiTab(sessionId, null)
-        val tab = byId[id] ?: throw PageError("Tab $id does not exist. Use get_tabs.")
-        if (tab.owner != Owner.Ai(sessionId)) throw PageError(NOT_YOURS.format(id))
-        if (sensitiveUrls.isSensitive(tab.url)) {
-            throw PageError("Tab $id: ${SensitiveUrls.hostOf(tab.url)} ${SensitiveUrls.REFUSAL}. The AI may not read or operate it; ask the user to do this part.")
+    fun aiTabFor(sessionId: String, navigating: Boolean): BrowserTab {
+        val id = workTab(sessionId) ?: if (navigating) openAiTab(sessionId, null) else throw PageError(NO_TAB)
+        val tab = byId.getValue(id)
+        if (!navigating && sensitiveUrls.isSensitive(tab.url)) {
+            throw PageError("Your tab is on ${SensitiveUrls.hostOf(tab.url)}, which ${SensitiveUrls.REFUSAL}. The AI may not read or operate it; ask the user to do this part.")
         }
         return tab
     }
@@ -397,6 +407,19 @@ class BrowserEngine @Inject constructor(
         onMain {
             val mine = byId.values.filter { it.owner == Owner.Ai(sessionId) }.map { it.id }.toSet()
             _aiActivity.value = _aiActivity.value.filterKeys { it !in mine }
+        }
+    }
+
+    /** Panel ⋮ "Save as PDF": the tab's page as an A4 PDF into [uri] (SAF). False when printing or writing failed. */
+    suspend fun savePdf(tabId: Int, uri: Uri): Boolean {
+        val tab = withContext(Dispatchers.Main.immediate) { byId[tabId] } ?: return false
+        return try {
+            val bytes = PdfPrinter.print(tab)
+            withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } } != null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -432,9 +455,10 @@ class BrowserEngine @Inject constructor(
     override fun onChanged(tab: BrowserTab) = publish()
 
     override fun onPrompt(prompt: BrowserPrompt) {
-        // Nobody sees a hidden link-prefetch tab: refuse at once, or the page would wait forever (FB3 ui m6).
+        // Nobody sees a hidden tab: refuse at once, or the page would wait forever (FB3 ui m6). read reports a download.
         val tab = byId[prompt.tabId]
         if (tab?.hidden == true) {
+            if (prompt is BrowserPrompt.Download) tab.lastDownload = DownloadNote(SystemClock.uptimeMillis(), prompt.url, prompt.mime, prompt.fileName)
             when (prompt) {
                 is BrowserPrompt.Dialog -> tab.answerDialog(false, null)
                 is BrowserPrompt.FileChooser -> tab.answerFileChooser(prompt.id, null)
@@ -482,7 +506,7 @@ class BrowserEngine @Inject constructor(
         const val MAX_TABS = 10
         const val HIGHLIGHT_MS = 1_000L
         const val BLANK = "about:blank"
-        private const val NOT_YOURS = "Tab %d is not your tab. Only tabs you opened or the user handed to you can be used; open your own with open_tab."
+        const val NO_TAB = "You have no browser tab open; call browse(url) first."
         private fun full() = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
 }
@@ -498,7 +522,7 @@ data class TabInfo(
     val canGoForward: Boolean = false,
     /** [BrowserTab.THUMB_WIDTH] px wide, null until the page was first drawn. Never recycle it. */
     val thumbnail: Bitmap? = null,
-    /** S-03 link-prefetch tab: kept out of the panel and tab list ([BrowserEngine.openAiTab]). */
+    /** One tool call's hidden tab: kept out of the panel and tab list ([BrowserEngine.openAiTab]). */
     val hidden: Boolean = false,
 ) {
     /** Plain http page: the address bar shows a warning; AI typing here needs approval (team decision 1). */

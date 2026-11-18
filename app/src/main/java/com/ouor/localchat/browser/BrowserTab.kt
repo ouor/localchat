@@ -20,14 +20,20 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.view.drawToBitmap
 import com.ouor.localchat.browser.script.CssRect
+import com.ouor.localchat.browser.script.PageMark
+import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.core.model.ToolStatus
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +45,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * One WebView with its client callbacks, console buffer and held dialogs (architecture 7.1). Created and used
+ * One WebView with its client callbacks, load signals and held dialogs (architecture 7.1, tools-redesign 2). Created and used
  * on the main thread only; suspend functions switch to Main themselves. The WebView's context is a
  * [MutableContextWrapper] that the engine points at the host Activity (select popups, dialogs) or the
  * application.
@@ -67,7 +73,7 @@ class BrowserTab internal constructor(
         internal set
     var control: Control = Control.AI
         internal set
-    /** S-03 link-prefetch tab, kept out of the UI ([TabInfo.hidden]). */
+    /** Hidden tab of one tool call (web_search, read(url), link prefetch), kept out of the UI ([TabInfo.hidden]). */
     var hidden: Boolean = false
         internal set
     var url: String = ""
@@ -78,8 +84,17 @@ class BrowserTab internal constructor(
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    /** (source document or script URL, line). */
-    private val console = ArrayDeque<Pair<String, String>>()
+    // Load signals (uptime ms). Requests arrive on a WebView thread, the rest on main.
+    private val lastRequestAt = AtomicLong()
+    private val mainRequestAt = AtomicLong()
+    @Volatile private var pageStartedAt = 0L
+    private val navErrors = ArrayDeque<NavError>()
+
+    /** A download this hidden tab refused (read reports it); set by the engine. */
+    internal var lastDownload: DownloadNote? = null
+
+    /** Dialogs the page showed while the AI used it, newest last (at most [DIALOG_LOG]). */
+    private val dialogLog = ArrayDeque<DialogNote>()
 
     private val _dialog = MutableStateFlow<BrowserPrompt.Dialog?>(null)
 
@@ -112,6 +127,7 @@ class BrowserTab internal constructor(
     // ---------- navigation
 
     fun load(target: String) {
+        mainRequestAt.set(SystemClock.uptimeMillis())
         markLoading(target)
         webView.loadUrl(target)
     }
@@ -127,8 +143,62 @@ class BrowserTab internal constructor(
         events.onChanged(this)
     }
 
-    /** Waits until the main frame finished loading; false on timeout. */
-    suspend fun awaitLoaded(timeoutMs: Long): Boolean = withTimeoutOrNull(timeoutMs) { _loading.first { !it } } != null
+    /** The latest main-frame failure at or after [since] (uptime), HTTP >= 400 included. Main thread. */
+    fun navError(since: Long): NavError? = navErrors.lastOrNull { it.at >= since }
+
+    /** Dialogs shown at or after [since] (uptime). Main thread. */
+    fun dialogsSince(since: Long): List<DialogNote> = dialogLog.filter { it.at >= since }
+
+    /** A download refused at or after [since]. */
+    fun downloadSince(since: Long): DownloadNote? = lastDownload?.takeIf { it.at >= since }
+
+    /**
+     * Waits until the page is ready to read or act on after something that started at [since] (uptime ms;
+     * tools-redesign 2-1): the document is in (a request made after [since] is waited for), then the DOM and the
+     * network stay quiet for [TabRules.QUIET]. A short page waits for a change up to [TabRules.SETTLE_CAP]. A dialog the
+     * user must answer pauses the wait without a cap. [status] reports the phase for the step line. Main thread.
+     */
+    suspend fun awaitReady(since: Long, status: (ToolStatus) -> Unit = {}): Readiness = withContext(Dispatchers.Main.immediate) {
+        var docStart = since
+        var settleStart: Long? = null
+        var settleN: Int? = null
+        var shown: ToolStatus? = null
+        fun show(s: ToolStatus) { if (s != shown) { shown = s; status(s) } }
+        show(ToolStatus.OPENING)
+        while (true) {
+            if (_dialog.value != null) {
+                show(ToolStatus.PAGE_DIALOG)
+                _dialog.first { it == null }
+                show(if (settleStart == null) ToolStatus.OPENING else ToolStatus.SETTLING)
+                continue
+            }
+            var busy = false
+            val mark = try {
+                PageScript.call<PageMark>(this@BrowserTab, "mark", timeoutMs = TabRules.MARK_EVAL, retry = false)
+            } catch (e: PageError) {
+                busy = e.message?.startsWith(NOT_ANSWERED) == true
+                null
+            }
+            // A page too busy to answer is read as it is.
+            if (busy && settleStart != null) return@withContext Readiness.READY
+            val now = SystemClock.uptimeMillis()
+            val input = TabRules.ReadyInput(
+                now, since, docStart, settleStart, _loading.value, mark, settleN, mainRequestAt.get(), pageStartedAt,
+                lastRequestAt.get(), navErrors.lastOrNull { !it.http }?.at, lastDownload?.at,
+            )
+            when (val step = TabRules.readyStep(input)) {
+                is TabRules.ReadyStep.Done -> return@withContext step.readiness
+                TabRules.ReadyStep.Settle -> { settleStart = now; settleN = mark?.n }
+                TabRules.ReadyStep.Restart -> { docStart = mainRequestAt.get(); settleStart = null; settleN = null; show(ToolStatus.OPENING) }
+                is TabRules.ReadyStep.Wait -> {
+                    settleStart?.let { if (now - it > SETTLING_SHOWN_MS) show(ToolStatus.SETTLING) }
+                    delay(step.ms)
+                }
+            }
+        }
+        @Suppress("UNREACHABLE_CODE")
+        Readiness.READY
+    }
 
     // ---------- script
 
@@ -148,7 +218,7 @@ class BrowserTab internal constructor(
                     opened.onAwait { it!! }
                 }.also { opened.cancel() }
             }
-        } ?: throw PageError("The page did not answer within ${timeoutMs / 1000}s.")
+        } ?: throw PageError("$NOT_ANSWERED ${timeoutMs / 1000} s (it may be busy).")
         if (result is BrowserPrompt.Dialog) throw PageError(dialogNote(result))
         result as String
     }
@@ -215,10 +285,6 @@ class BrowserTab internal constructor(
         return true
     }
 
-    // ---------- console
-
-    fun consoleLines(): List<String> = console.map { it.second }
-
     // ---------- prompts
 
     fun answerDialog(accept: Boolean, text: String?) {
@@ -226,8 +292,12 @@ class BrowserTab internal constructor(
         val d = _dialog.value
         dialogResult = null
         _dialog.value = null
-        if (!accept) r.cancel() else if (r is JsPromptResult && d?.kind == DialogKind.PROMPT) r.confirm(text ?: d.defaultText.orEmpty()) else r.confirm()
-        d?.let { events.onPromptDone(it.id) }
+        val answer = if (d?.kind == DialogKind.PROMPT && accept) text ?: d.defaultText.orEmpty() else null
+        if (!accept) r.cancel() else if (r is JsPromptResult && answer != null) r.confirm(answer) else r.confirm()
+        d?.let {
+            log(DialogNote(it.kind, it.message, accept, answer, SystemClock.uptimeMillis()))
+            events.onPromptDone(it.id)
+        }
     }
 
     internal fun answerFileChooser(promptId: Long, uris: List<Uri>?) {
@@ -264,8 +334,24 @@ class BrowserTab internal constructor(
         downloads.clear()
     }
 
+    private fun log(n: DialogNote) {
+        if (dialogLog.size >= DIALOG_LOG) dialogLog.removeFirst()
+        dialogLog.addLast(n)
+    }
+
     private fun hold(kind: DialogKind, message: String?, default: String?, result: JsResult): Boolean {
-        if (dialogResult != null) { result.cancel(); return true } // one at a time
+        val now = SystemClock.uptimeMillis()
+        if (dialogResult != null) { // one at a time
+            result.cancel()
+            log(DialogNote(kind, message.orEmpty(), accepted = false, text = null, at = now, extra = true))
+            return true
+        }
+        // tools-redesign 2-4: an alert on a tab the AI operates is confirmed by the app and reported in the tool result.
+        if (kind == DialogKind.ALERT && owner is Owner.Ai && control == Control.AI && !hidden) {
+            result.confirm()
+            log(DialogNote(kind, message.orEmpty(), accepted = true, text = null, at = now))
+            return true
+        }
         val d = BrowserPrompt.Dialog(nextPromptId(), id, kind, message.orEmpty(), default, url)
         dialogResult = result
         _dialog.value = d
@@ -275,10 +361,7 @@ class BrowserTab internal constructor(
 
     private inner class Client : WebViewClient() {
         override fun onPageStarted(view: WebView, startUrl: String, favicon: Bitmap?) {
-            // SE 6: a previous page's logs (maybe a sensitive site during handoff) must not reach console_logs. The new
-            // page's inline scripts may log before this callback arrives (seen on device), so its own lines stay.
-            val page = startUrl.substringBefore('#')
-            console.removeAll { it.first.substringBefore('#') != page }
+            pageStartedAt = SystemClock.uptimeMillis()
             _loading.value = true
             url = startUrl
             events.onChanged(this@BrowserTab)
@@ -305,6 +388,29 @@ class BrowserTab internal constructor(
             return true
         }
 
+        // Every request: the readiness wait's network signal; a main-frame one is a new document on its way (before its first byte).
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+            val now = SystemClock.uptimeMillis()
+            lastRequestAt.set(now)
+            if (request.isForMainFrame) mainRequestAt.set(now)
+            return null
+        }
+
+        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+            if (request.isForMainFrame) addError(NavError(SystemClock.uptimeMillis(), request.url.toString(), false, error.errorCode, error.description.toString()))
+        }
+
+        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+            if (request.isForMainFrame && response.statusCode >= 400) {
+                addError(NavError(SystemClock.uptimeMillis(), request.url.toString(), true, response.statusCode, response.reasonPhrase.orEmpty()))
+            }
+        }
+
+        private fun addError(e: NavError) {
+            if (navErrors.size >= DIALOG_LOG) navErrors.removeFirst()
+            navErrors.addLast(e)
+        }
+
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
             events.onRendererGone(this@BrowserTab)
             return true
@@ -317,11 +423,8 @@ class BrowserTab internal constructor(
             events.onChanged(this@BrowserTab)
         }
 
-        override fun onConsoleMessage(m: ConsoleMessage): Boolean {
-            if (console.size >= CONSOLE_MAX) console.removeFirst()
-            console.addLast(m.sourceId() to "[${m.messageLevel().name.lowercase()}] ${m.message()} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
-            return true
-        }
+        // Page logs are not kept (nothing reads them) and not printed to logcat.
+        override fun onConsoleMessage(m: ConsoleMessage): Boolean = true
 
         override fun onJsAlert(view: WebView, u: String, message: String?, result: JsResult) = hold(DialogKind.ALERT, message, null, result)
         override fun onJsConfirm(view: WebView, u: String, message: String?, result: JsResult) = hold(DialogKind.CONFIRM, message, null, result)
@@ -354,8 +457,14 @@ class BrowserTab internal constructor(
     }
 
     companion object {
-        const val CONSOLE_MAX = 200
         const val THUMB_WIDTH = 240
+        private const val DIALOG_LOG = 5
+
+        /** The settle phase shows "waiting for the page to finish" only after this long (no flicker on quick pages). */
+        private const val SETTLING_SHOWN_MS = 1_000L
+
+        /** Start of [evaluate]'s timeout message. */
+        const val NOT_ANSWERED = "The page did not answer within"
 
         /** Pages keep painting after onPageFinished (fonts, images). */
         private const val THUMB_DELAY_MS = 800L
@@ -365,6 +474,12 @@ class BrowserTab internal constructor(
         internal fun nextPromptId() = promptIds.incrementAndGet()
 
         fun dialogNote(d: BrowserPrompt.Dialog): String =
-            "A JavaScript ${d.kind.name.lowercase()} dialog is open: \"${d.message.take(300)}\". Answer it with dialog_handle."
+            "A JavaScript ${d.kind.name.lowercase()} dialog is open: \"${d.message.take(300)}\". The page is waiting for the user to answer a dialog."
     }
 }
+
+/** A dialog the page showed: [accepted] OK/Cancel, [text] a prompt's answer, [extra] = cancelled because another was open. */
+data class DialogNote(val kind: DialogKind, val message: String, val accepted: Boolean, val text: String?, val at: Long, val extra: Boolean = false)
+
+/** A download a hidden tab refused (uptime [at]). */
+data class DownloadNote(val at: Long, val url: String, val mime: String?, val fileName: String)

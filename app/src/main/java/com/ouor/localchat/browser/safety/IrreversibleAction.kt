@@ -13,9 +13,6 @@ object IrreversibleAction {
         /** Button/link text reads like pay, order, delete, send, post, confirm ... */
         RISKY_KEYWORD,
 
-        /** Accepting a confirm() dialog. */
-        CONFIRM_DIALOG,
-
         /** Typing into a page served over plain http (team decision 1). */
         INSECURE_INPUT,
 
@@ -48,19 +45,9 @@ object IrreversibleAction {
         return null
     }
 
-    /** Enter in a POST form submits it; Enter elsewhere is free. */
+    /** type's Enter in a POST form submits it; Enter elsewhere is free, and field labels are not keyword-checked. */
     fun reasonForEnter(focused: ElementInfo?): Reason? =
         if (focused?.formMethod == "post" && focused.tag != "textarea") Reason.POST_FORM else null
-
-    /**
-     * keyboard: Enter and Space activate the focused control like a click (SE 8), so the click rule applies too.
-     * Other keys activate nothing.
-     */
-    fun reasonForKey(enter: Boolean, space: Boolean, focused: ElementInfo?): Reason? = when {
-        focused == null || !(enter || space) -> null
-        enter -> reasonForEnter(focused) ?: reasonForClick(focused)
-        else -> reasonForClick(focused)
-    }
 
     fun hasRiskyKeyword(label: String): Boolean = enRegex.containsMatchIn(label) || KO.any { it in label }
 

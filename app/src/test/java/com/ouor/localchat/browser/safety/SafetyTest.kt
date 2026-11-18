@@ -164,14 +164,11 @@ class SafetyTest {
     }
 
     @Test
-    fun `enter and space on a risky control ask like a click (SE 8)`() {
-        val delete = button("Delete account")
-        assertEquals(Reason.RISKY_KEYWORD, IrreversibleAction.reasonForKey(enter = true, space = false, focused = delete))
-        assertEquals(Reason.RISKY_KEYWORD, IrreversibleAction.reasonForKey(enter = false, space = true, focused = delete))
-        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForKey(enter = true, space = false, focused = field().copy(formMethod = "post")))
-        assertNull(IrreversibleAction.reasonForKey(enter = false, space = false, focused = delete)) // Tab, arrows ...
-        assertNull(IrreversibleAction.reasonForKey(enter = true, space = false, focused = button("Next")))
-        assertNull(IrreversibleAction.reasonForKey(enter = true, space = false, focused = null))
+    fun `type's Enter asks only in a POST form, whatever the field is called`() {
+        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(field().copy(formMethod = "post")))
+        assertNull(IrreversibleAction.reasonForEnter(field().copy(formMethod = "get", name = "주문 검색")))
+        assertNull(IrreversibleAction.reasonForEnter(ElementInfo(tag = "textarea", formMethod = "post")))
+        assertNull(IrreversibleAction.reasonForEnter(null))
     }
 
     @Test

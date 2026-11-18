@@ -1,10 +1,11 @@
 /*
  * Search result extractors (S-01, architecture 7.4, R8). Evaluated by browser.script.PageScript as
- *   (this function)(engine, max)
- * on a loaded result page; returns [{title, url, snippet}]. Engine markup changes are fixed here only.
+ *   (this function)(engine, max, cfg)
+ * on a loaded result page; returns {results: [{title, url, snippet}], blocked}. blocked = a bot check or consent page
+ * (cfg.bot is SearchEngines.BOT_PATTERN); then nothing is extracted. Engine markup changes are fixed here only.
  * The file must stay a single function expression.
  */
-(function (engine, max) {
+(function (engine, max, cfg) {
   'use strict';
   function norm(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
   function txt(root, sel) { var n = sel && root ? root.querySelector(sel) : null; return n ? norm(n.innerText || n.textContent) : ''; }
@@ -17,7 +18,9 @@
         var b = u.searchParams.get('u');
         if (b && b.indexOf('a1') === 0) return atob(b.slice(2).replace(/-/g, '+').replace(/_/g, '/'));
       }
-      if (/google\./.test(u.hostname) && u.pathname === '/url') return u.searchParams.get('q') || u.searchParams.get('url') || href;
+      if (/google\./.test(u.hostname) && (u.pathname === '/url' || u.pathname === '/goto')) {
+        return u.searchParams.get('q') || u.searchParams.get('url') || href;
+      }
       return u.href;
     } catch (e) {
       return href;
@@ -37,6 +40,9 @@
     // (fds-default-mode skips ad boxes; help/keep/search links are Naver chrome)
     NAVER: { card: '.api_subject_bx.fds-default-mode, .total_wrap', strip: '.sds-comps-profile, .thumb-area, .source_box', skipHost: /(^|\.)(help|keep|ader|search)\.naver\.com$/ }
   };
+
+  var body = document.body ? (document.body.innerText || '') : '';
+  if (new RegExp(cfg.bot, 'i').test(body.slice(0, 3000))) return { results: [], blocked: true };
 
   var r = RULES[engine] || {};
   var out = [], seen = {};
@@ -86,7 +92,10 @@
   }
   // Fallback when the markup changed: external links with real titles.
   if (!out.length) {
-    var host = location.hostname.split('.').slice(-2).join('.');
+    // Registered domain: three labels for co.kr, or.kr, co.uk, com.au ... (2-3 letters then 2), else two.
+    var labels = location.hostname.split('.');
+    var two = labels.slice(-2);
+    var host = labels.slice(two[0].length <= 3 && two[1].length === 2 && labels.length > 2 ? -3 : -2).join('.');
     var links = document.querySelectorAll('main a[href], #main a[href], body a[href]');
     for (var j = 0; j < links.length && out.length < max; j++) {
       var l = links[j], t = norm(l.innerText);
@@ -96,5 +105,5 @@
       add(t, u, norm((l.closest('li, article, div') || l).innerText).slice(t.length, t.length + 300));
     }
   }
-  return out;
+  return { results: out, blocked: false };
 })
