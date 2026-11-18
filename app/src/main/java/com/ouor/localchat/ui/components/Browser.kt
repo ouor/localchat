@@ -51,6 +51,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -270,15 +273,20 @@ fun BrowserToolbar(
 
 /**
  * FB5 B2: the address edited where it is shown (no dialog): the whole URL, all selected; Go navigates, Back or leaving
- * the field cancels. Same text style as the shown address, so the bar keeps its size (P-STABLE).
+ * the field cancels. Same text style as the shown address, so the bar keeps its size (P-STABLE). The first Back closes
+ * the keyboard, not the app's handler, so a keyboard that closes also cancels: one Back ends the edit.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UrlEditor(url: String, onGo: (String) -> Unit, onCancel: () -> Unit, modifier: Modifier) {
     var value by remember { mutableStateOf(TextFieldValue(url, TextRange(0, url.length))) }
     val focus = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
     val desc = stringResource(R.string.ui_edit_url)
-    BackHandler(onBack = onCancel)
+    BackHandler(onBack = onCancel) // no soft keyboard (hardware keyboard)
+    val imeUp = WindowInsets.isImeVisible
+    var imeSeen by remember { mutableStateOf(false) }
+    LaunchedEffect(imeUp) { if (imeUp) imeSeen = true else if (imeSeen) onCancel() }
     BasicTextField(
         value, { value = it },
         modifier.focusRequester(focus).semantics { contentDescription = desc }
