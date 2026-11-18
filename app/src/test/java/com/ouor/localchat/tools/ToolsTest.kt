@@ -1,22 +1,23 @@
 package com.ouor.localchat.tools
 
-import android.view.KeyEvent
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
+import com.ouor.localchat.browser.safety.ElementInfo
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.Sourced
-import com.ouor.localchat.tools.browser.Keyboard
+import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.tools.browser.Browse
+import com.ouor.localchat.tools.browser.TypeRules
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -35,52 +36,33 @@ class ToolsTest {
     private fun names(caps: ModelCapabilities, search: Boolean, browser: Boolean) =
         ToolExposure.exposedTools(caps, search, browser).map { it.name }.toSet()
 
-    // --- exposure (architecture 6.3, plan 3.8.1)
+    // --- exposure (architecture 6.3, tools-redesign 5-1)
 
     @Test
-    fun `catalog has 21 uniquely named tools`() {
-        assertEquals(21, ToolCatalog.ALL.size)
-        assertEquals(21, ToolCatalog.ALL.map { it.name }.toSet().size)
+    fun `catalog has the 7 tools`() {
+        assertEquals(listOf("web_search", "read", "browse", "click", "type", "execute", "request_handoff"), ToolCatalog.ALL.map { it.name })
         assertEquals(ApprovalMode.ALWAYS, ToolCatalog.byName("execute")!!.approval)
+        assertNull(ToolCatalog.byName("page_text")) // an old chat's call is a plain step, never a tool
     }
 
     @Test
     fun `listed tools add the history's tools to the exposed ones, once each, known names only`() {
         // FB3 QA M1: browser used earlier, now only search is on.
         val exposed = ToolExposure.exposedTools(caps(), searchOn = true, browserOn = false)
-        val listed = ToolExposure.listedTools(exposed, listOf("click", "web_search", "click", "gone_tool"), caps())
+        val listed = ToolExposure.listedTools(exposed, listOf("click", "web_search", "click", "snapshot"), caps())
         assertEquals(exposed.map { it.name } + "click", listed.map { it.name })
-        assertEquals(listOf("navigate"), ToolExposure.listedTools(emptyList(), listOf("navigate"), caps()).map { it.name })
-        assertTrue(ToolExposure.listedTools(emptyList(), listOf("navigate"), caps(tools = false)).isEmpty())
+        assertEquals(listOf("browse"), ToolExposure.listedTools(emptyList(), listOf("browse", "navigate"), caps()).map { it.name })
+        assertTrue(ToolExposure.listedTools(emptyList(), listOf("browse"), caps(tools = false)).isEmpty())
     }
 
     @Test
-    fun `no tool calling means no tools`() {
+    fun `exposure per mode is 0, 2, 6 and 7, vision or not`() {
         assertTrue(names(caps(tools = false), search = true, browser = true).isEmpty())
-    }
-
-    @Test
-    fun `search and browser off means no tools, not even link reading`() {
         assertTrue(names(caps(), search = false, browser = false).isEmpty())
-    }
-
-    @Test
-    fun `search alone exposes the search bundle`() {
-        // Audit #11: navigate is browser-only; request_handoff stays for search-time CAPTCHAs.
-        assertEquals(
-            setOf("web_search", "open_tab", "page_text", "close_tab", "request_handoff"),
-            names(caps(), search = true, browser = false),
-        )
-    }
-
-    @Test
-    fun `browser exposes 20 tools, screenshot only with vision`() {
-        val noVision = names(caps(), search = false, browser = true)
-        assertEquals(19, noVision.size)
-        assertTrue("web_search" !in noVision && "screenshot" !in noVision)
-        val vision = names(caps(vision = true), search = false, browser = true)
-        assertEquals(noVision + "screenshot", vision)
-        assertEquals(21, names(caps(vision = true), search = true, browser = true).size)
+        assertEquals(setOf("web_search", "read"), names(caps(), search = true, browser = false))
+        assertEquals(setOf("read", "browse", "click", "type", "execute", "request_handoff"), names(caps(), search = false, browser = true))
+        assertEquals(7, names(caps(), search = true, browser = true).size)
+        assertEquals(7, names(caps(vision = true), search = true, browser = true).size)
     }
 
     // --- schema DSL and argument readers
@@ -89,68 +71,55 @@ class ToolsTest {
     fun `params builds an object schema with required list`() {
         val s = params {
             string("url", "u", required = true)
-            int("tabId", "t")
-            string("action", "a", enum = listOf("back"))
+            string("text", "t")
         }
         assertEquals("object", s["type"]!!.jsonPrimitive.content)
         assertEquals(listOf("url"), s["required"]!!.jsonArray.map { it.jsonPrimitive.content })
-        val props = s["properties"]!!.jsonObject
-        assertEquals("integer", props["tabId"]!!.jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("back", props["action"]!!.jsonObject["enum"]!!.jsonArray[0].jsonPrimitive.content)
+        assertEquals("string", s["properties"]!!.jsonObject["text"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertNull(params {}["required"])
     }
 
     @Test
-    fun `readers accept lenient values and reject wrong types`() {
-        val a = buildJsonObject {
-            put("n", "3"); put("f", 2.0); put("b", "true"); put("s", 5)
-            putJsonArray("l") { add(JsonPrimitive("x")) }
-            put("o", buildJsonObject { put("k", 1) })
-            put("bad", 2.5)
-        }
-        assertEquals(3, a.optInt("n"))
-        assertEquals(2, a.optInt("f"))
-        assertEquals(true, a.optBool("b"))
+    fun `string readers take unquoted values as text and reject objects`() {
+        val a = buildJsonObject { put("s", 5); put("o", buildJsonObject { put("k", 1) }); put("blank", " ") }
         assertEquals("5", a.optString("s"))
-        assertEquals(listOf("x"), a.optStringList("l"))
-        assertEquals(listOf("5"), a.optStringList("s"))
-        assertEquals(30_000, buildJsonObject { put("t", 99_999) }.optIntIn("t", 100..30_000))
-        assertNull(a.optInt("missing"))
-        expectToolError("must be an integer") { a.optInt("bad") }
+        assertNull(a.optString("missing"))
         expectToolError("single value") { a.optString("o") }
         expectToolError("Missing required argument 'x'") { a.string("x") }
-        expectToolError("true or false") { buildJsonObject { put("b", "yes") }.optBool("b") }
+        expectToolError("Missing required argument 'blank'") { a.string("blank") }
     }
 
     // --- tool argument errors happen before any browser access
 
-    private val noBrowser = object : ToolContext {
+    private fun context(exposed: Set<String>) = object : ToolContext {
         override val sessionId = "s1"
         override val browser: BrowserEngine get() = throw AssertionError("browser used")
-        override suspend fun aiTab(tabIdArg: Int?): BrowserTab = throw AssertionError("aiTab used")
+        override val contextWindow: Int? = null
+        override val vision = false
+        override val exposed = exposed
+        override suspend fun workTab(navigating: Boolean): BrowserTab = throw AssertionError("workTab used")
+        override suspend fun <T> hiddenTab(url: String, block: suspend (BrowserTab) -> T): T = throw AssertionError("hiddenTab used")
+        override fun status(s: ToolStatus?, engine: String?) = Unit
+        override val readCursors = HashMap<String, ReadCursor>()
         override suspend fun requireApproval(request: ApprovalRequest) = throw AssertionError("approval asked")
         override fun numberSource(url: String, title: String, snippet: String?) = 1
         override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = "id"
     }
 
-    private suspend fun runTool(name: String, args: JsonObject) = ToolCatalog.byName(name)!!.run(args, noBrowser)
+    private val noBrowser = context(ToolCatalog.ALL.map { it.name }.toSet())
+
+    private suspend fun runTool(name: String, args: JsonObject, ctx: ToolContext = noBrowser) = ToolCatalog.byName(name)!!.run(args, ctx)
 
     @Test
     fun `missing or invalid arguments are tool errors`() = runTest {
         val empty = JsonObject(emptyMap())
-        mapOf(
-            "click" to "target", "type" to "target", "hover" to "target", "select_option" to "target",
-            "wait_for_selector" to "target", "execute" to "code", "web_search" to "query", "open_tab" to "url",
-            "keyboard" to "key", "request_handoff" to "reason", "dialog_handle" to "accept",
-        ).forEach { (tool, arg) -> expectToolError("'$arg'", tool) { runTool(tool, empty) } }
-        expectToolError("'text'") { runTool("type", buildJsonObject { put("target", "e1") }) }
-        expectToolError("'values'") { runTool("select_option", buildJsonObject { put("target", "e1") }) }
-        expectToolError("Pass a url") { runTool("navigate", empty) }
-        expectToolError("Only http and https") { runTool("open_tab", buildJsonObject { put("url", "javascript:alert(1)") }) }
-        expectToolError("Only http and https") { runTool("navigate", buildJsonObject { put("url", "file:///sdcard/x") }) }
-        expectToolError("Unknown key") { runTool("keyboard", buildJsonObject { put("key", "Hyper+Q") }) }
-        expectToolError("direction must be") { runTool("scroll", buildJsonObject { put("direction", "sideways") }) }
-        expectToolError("state must be") { runTool("wait_for_selector", buildJsonObject { put("target", "a"); put("state", "gone") }) }
+        mapOf("click" to "ref", "type" to "ref", "execute" to "code", "web_search" to "query", "request_handoff" to "reason")
+            .forEach { (tool, arg) -> expectToolError("'$arg'", tool) { runTool(tool, empty) } }
+        expectToolError("'text'") { runTool("type", buildJsonObject { put("ref", "e1") }) }
+        expectToolError("Only http and https") { runTool("read", buildJsonObject { put("url", "javascript:alert(1)") }) }
+        expectToolError("Only http and https") { runTool("browse", buildJsonObject { put("url", "file:///sdcard/x") }) }
+        // Search only: read needs a url (one definition for both modes, tools-redesign R4).
+        expectToolError("Pass the url to read.") { runTool("read", empty, context(setOf("web_search", "read"))) }
     }
 
     @Test
@@ -162,19 +131,32 @@ class ToolsTest {
         }
     }
 
-    // --- keyboard spec
+    @Test
+    fun `browse tells URLs from search words like the address bar`() {
+        assertTrue(Browse.isUrl("example.com"))
+        assertTrue(Browse.isUrl("https://a.test/x?q=1"))
+        assertFalse(Browse.isUrl("kotlin coroutines"))
+        assertFalse(Browse.isUrl("what is 3.5 mm"))
+        assertFalse(Browse.isUrl("weather"))
+    }
+
+    // --- type's Enter (tools-redesign 3-5)
+
+    private fun input(type: String? = "text", role: String? = "textbox", nameAttr: String? = null, name: String? = null, placeholder: String? = null, search: Boolean = false) =
+        ElementInfo(tag = "input", role = role, type = type, nameAttr = nameAttr, name = name, placeholder = placeholder, search = search)
 
     @Test
-    fun `key specs parse to codes and meta`() {
-        assertEquals(KeyEvent.KEYCODE_ENTER to 0, Keyboard.parse("Enter"))
-        assertEquals(KeyEvent.KEYCODE_DPAD_DOWN to 0, Keyboard.parse("ArrowDown"))
-        assertEquals(KeyEvent.KEYCODE_A, Keyboard.parse("Control+a")!!.first)
-        assertTrue(Keyboard.parse("Ctrl+Shift+A")!!.second and KeyEvent.META_SHIFT_ON != 0)
-        assertEquals(KeyEvent.KEYCODE_F5 to 0, Keyboard.parse("F5"))
-        assertEquals(KeyEvent.KEYCODE_7 to 0, Keyboard.parse("7"))
-        assertNull(Keyboard.parse("Hyper+Q"))
-        assertNull(Keyboard.parse("F13"))
-        assertNull(Keyboard.parse(""))
+    fun `search boxes get Enter by themselves, other fields only with a trailing newline`() {
+        assertEquals("lamp" to true, TypeRules.enter(input(type = "search", role = "searchbox"), "lamp"))
+        assertEquals("lamp" to true, TypeRules.enter(input(role = "searchbox"), "lamp"))
+        assertEquals("lamp" to true, TypeRules.enter(input(search = true), "lamp"))
+        assertEquals("lamp" to true, TypeRules.enter(input(nameAttr = "q"), "lamp"))
+        assertEquals("lamp" to true, TypeRules.enter(input(placeholder = "상품 검색"), "lamp"))
+        assertEquals("lamp" to false, TypeRules.enter(input(role = "combobox", nameAttr = "q"), "lamp")) // Enter may pick a suggestion
+        assertEquals("Kim" to false, TypeRules.enter(input(name = "Name"), "Kim"))
+        assertEquals("hi" to true, TypeRules.enter(input(name = "Message"), "hi\n"))
+        assertEquals("a\nb\n" to false, TypeRules.enter(ElementInfo(tag = "textarea", role = "textbox"), "a\nb\n"))
+        assertEquals("x\n" to false, TypeRules.enter(ElementInfo(tag = "div", role = "textbox", nameAttr = "q"), "x\n")) // contenteditable
     }
 
     private inline fun expectToolError(fragment: String, context: String = "", block: () -> Unit) {

@@ -1,10 +1,14 @@
 package com.ouor.localchat.browser
 
 import com.ouor.localchat.browser.TabRules.AI_IDLE_MS
+import com.ouor.localchat.browser.TabRules.ReadyInput
+import com.ouor.localchat.browser.TabRules.ReadyStep
 import com.ouor.localchat.browser.script.CssRect
+import com.ouor.localchat.browser.script.PageMark
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TabRulesTest {
@@ -24,7 +28,7 @@ class TabRulesTest {
         val max = BrowserEngine.MAX_TABS
         assertNull(TabRules.limitError(hidden = false, visible = max - 1, hiddenOpen = 3)) // 3 prefetches never block the user
         assertNull(TabRules.limitError(hidden = true, visible = max, hiddenOpen = 0)) // a full panel never blocks a prefetch
-        assertEquals(true, TabRules.limitError(hidden = false, visible = max, hiddenOpen = 0)?.contains("close_tab"))
+        assertEquals(true, TabRules.limitError(hidden = false, visible = max, hiddenOpen = 0)?.contains("Ask the user to close some"))
         assertEquals(true, TabRules.limitError(hidden = true, visible = 0, hiddenOpen = TabRules.MAX_HIDDEN_TABS) != null)
     }
 
@@ -46,5 +50,101 @@ class TabRulesTest {
         assertEquals(true, TabRules.asksToTakeOver(Owner.Ai("A"), Control.AI))
         assertEquals(false, TabRules.asksToTakeOver(Owner.Ai("A"), Control.USER)) // handoff / already taken over
         assertEquals(false, TabRules.asksToTakeOver(Owner.User, Control.AI))
+    }
+
+    // --- page readiness (tools-redesign 2-1)
+
+    private fun mark(n: Int = 1, quiet: Long = 0, text: Int = 1000, state: String = "complete") = PageMark("d", n, quiet, text, state)
+
+    private fun input(
+        now: Long, settleStart: Long? = null, loading: Boolean = false, mark: PageMark? = mark(), settleN: Int? = null,
+        mainRequestAt: Long = 0, pageStartedAt: Long = 0, lastRequestAt: Long = 0, errorAt: Long? = null, downloadAt: Long? = null,
+        since: Long = 1_000, docStart: Long = since,
+    ) = ReadyInput(now, since, docStart, settleStart, loading, mark, settleN, mainRequestAt, pageStartedAt, lastRequestAt, errorAt, downloadAt)
+
+    @Test
+    fun `load phase waits for the response, then settles`() {
+        // Requested at 1100, no response yet (slow first byte, E2): the old document answers mark() as complete.
+        assertEquals(ReadyStep.Wait(TabRules.LOAD_POLL), TabRules.readyStep(input(2_000, mainRequestAt = 1_100, pageStartedAt = 500)))
+        // Response in, document interactive.
+        assertEquals(ReadyStep.Settle, TabRules.readyStep(input(2_000, loading = true, mark = mark(state = "interactive"), mainRequestAt = 1_100, pageStartedAt = 1_200)))
+        assertEquals(ReadyStep.Wait(TabRules.LOAD_POLL), TabRules.readyStep(input(2_000, loading = true, mark = mark(state = "loading"), mainRequestAt = 1_100, pageStartedAt = 1_200)))
+        // An action that loads nothing settles at once.
+        assertEquals(ReadyStep.Settle, TabRules.readyStep(input(1_100)))
+        assertEquals(ReadyStep.Done(Readiness.LOADING), TabRules.readyStep(input(1_000 + TabRules.LOAD_CAP, loading = true, mark = null)))
+    }
+
+    @Test
+    fun `settle phase is ready after a quiet window, with enough text or a change`() {
+        val s = 2_000L
+        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600), settleN = 1)))
+        // Quiet but sparse and unchanged (E7): wait for the page to draw itself.
+        assertTrue(TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1)) is ReadyStep.Wait)
+        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(n = 2, quiet = 600, text = 50), settleN = 1)))
+        // A request 100 ms ago keeps it busy.
+        assertEquals(ReadyStep.Wait(400), TabRules.readyStep(input(2_600, settleStart = s, mark = mark(quiet = 600), settleN = 1, lastRequestAt = 2_500)))
+        // At the cap: a short unchanged page is ready, a changing one is CHANGING.
+        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(s + TabRules.SETTLE_CAP, settleStart = s, mark = mark(quiet = 600, text = 50), settleN = 1)))
+        assertEquals(ReadyStep.Done(Readiness.CHANGING), TabRules.readyStep(input(s + TabRules.SETTLE_CAP, settleStart = s, mark = mark(n = 9, quiet = 10), settleN = 1)))
+        // A new document requested while settling (JS redirect) loads again.
+        assertEquals(ReadyStep.Restart, TabRules.readyStep(input(2_600, settleStart = s, mainRequestAt = 2_100, settleN = 1)))
+    }
+
+    @Test
+    fun `a main-frame error fails the wait, a refused download ends it, older ones count for nothing`() {
+        assertEquals(ReadyStep.Done(Readiness.FAILED), TabRules.readyStep(input(1_500, errorAt = 1_200)))
+        assertEquals(ReadyStep.Done(Readiness.READY), TabRules.readyStep(input(1_500, downloadAt = 1_200, loading = true, mark = null)))
+        assertEquals(ReadyStep.Settle, TabRules.readyStep(input(1_500, errorAt = 900, downloadAt = 900)))
+    }
+
+    // --- navigation errors (tools-redesign 2-2)
+
+    private fun net(desc: String) = NavError(0, "https://a.test/", false, -2, desc)
+    private fun http(code: Int) = NavError(0, "https://a.test/", true, code, "")
+
+    @Test
+    fun `only passing failures are retried, after their own delay`() {
+        assertEquals(1_500L, TabRules.netRetry(net("net::ERR_NAME_NOT_RESOLVED")))
+        assertEquals(1_500L, TabRules.netRetry(net("net::ERR_CONNECTION_RESET")))
+        assertNull(TabRules.netRetry(net("net::ERR_CERT_DATE_INVALID")))
+        assertEquals(2_000L, TabRules.netRetry(http(503)))
+        assertEquals(2_000L, TabRules.netRetry(http(429)))
+        assertNull(TabRules.netRetry(http(404)))
+    }
+
+    @Test
+    fun `error texts say what happened and whether to retry`() {
+        assertEquals("https://a.test/ answered HTTP 404 (not found). Do not retry this URL.", TabRules.navErrorText(http(404), false))
+        assertTrue(TabRules.navErrorText(http(403), false).contains("sign-in"))
+        assertTrue(TabRules.navErrorText(http(503), true).endsWith("already retried once."))
+        assertEquals(
+            "Could not open https://a.test/: the site's address was not found (net::ERR_NAME_NOT_RESOLVED). Already retried once; try again later or use another source.",
+            TabRules.navErrorText(net("net::ERR_NAME_NOT_RESOLVED"), true),
+        )
+        assertTrue(TabRules.navErrorText(net("net::ERR_CERT_AUTHORITY_INVALID"), false).contains("certificate"))
+    }
+
+    // --- read sizes (tools-redesign 3-2, 5-3)
+
+    @Test
+    fun `read part and budget follow the context window`() {
+        assertEquals(12_000, TabRules.readChunk(null))
+        assertEquals(4_000, TabRules.readChunk(8_000))
+        assertEquals(8_000, TabRules.readChunk(32_000))
+        assertEquals(20_000, TabRules.readChunk(200_000))
+        assertEquals(40_000, TabRules.readKeep(null))
+        assertEquals(4_000, TabRules.readKeep(4_000)) // never below one part
+        assertEquals(19_200, TabRules.readKeep(32_000))
+        assertEquals(40_000, TabRules.readKeep(1_000_000))
+    }
+
+    @Test
+    fun `parts are cut after a blank line when there is one`() {
+        assertEquals(listOf(""), TabRules.parts("", 10))
+        assertEquals(listOf("aaaa", "bbbb"), TabRules.parts("aaaa\n\nbbbb", 8))
+        assertEquals(listOf("abcde", "fgh"), TabRules.parts("abcdefgh", 5)) // no blank line: a hard cut
+        val text = (1..50).joinToString("\n\n") { "para $it" }
+        assertEquals(text.replace("\n", ""), TabRules.parts(text, 37).joinToString("") { it.replace("\n", "") })
+        assertTrue(TabRules.parts(text, 37).all { it.length <= 37 })
     }
 }

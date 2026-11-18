@@ -232,11 +232,21 @@ class ContextAssemblerTest {
     @Test
     fun `only older bulky results are trimmed`() {
         val big = "x".repeat(3000)
-        val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "snapshot", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
+        val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "execute", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
         val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
         val sent = msgs.map { it.content!!.jsonPrimitive.content }
         assertTrue(sent[0].contains("…[1000 characters omitted]…"))
         assertEquals(big, sent[1])
         assertEquals(big, sent[2])
+    }
+
+    @Test
+    fun `older element lists are sent as their head`() {
+        val list = "Page: A — https://a.test/\n\n- link \"x\" [ref=e1]"
+        val blocks = (0..1).flatMap { listOf(ToolCallBlock("c$it", "browse", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, list, false)) }
+        val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
+        val sent = msgs.map { it.content!!.jsonPrimitive.content }
+        assertEquals("Page: A — https://a.test/\n" + com.ouor.localchat.chat.context.ToolResultTrimmer.STALE, sent[0])
+        assertEquals(list, sent[1])
     }
 }

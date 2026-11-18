@@ -152,12 +152,12 @@ class FakeModelPort(var caps: ModelCapabilities = caps(), private val baseUrl: S
     override suspend fun markUsed(ref: ModelRef) { used += ref }
 }
 
-/** Same switch rule as ToolExposure (groups, tool calling, vision), over the given tools instead of the catalog. */
+/** Same switch rule as ToolExposure (groups, tool calling), over the given tools instead of the catalog. */
 class FakeToolPort(val tools: List<Tool>) : ToolPort {
     override fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool> {
         if (!caps.toolCalling.value) return emptyList()
         val on = buildSet { if (search) add(ToolGroup.SEARCH); if (browser) add(ToolGroup.BROWSER) }
-        return tools.filter { t -> t.groups.any(on::contains) && (!t.requiresVision || caps.imageInput.value) }
+        return tools.filter { t -> t.groups.any(on::contains) }
     }
     override fun byName(name: String) = tools.firstOrNull { it.name == name }
 }
@@ -165,15 +165,19 @@ class FakeToolPort(val tools: List<Tool>) : ToolPort {
 class FakeBrowserPort : BrowserPort {
     val controls = MutableStateFlow<Map<Int, Control>>(emptyMap())
     val setCalls = mutableListOf<Pair<Int, Control>>()
-    val aiTabCalls = mutableListOf<Int?>()
-    override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int = (tabIdArg ?: 1).also { aiTabCalls += tabIdArg }
+    /** The chat's work tab; null = none yet (only a navigating call creates one, as tab 1). */
+    var workTab: Int? = 1
+    /** Each acquireAiTab check: (tab id, navigating). */
+    val aiTabCalls = mutableListOf<Pair<Int, Boolean>>()
+    override suspend fun workTabId(sessionId: String): Int? = workTab
     override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
     /** B-09 ② marks set by acquireAiTab: tab id to tool name. */
     val activity = mutableListOf<Pair<Int, String>>()
-    /** Same contract as BrowserEngine.acquireAiTab: wait while USER, then check again. */
-    override suspend fun acquireAiTab(sessionId: String, tabIdArg: Int?, toolName: String, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int {
+    /** Same contract as BrowserEngine.acquireAiTab: only navigating creates the tab; wait while USER, then check again. */
+    override suspend fun acquireAiTab(sessionId: String, toolName: String, navigating: Boolean, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int {
         while (true) {
-            val id = aiTabId(sessionId, tabIdArg)
+            val id = workTab ?: if (navigating) 1.also { workTab = it } else throw com.ouor.localchat.browser.PageError(com.ouor.localchat.browser.BrowserEngine.NO_TAB)
+            aiTabCalls += id to navigating
             if (controls.value[id] != Control.USER) return id.also { activity += it to toolName }
             onUserControl(id)
             try {
@@ -195,7 +199,7 @@ class FakeBrowserPort : BrowserPort {
     var openError: Exception? = null
     /** Runs while the tab is being opened (after it exists): e.g. stops the run to test a cancel mid-open. */
     var whileOpening: suspend (sessionId: String) -> Unit = {}
-    override suspend fun openPrefetchTab(sessionId: String, url: String): Int {
+    override suspend fun openHiddenTab(sessionId: String, url: String): Int {
         openError?.let { throw it }
         opened += url
         val id = 40 + opened.size

@@ -71,4 +71,13 @@ class StepPolicyTest {
         val ignored = fresh.copy(noneIgnored = true)
         assertEquals(true, ignored.afterCalls(false, ignored.off()).noneIgnored)
     }
+
+    @Test
+    fun `steps left before the step-limit question`() {
+        assertEquals(24, StepPolicy.stepsLeft(1, 25))
+        assertEquals(1, StepPolicy.stepsLeft(24, 25))
+        assertEquals(0, StepPolicy.stepsLeft(25, 25)) // the question comes now
+        assertEquals(24, StepPolicy.stepsLeft(26, 25)) // after a "continue"
+        assertEquals(0, StepPolicy.stepsLeft(3, 0))
+    }
 }

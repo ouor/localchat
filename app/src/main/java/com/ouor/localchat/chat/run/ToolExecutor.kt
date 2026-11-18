@@ -271,6 +271,8 @@ class ToolExecutor(
             HANDOFF_CLOSED
         } catch (e: PageError) {
             seal("The user gave the tab back. Its page could not be listed: ${e.message}", tabId)
+        } catch (_: Exception) {
+            seal("The user gave the tab back. Its page could not be listed; call browse() to see it.", tabId)
         }
     }
 

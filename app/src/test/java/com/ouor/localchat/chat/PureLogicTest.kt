@@ -30,14 +30,35 @@ class PureLogicTest {
     @Test
     fun `system prompt always marks page text untrusted and, with tools, defers sensitive sites to the engine (SE 10, SE 28, FB2 arch M1)`() {
         val zone = java.time.ZoneId.of("UTC")
-        val plain = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools = false)
-        val tools = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools = true)
+        val plain = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools = emptySet())
+        val tools = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools = setOf("web_search", "read"))
         assertTrue(plain.contains("untrusted_page_content"))
+        assertFalse(plain.contains("Tool use"))
         // The built-in list can be off, so no fixed "closed" claim; only how to react to the engine's refusal.
         assertFalse(tools.contains("closed to you"))
         assertTrue(tools.contains("a site ${com.ouor.localchat.browser.safety.SensitiveUrls.REFUSAL}, do not try that site again"))
         assertTrue(tools.contains("tell the user what it asks before doing it"))
     }
+
+    @Test
+    fun `system prompt guides only the exposed tools, and says when the chat already has a tab (tools-redesign 5-2)`() {
+        val zone = java.time.ZoneId.of("UTC")
+        fun build(tools: Set<String>, tab: Boolean = false) = com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", tools, tab)
+        val search = build(setOf("web_search", "read"))
+        assertTrue(search.contains("web_search, then read the 2-3 best results"))
+        assertFalse(search.contains("browse") || search.contains("request_handoff"))
+        val browser = build(setOf("read", "browse", "click", "type", "execute", "request_handoff"))
+        assertFalse(browser.contains("web_search"))
+        assertTrue(browser.contains("To use a site: browse"))
+        assertTrue(browser.contains("call request_handoff"))
+        assertFalse(browser.contains("already open"))
+        val both = build(ToolCatalogNames, tab = true)
+        assertTrue(both.contains("web_search, then read") && both.contains("Your browser tab is already open; call browse() without url"))
+        assertFalse(build(setOf("web_search", "read"), tab = true).contains("already open")) // no browse, no tab line
+        assertFalse(both.contains("execute")) // moved into the tool's description
+    }
+
+    private val ToolCatalogNames = com.ouor.localchat.tools.ToolCatalog.ALL.map { it.name }.toSet()
 
     private val empty = MessageBody.Assistant(emptyList(), ReplyStatus.STREAMING, model = null, options = GenOptions())
 
@@ -75,16 +96,48 @@ class PureLogicTest {
     }
 
     @Test
-    fun `trimmer keeps short and latest results`() {
+    fun `trimmer cuts long results to head and tail`() {
         assertEquals("short", ToolResultTrimmer.cut("short"))
         val cut = ToolResultTrimmer.cut("a".repeat(1500) + "b".repeat(1000) + "c".repeat(500))
         assertEquals("a".repeat(1500) + "…[1000 characters omitted]…" + "c".repeat(500), cut)
-        val big = "z".repeat(2500)
-        val out = ToolResultTrimmer.trim(listOf(Triple("1", "page_text", big), Triple("2", "open_tab", big), Triple("3", "execute", big), Triple("4", "snapshot", big)))
-        assertTrue(out.getValue("1").length < big.length)
-        assertEquals(big, out["2"])
-        assertEquals(big, out["3"])
-        assertEquals(big, out["4"])
+    }
+
+    @Test
+    fun `only the newest element list is sent whole, older ones keep their head inside the boundary (tools-redesign 5-3)`() {
+        fun wrapped(head: String, list: String) = com.ouor.localchat.chat.context.Untrusted.wrap("$head\n\n$list")
+        val older = wrapped("Clicked link \"A\" → new page.\nPage: A — https://a.test/", "- link \"x\" [ref=e1]")
+        val newest = wrapped("Page: B — https://b.test/", "- button \"y\" [ref=e9]")
+        val withNote = older + "\n\n[App note: 2 step(s) left before the user is asked whether to continue. Answer soon if you can.]"
+        val out = ToolResultTrimmer.trim(listOf(Triple("1", "browse", older), Triple("2", "click", withNote), Triple("3", "type", newest), Triple("4", "web_search", "r")))
+        assertEquals(
+            "<untrusted_page_content>\nClicked link \"A\" → new page.\nPage: A — https://a.test/\n${ToolResultTrimmer.STALE}\n</untrusted_page_content>",
+            out["1"],
+        )
+        assertTrue(out.getValue("2").endsWith("Answer soon if you can.]")) // the app note stays
+        assertFalse(out.getValue("2").contains("[ref=e1]"))
+        assertEquals(newest, out["3"])
+        assertEquals("r", out["4"])
+        // An old chat's tool names get no rule.
+        val big = "z".repeat(5000)
+        assertEquals(big, ToolResultTrimmer.trim(listOf(Triple("1", "page_text", big), Triple("2", "snapshot", big)))["1"])
+    }
+
+    @Test
+    fun `read results stay whole within the read budget of the window, the newest always`() {
+        val part = "r".repeat(12_000)
+        val reads = (1..5).map { Triple("$it", "read", part) }
+        // Unknown window: 40,000 characters, so the newest 3 whole.
+        val out = ToolResultTrimmer.trim(reads)
+        assertEquals(listOf(false, false, true, true, true), reads.map { out[it.first] == part })
+        // A small window: only the newest.
+        val small = ToolResultTrimmer.trim(reads, contextWindow = 8_000)
+        assertEquals(listOf(false, false, false, false, true), reads.map { small[it.first] == part })
+        val huge = "h".repeat(60_000)
+        assertEquals(huge, ToolResultTrimmer.trim(listOf(Triple("1", "read", huge)))["1"])
+        // execute: the newest two.
+        val ex = (1..3).map { Triple("$it", "execute", part) }
+        val exOut = ToolResultTrimmer.trim(ex)
+        assertEquals(listOf(false, true, true), ex.map { exOut[it.first] == part })
     }
 
     @Test
