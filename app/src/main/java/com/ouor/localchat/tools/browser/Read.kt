@@ -57,9 +57,7 @@ object Read : Tool {
                 since = o.since
                 retried = o.retried
                 readiness = o.readiness
-                tab.downloadsSince(o.since).lastOrNull()?.let { d ->
-                    return@onMain ToolOutcome(lead = d.describe() + " Its text cannot be read in this app.", isError = true, summary = d.fileName)
-                }
+                tab.downloadsSince(o.since).lastOrNull()?.let { d -> return@onMain ctx.fileResult(tab, d, isError = true) }
                 if (readiness == Readiness.FAILED) {
                     val err = tab.navError(o.since)
                     return@onMain ToolOutcome(lead = err?.let { TabRules.navErrorText(it, retried) } ?: "Could not open $url.", isError = true)
@@ -93,7 +91,8 @@ object Read : Tool {
                 summary = "$title (${plan.index + 1}/${plan.count})",
                 sources = listOf(Source(n, t.url, title, siteName = WebSearch.hostOf(t.url))),
                 note = if (plan.index + 1 < plan.count) "[more: read() continues with part ${plan.index + 2} of ${plan.count}]" else "",
-                isError = err?.http == true,
+                // QA B9: an HTTP error page whose text was read is not a failed read; the mark says both.
+                isError = err?.http == true && t.text.isBlank(),
             )
         }
     }
@@ -108,11 +107,14 @@ object Read : Tool {
         val marks = listOfNotNull(
             "(the page asks to sign in)".takeIf { "login" in t.flags },
             "(blocked by a bot check)".takeIf { "bot" in t.flags },
-            err?.takeIf { it.http }?.let { "(HTTP ${it.code}${it.desc.takeIf(String::isNotBlank)?.let { d -> " $d" }.orEmpty()})" },
+            err?.takeIf { it.http }?.let {
+                "(HTTP ${it.code}${it.desc.takeIf(String::isNotBlank)?.let { d -> " $d" }.orEmpty()}" +
+                    (if (t.text.isBlank()) "" else ", yet ${t.text.length} characters of text were read") + ")"
+            },
             "(page still changing; text may be incomplete)".takeIf { r == Readiness.CHANGING },
             "(still loading after ${TabRules.LOAD_CAP / 1000} s)".takeIf { r == Readiness.LOADING },
         )
-        val blocked = "login" in t.flags || "bot" in t.flags || err?.http == true
+        val blocked = "login" in t.flags || "bot" in t.flags || (err?.http == true && t.text.isBlank())
         return marks.joinToString(" ") + if (blocked) " To get past it, ask_user can let the user do it, or pick another source." else ""
     }
 }

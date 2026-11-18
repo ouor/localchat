@@ -119,8 +119,10 @@ class PageReadyTest : ToolFlowBase() {
 
     @Test
     fun e4_a503ThatStaysIsReportedAfterOneRetry() {
-        val (down, _) = run("read", """{"url":"${url("/down")}"}""")
-        assertTrue(down, "HTTP 503" in down)
+        val (down, state) = run("read", """{"url":"${url("/down")}"}""")
+        // QA B9: the error page's text was read, so the read did not fail; the mark says both.
+        assertTrue(down, "HTTP 503" in down && ", yet 4 characters of text were read)" in down)
+        assertEquals(down, ToolCallState.DONE, state)
         assertEquals(2, pageHits.count { it == "/down" })
     }
 
