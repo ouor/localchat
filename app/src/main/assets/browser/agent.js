@@ -475,6 +475,7 @@
     if (ex === 'true' || ex === 'false') s += ' [expanded=' + ex + ']';
     if (el.getAttribute('aria-selected') === 'true') s += ' [selected]';
     if (el.getAttribute('aria-pressed') === 'true') s += ' [pressed]';
+    if (role === 'link' && el.hasAttribute('download')) s += ' [download]';
     var tabindex = el.getAttribute('tabindex'), box = scrollBox(el);
     if (box) s += ' [scrollable]';
     if (isSecret(el)) s += ' [secret]';

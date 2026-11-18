@@ -93,9 +93,11 @@ class ToolFlowE2eTest : ToolFlowBase() {
         )
         val reply = awaitEnd(send("files"), 120_000)
         val t = reply.results().map { it.modelText }
-        t.forEachIndexed { i, x -> android.util.Log.i("LIVE", "$i: ${x.take(600)}") }
+        t.forEachIndexed { i, x -> x.chunked(3000).forEach { android.util.Log.i("LIVE", "$i: $it") } }
         assertTrue(t[0], Regex("""saved to Downloads as dummy.*\.pdf\. Its text cannot be read in this app\. Tab \d+ only downloaded it and was closed\.""").containsMatchIn(t[0]))
-        assertTrue(t[2], "This is a file" in t[2])
+        assertTrue(t[1], "link \"sample4.csv\" [download]" in t[1])
+        // The site's ad script sometimes takes the first click on a link for a full-page ad (#google_vignette).
+        assertTrue(t[2], "This is a file" in t[2] || ("page updated" in t[2] && "#google_vignette" in t[2]))
         assertEquals("the page's tab stays", ToolCallState.DONE, reply.calls()[3].state)
     }
 
