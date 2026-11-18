@@ -181,6 +181,15 @@ class CookieMaskPolicyTest {
         assertSame(r, CookieMaskPolicy().after(call(), facts(tab(1, "https://c.example/")), r))
         assertEquals("""{"v":"[cookie hidden by the app]"}""", CookieMaskPolicy.mask("""{"v":"abc\\def1"}""", "t=abc\\def1"))
     }
+
+    /** QA B4: a cookie holding the page's own address does not hide that address. */
+    @Test fun `a value that is part of the call's addresses is not hidden`() {
+        val u = "https://www.bmj.com/content/389/bmj-2024-082007"
+        val cookies = mapOf(u to "last=www.bmj.com%2Fcontent%2F389%2Fbmj-2024-082007; sid=abcdef123456")
+        val r = ToolOutcome(page = "Page: The BMJ - $u (tab 5) abcdef123456")
+        val out = CookieMaskPolicy().after(call(), facts(tab(5, u), listOf(u), cookies::get), r)
+        assertEquals("Page: The BMJ - $u (tab 5) [cookie hidden by the app]", out.page)
+    }
 }
 
 class RepeatFailurePolicyTest {
