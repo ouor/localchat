@@ -115,6 +115,7 @@ class ChatScreenTest {
 
     private val browser = object : BrowserActions {
         override fun setPanel(p: PanelState) {}
+        override fun keyboard(up: Boolean) {}
         override fun select(id: Int) {}
         override fun showTabs(v: Boolean) {}
         override fun close(id: Int) {}
@@ -735,6 +736,8 @@ class ChatScreenTest {
         assertEquals(androidx.compose.ui.text.TextRange(8), field.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange])
         val save = rule.onNodeWithText(ctx.getString(R.string.ui_save_send))
         save.assertIsNotEnabled()
+        Thread.sleep(1000) // the keyboard the edit opens moves the editor (keyboard exception): measure once it is up
+        rule.waitForIdle()
         val slot = save.fetchSemanticsNode().boundsInRoot
         field.performTextInput("!")
         save.assertIsEnabled()

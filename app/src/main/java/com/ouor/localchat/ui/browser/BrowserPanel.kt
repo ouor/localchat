@@ -40,6 +40,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
+import android.view.View
+import android.view.ViewTreeObserver
+import android.webkit.WebView
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.drop
@@ -99,12 +103,13 @@ import com.ouor.localchat.ui.components.OwnershipBar
 import com.ouor.localchat.ui.components.TabCard
 import com.ouor.localchat.ui.components.TabGrid
 import com.ouor.localchat.ui.components.TabOwner
-import com.ouor.localchat.ui.components.TextFieldKind
 import com.ouor.localchat.ui.theme.LcTheme
 
 /** Callbacks of the browser panel; [BrowserViewModel] implements all of them (pure-state screen, architecture 11). */
 interface BrowserActions {
     fun setPanel(p: PanelState)
+    /** FB5 B1: the keyboard opened ([up]) for the panel, or closed (see [BrowserUiState.keyboard]). */
+    fun keyboard(up: Boolean)
     fun select(id: Int)
     fun showTabs(v: Boolean)
     fun close(id: Int)
@@ -208,11 +213,11 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
         // "Settled" allows 1px so an offset an ulp off its anchor never leaves the WebView taller than the screen.
         val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { abs(state.offset - it) < 1f } ?: 0f } }
         if (shown) Box(Modifier.fillMaxSize()) {
-            var editing by remember { mutableStateOf(false) }
             val drag = remember { MutableInteractionSource() }
-            // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows), so a focused page
-            // field and the panel's controls stay above it; it settles back when the keyboard closes (P-STABLE keyboard
-            // exception). The rise is that of the anchor the panel last settled on, so a drag follows the finger from the
+            // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows) and settles back when
+            // it closes (P-STABLE keyboard exception). Since FB5 B1 a keyboard for the panel makes it Full, where the rise
+            // is 0, so the rise now only carries the move to Full seamlessly and lifts a Half panel over a keyboard that is
+            // not the panel's; it stays because without it a Half page would again be laid out 0px tall (QA F6). The rise is that of the anchor the panel last settled on, so a drag follows the finger from the
             // first pixel: from Half it was already risen (FB4 fix M1), from Full it rises nothing (QA F4, no dead zone).
             // Leaving Full with the keyboard up closes the keyboard, so landing on Half adds no rise (no jump). Height and
             // bottom padding follow the keyboard's target, not its animation, so the page resizes once per open/close (m2).
@@ -222,6 +227,24 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             val imeTarget = WindowInsets.imeAnimationTarget
             val settledAt by remember { derivedStateOf { state.anchors.positionOf(state.settledValue) } }
             val view = LocalView.current
+            // FB5 B1: a keyboard for the panel (a page field or the address) makes it Full; when the keyboard closes the
+            // panel goes back to the height the user had (P-STABLE keyboard exception). The height to go back to is VM
+            // state ([BrowserUiState.keyboard]), so a rotation keeps it and a height set meanwhile (handoff, drag) wins.
+            val keyboardUp = imeTarget.getBottom(LocalDensity.current) > 0
+            // Two focus sources: the address field is Compose focus (onFocusChanged below); the page is the WebView's
+            // Android focus, watched on the view tree so a focus that arrives after the keyboard is seen too.
+            var panelFocus by remember { mutableStateOf(false) }
+            var pageFocus by remember { mutableStateOf(false) }
+            DisposableEffect(view) {
+                val watch = ViewTreeObserver.OnGlobalFocusChangeListener { _, now -> pageFocus = now is WebView }
+                view.viewTreeObserver.addOnGlobalFocusChangeListener(watch)
+                pageFocus = view.rootView.findFocus() is WebView
+                onDispose { view.viewTreeObserver.removeOnGlobalFocusChangeListener(watch) }
+            }
+            val forPanel = panelFocus || pageFocus
+            LaunchedEffect(keyboardUp, forPanel) {
+                if (!keyboardUp) actions.keyboard(false) else if (forPanel) actions.keyboard(true)
+            }
             LaunchedEffect(state) {
                 snapshotFlow { state.settledValue == PanelState.Full && state.offset > 1f }.collect { leaving ->
                     if (leaving) ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime())
@@ -239,6 +262,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                     // QA O5: the panel is a hit target over its whole area, so a tap on a gap (banner, handle row) never
                     // reaches the chat behind it; it consumes nothing, so its children keep their own gestures.
                     .pointerInput(Unit) {}
+                    .onFocusChanged { panelFocus = it.hasFocus }
                     .windowInsetsPadding(WindowInsets.navigationBars.union(imeTarget)),
             ) {
                 BrowserPanelFrame(
@@ -254,7 +278,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                             BrowserToolbar(
                                 t.shortUrl(), s.tabs.size, onCollapse = null,
                                 onBack = actions::back, onForward = actions::forward, onReload = actions::reload,
-                                onUrlClick = { if (t.owner is Owner.User || t.control == Control.USER) editing = true },
+                                onNavigate = if (t.owner is Owner.User || t.control == Control.USER) actions::navigate else null, fullUrl = t.url,
                                 onTabs = { actions.showTabs(true) },
                                 secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
                                 progress = if (t.loading) 0.5f else null,
@@ -289,12 +313,6 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                 stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
                 icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
             )
-            if (editing) {
-                var text by remember { mutableStateOf(t.url) }
-                LcDialog(stringResource(R.string.ui_edit_url), { editing = false }, stringResource(R.string.ui_ok), { actions.navigate(text); editing = false }) {
-                    LcTextField(text, { text = it }, kind = TextFieldKind.Url)
-                }
-            }
         }
     }
     if (s.showTabs) TabsSheet(s, actions)
@@ -342,7 +360,19 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
         androidx.compose.runtime.key(tabId) {
             val view = remember(tabId) { actions.webView(tabId) }
-            if (view != null) AndroidView(factory = { view }, Modifier.fillMaxSize(), onRelease = { actions.park(tabId) })
+            if (view != null) AndroidView(
+                factory = {
+                    // FB5 B4: a new WebView's first draws blanked the whole window, not just the page (devphone02 trace +
+                    // recording: black for 130-380ms on a new tab). Drawn into a layer until its page shows, it stays inside.
+                    view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    view.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
+                        override fun onComplete(requestId: Long) = view.setLayerType(View.LAYER_TYPE_NONE, null)
+                    })
+                    view
+                },
+                Modifier.fillMaxSize(),
+                onRelease = { view.setLayerType(View.LAYER_TYPE_NONE, null); actions.park(tabId) },
+            )
             else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
             // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
             // page shrinks; the panel may shrink first. Once the page has its keyboard-time height, bring the focused

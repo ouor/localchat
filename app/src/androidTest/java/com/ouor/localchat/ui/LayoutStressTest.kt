@@ -124,7 +124,7 @@ class LayoutStressTest {
     @Test fun chromeKeepsControlsOnScreen() {
         stress {
             LcTopBar(title100, subtitle = provider40, actions = { LcIconButton(Icons.Rounded.MoreVert, "more", {}) })
-            BrowserToolbar("https://www.example.com/" + "very-long-path-segment/".repeat(8), 3, null, {}, {}, {}, {}, {})
+            BrowserToolbar("https://www.example.com/" + "very-long-path-segment/".repeat(8), 3, null, {}, {}, {}, null, "https://www.example.com/" + "very-long-path-segment/".repeat(8), {})
             ComposerRail(
                 start = { ModelChip(provider40, model80, Color.Red, {}, Modifier.weight(1f, fill = false)) },
                 end = { ContextGauge(null, {}, tokensText = ctx.getString(R.string.ui_tokens, "31.6k")) },

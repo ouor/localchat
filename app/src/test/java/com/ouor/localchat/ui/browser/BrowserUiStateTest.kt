@@ -57,4 +57,26 @@ class BrowserUiStateTest {
         val userDownload = download.copy(tabId = 1)
         assertEquals(userDownload, BrowserUiState().merge(listOf(user), emptyMap(), null, listOf(download, userDownload)).prompt)
     }
+
+    // FB5 B1 (review ui M2 / arch M1): the keyboard's return height is ViewModel state, and a height set meanwhile wins.
+    @Test fun `a keyboard for the panel goes Full and back to the user's height`() {
+        val up = BrowserUiState(panel = PanelState.Half).keyboard(true)
+        assertEquals(PanelState.Full, up.panel)
+        assertEquals(PanelState.Half, up.keyboard(false).panel)
+        assertNull(up.keyboard(false).keyboardFrom)
+    }
+
+    @Test fun `a keyboard at Full remembers nothing`() {
+        assertEquals(PanelState.Full, BrowserUiState(panel = PanelState.Full).keyboard(true).keyboard(false).panel)
+    }
+
+    @Test fun `a handoff while the keyboard is up keeps Full`() {
+        val s = BrowserUiState(panel = PanelState.Half).keyboard(true).withPanel(PanelState.Full)
+        assertEquals(PanelState.Full, s.keyboard(false).panel)
+    }
+
+    @Test fun `a height the user drops the panel at wins`() {
+        val s = BrowserUiState(panel = PanelState.Half).keyboard(true).withPanel(PanelState.Peek)
+        assertEquals(PanelState.Peek, s.keyboard(false).panel)
+    }
 }

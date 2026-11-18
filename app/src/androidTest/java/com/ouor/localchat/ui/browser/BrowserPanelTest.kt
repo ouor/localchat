@@ -52,7 +52,8 @@ class BrowserPanelTest {
     private var page: WebView? = null
 
     private val actions = object : BrowserActions {
-        override fun setPanel(p: PanelState) { panels += p; s = s.copy(panel = p) }
+        override fun setPanel(p: PanelState) { panels += p; s = s.withPanel(p) }
+        override fun keyboard(up: Boolean) { s = s.keyboard(up) }
         override fun select(id: Int) {}
         override fun showTabs(v: Boolean) {}
         override fun close(id: Int) {}
