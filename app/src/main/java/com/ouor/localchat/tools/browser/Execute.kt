@@ -42,7 +42,8 @@ object Execute : Tool {
             ctx.ready(tab, now())
             var result = ""
             val acted = ctx.act(tab) { result = PageScript.execute(tab, code, TIMEOUT_MS) }
-            val res = "Result: $result"
+            // QA B8: statements without a return give undefined; say so rather than leave a bare word.
+            val res = if (result == "undefined") "Result: undefined (the code returned no value)" else "Result: $result"
             if (acted.change == Change.NEW_PAGE || acted.change == Change.FAILED) {
                 return@onMain ctx.actionResult(tab, "Ran the code", acted, result.take(100), top = res)
             }
