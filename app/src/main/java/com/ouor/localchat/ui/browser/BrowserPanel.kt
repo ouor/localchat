@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.onFocusChanged
+import android.view.View
 import android.view.ViewTreeObserver
 import android.webkit.WebView
 import androidx.compose.ui.unit.Constraints
@@ -359,7 +360,19 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
         androidx.compose.runtime.key(tabId) {
             val view = remember(tabId) { actions.webView(tabId) }
-            if (view != null) AndroidView(factory = { view }, Modifier.fillMaxSize(), onRelease = { actions.park(tabId) })
+            if (view != null) AndroidView(
+                factory = {
+                    // FB5 B4: a new WebView's first draws blanked the whole window, not just the page (devphone02 trace +
+                    // recording: black for 130-380ms on a new tab). Drawn into a layer until its page shows, it stays inside.
+                    view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    view.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
+                        override fun onComplete(requestId: Long) = view.setLayerType(View.LAYER_TYPE_NONE, null)
+                    })
+                    view
+                },
+                Modifier.fillMaxSize(),
+                onRelease = { view.setLayerType(View.LAYER_TYPE_NONE, null); actions.park(tabId) },
+            )
             else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
             // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
             // page shrinks; the panel may shrink first. Once the page has its keyboard-time height, bring the focused
