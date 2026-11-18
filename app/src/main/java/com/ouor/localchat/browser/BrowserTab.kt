@@ -96,6 +96,12 @@ class BrowserTab internal constructor(
     @Volatile private var committedAt = 0L
     private val navErrors = ArrayDeque<NavError>()
 
+    /**
+     * The document an app load replaced, and when: its late start/commit/finish events (a new tab's about:blank, an
+     * aborted page's onPageFinished) are not the answer to the load. Cleared by the first event of another URL. Main.
+     */
+    private var superseded: Pair<Long, String>? = null
+
     /** Main-frame request URLs (uptime, url), redirects included, newest last; any thread. */
     private val mainRequests = ArrayDeque<Pair<Long, String>>()
 
@@ -147,13 +153,14 @@ class BrowserTab internal constructor(
 
     fun load(target: String) {
         mainRequestAt.set(SystemClock.uptimeMillis())
+        superseded = (mainRequestAt.get() to url).takeIf { url != target }
         markLoading(target)
         webView.loadUrl(target)
     }
 
-    fun goBack() { if (webView.canGoBack()) { _loading.value = true; webView.goBack() } }
-    fun goForward() { if (webView.canGoForward()) { _loading.value = true; webView.goForward() } }
-    fun reload() { _loading.value = true; webView.reload() }
+    fun goBack() { if (webView.canGoBack()) { superseded = null; _loading.value = true; webView.goBack() } }
+    fun goForward() { if (webView.canGoForward()) { superseded = null; _loading.value = true; webView.goForward() } }
+    fun reload() { superseded = null; _loading.value = true; webView.reload() }
 
     /** Set before loadUrl so a waiter never sees the previous page's "loaded" state. */
     private fun markLoading(target: String) {
@@ -174,6 +181,14 @@ class BrowserTab internal constructor(
     /** Main-frame URLs requested at or after [since] (uptime), redirects included. Any thread. */
     fun mainRequestsSince(since: Long): List<String> =
         synchronized(mainRequests) { mainRequests.filter { it.first >= since }.map { it.second } }
+
+    /** An event of the document [load] replaced, unless that URL was requested again since (a redirect back to it). */
+    private fun stale(eventUrl: String): Boolean {
+        val (at, old) = superseded ?: return false
+        if (eventUrl == old && mainRequestsSince(at).none { it == eventUrl }) return true
+        superseded = null
+        return false
+    }
 
     private fun requested(url: String) {
         val now = SystemClock.uptimeMillis()
@@ -396,6 +411,7 @@ class BrowserTab internal constructor(
 
     private inner class Client : WebViewClient() {
         override fun onPageStarted(view: WebView, startUrl: String, favicon: Bitmap?) {
+            if (stale(startUrl)) return
             pageStartedAt = SystemClock.uptimeMillis()
             requested(startUrl)
             _loading.value = true
@@ -404,6 +420,7 @@ class BrowserTab internal constructor(
         }
 
         override fun onPageFinished(view: WebView, finishedUrl: String) {
+            if (stale(finishedUrl)) return
             committedAt = SystemClock.uptimeMillis()
             url = view.url ?: finishedUrl
             title = view.title.orEmpty()
@@ -413,6 +430,7 @@ class BrowserTab internal constructor(
         }
 
         override fun doUpdateVisitedHistory(view: WebView, newUrl: String, isReload: Boolean) {
+            if (stale(newUrl)) return
             committedAt = SystemClock.uptimeMillis()
             url = newUrl
             events.onChanged(this@BrowserTab)
