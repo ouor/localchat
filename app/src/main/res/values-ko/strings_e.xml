@@ -2,8 +2,6 @@
 <!-- Track E (ui.theme, ui.components, ui.markdown) -->
 <resources>
     <string name="ui_ai">AI</string>
-    <string name="ui_ai_tab_idle">대기 중</string>
-    <string name="ui_ai_operating">조작 중</string>
     <string name="ui_allow">허용</string>
     <string name="ui_attach">첨부</string>
     <string name="ui_attachment_desc">첨부 파일 %1$s</string>
@@ -65,13 +63,9 @@
     <string name="ui_expand">펼치기</string>
     <string name="ui_forward">앞으로</string>
     <string name="ui_gauge_desc">컨텍스트 사용량 %1$s</string>
-    <string name="ui_give_back_to_ai">AI에게 돌려주기</string>
-    <string name="ui_give_to_ai">AI에게 맡기기</string>
     <string name="ui_hide">숨기기</string>
     <string name="ui_increase">늘리기</string>
     <string name="ui_insecure">보안되지 않은 연결(http)</string>
-    <string name="ui_manual_ai_waiting">직접 조작 중 · AI 대기</string>
-    <string name="ui_me">나</string>
     <string name="ui_model_missing">모델 없음</string>
     <string name="ui_more">더 보기</string>
     <string name="ui_next_version">다음 버전</string>
@@ -107,10 +101,8 @@
     <string name="ui_stop">중지</string>
     <string name="ui_read_aloud_unavailable">이 기기에서는 소리 내어 읽기를 쓸 수 없어요</string>
     <string name="ui_stop_reading">읽기 중지</string>
-    <string name="ui_stop_task">작업 중지</string>
     <string name="ui_summarize_now">지금 요약</string>
     <string name="ui_tabs_desc">탭 %1$d개</string>
-    <string name="ui_take_over">직접 조작</string>
     <string name="ui_thinking">생각 중</string>
     <string name="ui_thinking_stopped">생각 중지됨</string>
     <string name="ui_thought_for">%1$s 동안 생각함</string>
@@ -163,9 +155,6 @@
     <string name="ui_tokens">%1$s 토큰</string>
     <string name="ui_off">끔</string>
     <string name="ui_default">기본</string>
-    <string name="ui_approval_title">%1$s 동작을 허용할까요?</string>
-    <string name="ui_approval_body">되돌릴 수 없는 동작일 수 있어요.</string>
-    <string name="ui_approval_code">페이지에서 코드를 실행해요.</string>
     <string name="ui_search_chats">대화 제목 검색</string>
     <string name="ui_search_results">검색 결과 %1$d</string>
     <string name="ui_settings">설정</string>
@@ -306,15 +295,11 @@
     <string name="ui_key_host_title">기존 키를 새 주소(호스트)로 보낼까요?</string>
     <string name="ui_key_host_send">보내기</string>
     <string name="ui_key_host_reenter">키 다시 입력</string>
-    <string name="ui_tab_n">탭 %1$d</string>
     <string name="ui_sensitive_site">민감 사이트예요. AI는 이 페이지를 읽거나 조작할 수 없어요.</string>
-    <string name="ui_handoff_body">AI가 기다리는 중이에요. 마치면 돌려주세요. 비밀번호는 AI가 볼 수 없어요.</string>
     <string name="ui_download_title">이 파일을 다운로드할까요?</string>
     <string name="ui_download_body">%1$s (%2$s)을 다운로드 폴더에 저장해요.</string>
     <string name="ui_permission_title">사이트 권한을 허용할까요?</string>
     <string name="ui_permission_body">%1$s에서 사용하려고 해요: %2$s</string>
-    <string name="ui_switch">전환</string>
-    <string name="ui_switch_manual">직접 조작으로 전환할까요? AI는 이 탭에서 기다려요.</string>
     <string name="ui_ok">확인</string>
     <string name="ui_edit_url">검색어 또는 주소 입력</string>
     <string name="ui_tabs_title">탭 %1$d</string>

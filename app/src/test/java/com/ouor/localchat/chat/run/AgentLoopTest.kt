@@ -190,10 +190,10 @@ class AgentLoopTest {
 
     @Test
     fun `a call id repeated within one step gets an app id and both results go back`() = runTest {
-        val open = FakeTool("browse")
+        val open = FakeTool("probe")
         val h = Harness(this, tools = listOf(open))
         h.llm.events(
-            LlmEvent.ToolCallsReady(listOf(ToolCallRequest("dup", "browse", "{}"), ToolCallRequest("dup", "browse", "{}"))),
+            LlmEvent.ToolCallsReady(listOf(ToolCallRequest("dup", "probe", "{}"), ToolCallRequest("dup", "probe", "{}"))),
             finished("tool_calls"),
         )
         h.llm.text("done")
@@ -354,9 +354,9 @@ class AgentLoopTest {
 
     @Test
     fun `step limit pauses every maxSteps and can end the reply`() = runTest {
-        val tool = FakeTool("browse")
+        val tool = FakeTool("probe")
         val h = Harness(this, tools = listOf(tool), maxSteps = 2)
-        repeat(4) { h.llm.events(call("c$it", "browse"), finished("tool_calls")) }
+        repeat(4) { h.llm.events(call("c$it", "probe"), finished("tool_calls")) }
         h.llm.text("Opened four tabs; the rest is unchecked.")
         val sid = h.sendNew()
         advanceUntilIdle()
@@ -376,7 +376,7 @@ class AgentLoopTest {
         assertEquals(4, tool.calls)
         val last = h.llm.requests.last()
         assertEquals("none", last.toolChoice)
-        assertEquals(listOf("browse"), last.tools.orEmpty().map { it.function.name })
+        assertEquals(listOf("probe"), last.tools.orEmpty().map { it.function.name })
         assertEquals(SystemPrompt.STEP_LIMIT_NOTE, last.messages.last().content!!.jsonPrimitive.content)
         assertEquals(1, h.llm.completeRequests.size) // first turn: titled
     }
@@ -384,10 +384,10 @@ class AgentLoopTest {
     @Test
     fun `the step-limit wrap-up never asks again and never runs a tool, even when the model calls anyway`() = runTest {
         // FB4: maxSteps 1, so without the guard the ignored call's next step would reopen the dialog.
-        val tool = FakeTool("browse")
+        val tool = FakeTool("probe")
         val h = Harness(this, tools = listOf(tool), maxSteps = 1)
-        h.llm.events(call("c1", "browse"), finished("tool_calls"))
-        h.llm.events(call("c2", "browse"), finished("tool_calls")) // ignores tool_choice "none"
+        h.llm.events(call("c1", "probe"), finished("tool_calls"))
+        h.llm.events(call("c2", "probe"), finished("tool_calls")) // ignores tool_choice "none"
         h.llm.text("One tab was opened.")
         val sid = h.sendNew()
         advanceUntilIdle()
@@ -406,9 +406,9 @@ class AgentLoopTest {
 
     @Test
     fun `an empty wrap-up is asked once more, then ends as the empty-response error with the steps kept`() = runTest {
-        val tool = FakeTool("browse")
+        val tool = FakeTool("probe")
         val h = Harness(this, tools = listOf(tool), maxSteps = 1)
-        h.llm.events(call("c1", "browse"), finished("tool_calls"))
+        h.llm.events(call("c1", "probe"), finished("tool_calls"))
         h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
         h.llm.events(LlmEvent.Failed(LlmError.EmptyResponse, partial = true))
         val sid = h.sendNew()
@@ -648,9 +648,9 @@ class AgentLoopTest {
 
     @Test
     fun `at most 10 tool calls of one step run, the rest get a result asking to call again (SE 24)`() = runTest {
-        val tool = FakeTool("browse")
+        val tool = FakeTool("probe")
         val h = Harness(this, tools = listOf(tool))
-        h.llm.events(LlmEvent.ToolCallsReady((1..12).map { ToolCallRequest("c$it", "browse", "{}") }), finished("tool_calls"))
+        h.llm.events(LlmEvent.ToolCallsReady((1..12).map { ToolCallRequest("c$it", "probe", "{}") }), finished("tool_calls"))
         h.llm.text("done")
         val sid = h.sendNew()
         advanceUntilIdle()
@@ -740,11 +740,11 @@ class AgentLoopTest {
             this,
             tools = listOf(
                 FakeTool("click") { _, _ -> throw IllegalStateException("/data/user/0/internal state") },
-                FakeTool("browse") { _, _ -> throw com.ouor.localchat.browser.PageError("Tab 3 does not exist.") },
+                FakeTool("probe") { _, _ -> throw com.ouor.localchat.browser.PageError("Tab 3 does not exist.") },
             ),
         )
         h.llm.events(call("c1", "click"), finished("tool_calls"))
-        h.llm.events(call("c2", "browse"), finished("tool_calls"))
+        h.llm.events(call("c2", "probe"), finished("tool_calls"))
         h.llm.text("end")
         val sid = h.sendNew()
         advanceUntilIdle()
@@ -755,9 +755,9 @@ class AgentLoopTest {
 
     @Test
     fun `maxSteps 0 from a restored settings file falls back to the default`() = runTest {
-        val tool = FakeTool("browse")
+        val tool = FakeTool("probe")
         val h = Harness(this, tools = listOf(tool), maxSteps = 0)
-        h.llm.events(call("c1", "browse"), finished("tool_calls"))
+        h.llm.events(call("c1", "probe"), finished("tool_calls"))
         h.llm.text("done")
         val sid = h.sendNew()
         advanceUntilIdle()
@@ -829,9 +829,9 @@ class AgentLoopTest {
             h.engine.narrowRun(ctx.sessionId, GenOptions())
             ToolOutcome("clicked")
         }
-        val second = FakeTool("browse", groups = setOf(ToolGroup.BROWSER))
+        val second = FakeTool("probe", groups = setOf(ToolGroup.BROWSER))
         h = Harness(this, tools = listOf(first, second), models = FakeModelPort(caps(tools = true)))
-        h.llm.events(LlmEvent.ToolCallsReady(listOf(ToolCallRequest("a", "click", "{}"), ToolCallRequest("b", "browse", "{}"))), finished("tool_calls"))
+        h.llm.events(LlmEvent.ToolCallsReady(listOf(ToolCallRequest("a", "click", "{}"), ToolCallRequest("b", "probe", "{}"))), finished("tool_calls"))
         h.llm.text("done")
         val sid = h.sendNew()
         advanceUntilIdle()
@@ -840,7 +840,7 @@ class AgentLoopTest {
         assertEquals(ToolExecutor.TOOL_OFF, results[1].modelText)
         fun systemOf(i: Int) = h.llm.requests[i].messages.first().content!!.jsonPrimitive.content
         assertEquals(systemOf(0), systemOf(1))
-        assertEquals(listOf("click", "browse"), h.llm.requests[1].tools.orEmpty().map { it.function.name })
+        assertEquals(listOf("click", "probe"), h.llm.requests[1].tools.orEmpty().map { it.function.name })
         assertNull(h.llm.requests[0].toolChoice)
         assertEquals("none", h.llm.requests[1].toolChoice)
         assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)

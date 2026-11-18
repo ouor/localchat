@@ -74,7 +74,7 @@ class PageReadyTest : ToolFlowBase() {
         return reply.results().single().modelText to reply.calls().single().state
     }
 
-    /** One readiness wait on a hidden tab, from the load call: (readiness, ms). */
+    /** One readiness wait on a parked tab, from the load call: (readiness, ms). */
     private fun measure(path: String): Pair<Readiness, Long> = runBlocking {
         val since = SystemClock.uptimeMillis()
         val id = withContext(Dispatchers.Main) { browser.open(url(path)) }

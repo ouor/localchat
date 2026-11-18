@@ -142,7 +142,7 @@ internal fun AssistantTurn(
             // BUG-08: the result goes to toolStep too, or counts stay the raw "458 nodes".
             val steps = calls.map { call ->
                 val r = results[call.key]
-                // BUG-17 (B-08): a step with a page picture (browse, an action's new page) shows it; tap opens it full screen.
+                // BUG-17 (B-08): a step with a page picture (look, an action's new page) shows it; tap opens it full screen.
                 val image = r?.artifactIds.orEmpty().firstNotNullOfOrNull { id -> state.attachments[id]?.takeIf { it.mime.startsWith("image/") }?.let(thumbnail) }
                 // tools-redesign 2-7: what the running call waits for takes the result's line (same height).
                 val waiting = (state.runPhase as? com.ouor.localchat.chat.run.RunPhase.RunningTool)?.takeIf { running && it.callId == call.callId }

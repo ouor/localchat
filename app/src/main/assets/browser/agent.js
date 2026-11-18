@@ -387,7 +387,7 @@
     };
   }
 
-  // ---------- element list (browse and action results)
+  // ---------- element list (open, look and action results)
 
   function textLeaf(el) {
     if (el.shadowRoot) return false;
@@ -428,7 +428,7 @@
       if (v) s += ' value=' + q(cut(v, 100));
     }
     if (role === 'link') {
-      // Absolute, or a path on this site, so browse() and read() can take it as it is (G-m5).
+      // Absolute, or a path on this site, so open() and read() can take it as it is (G-m5).
       var href = typeof el.href === 'string' ? el.href : (el.getAttribute('href') || '');
       if (href && !/^javascript:/i.test(href)) {
         try { var u = new URL(href); if (u.origin === location.origin) href = u.pathname + u.search + u.hash; } catch (e) { /* as it is */ }

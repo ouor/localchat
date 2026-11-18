@@ -76,7 +76,7 @@ class ContextAssemblerTest {
     @Test
     fun `only the newest screenshot is resent as an image and every one is estimated (SE 13)`() {
         fun shot(n: Int) = listOf(
-            com.ouor.localchat.core.model.ToolCallBlock("c$n", "browse", "{}", n, com.ouor.localchat.core.model.ToolCallState.DONE, 0),
+            com.ouor.localchat.core.model.ToolCallBlock("c$n", "look", "{}", n, com.ouor.localchat.core.model.ToolCallState.DONE, 0),
             com.ouor.localchat.core.model.ToolResultBlock("c$n", n, "shot $n", isError = false, imageForModelId = "img$n"),
         )
         val att = (1..3).associate { n ->
