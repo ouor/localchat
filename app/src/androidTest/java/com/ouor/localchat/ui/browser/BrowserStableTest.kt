@@ -157,7 +157,7 @@ class BrowserStableTest {
         editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(url)))
         editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(0, url.length))) // all selected
         assertEquals(before, controls.map { it.bounds() } + tabsButton().bounds())
-        assertEquals(bar.top, editor.bounds().top, 2f) // same line as the shown address
+        assertEquals(bar.center.y, editor.bounds().center.y, 2f) // same line as the shown address (the bar node is the whole pill)
         rule.onNodeWithText(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist() // the old dialog's title
         editor.performTextReplacement("kotlinlang.org")
         editor.performImeAction() // Go
@@ -168,7 +168,7 @@ class BrowserStableTest {
         shown.performClick()
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertIsFocused()
         Espresso.pressBack()
-        rule.waitForIdle()
+        rule.waitUntil(5_000) { rule.onAllNodesWithContentDescription(ctx.getString(R.string.ui_edit_url)).fetchSemanticsNodes().isEmpty() } // the keyboard takes this Back; its closing ends the edit
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist()
         shown.assertIsDisplayed()
         assertEquals(listOf("kotlinlang.org"), navigated)
@@ -185,7 +185,7 @@ class BrowserStableTest {
         show(BrowserUiState(PanelState.Full, listOf(tab(1, "One")), sessionId = "A"))
         for (n in listOf(1, 12)) { // one and two digits
             change { st -> st.copy(tabs = (1..n).map { tab(it, "T$it") }) }
-            val img = rule.onNodeWithTag(TAB_COUNT_TAG).captureToImage().asAndroidBitmap()
+            val img = rule.onNodeWithTag(TAB_COUNT_TAG, useUnmergedTree = true).captureToImage().asAndroidBitmap() // merged into the tabs button
             val inset = (2 * ctx.resources.displayMetrics.density).toInt() + 2 // past the 1.8dp border
             val ink = (inset until img.height - inset).filter { y ->
                 (inset until img.width - inset).any { x ->

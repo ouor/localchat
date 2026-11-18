@@ -205,8 +205,12 @@ class BrowserImeTest {
         rule.waitUntil(5_000) { s.panel == PanelState.Full }
         rule.waitForIdle()
         Shots.save("fb5-b2-address-editing")
-        closeKeyboard()
+        // FB5 review M3: with the keyboard up, one Back (which the keyboard takes) ends the edit too.
+        androidx.test.espresso.Espresso.pressBack()
+        rule.waitUntil(10_000) { imeBottom() == 0 }
         rule.waitUntil(5_000) { s.panel == PanelState.Half }
+        rule.onNodeWithContentDescription(rule.activity.getString(R.string.ui_edit_url)).assertDoesNotExist()
+        rule.onNodeWithText("google.com/").assertExists()
     }
 
     @Test fun aKeyboardOutsideThePanelLeavesItsHeight() { // FB5 B1: only a keyboard for the panel resizes it
