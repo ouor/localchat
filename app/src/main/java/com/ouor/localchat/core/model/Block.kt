@@ -64,9 +64,9 @@ data class ToolResultBlock(
     val summary: String? = null,
     /** S-04 citation sources, numbered per message. */
     val sources: List<Source> = emptyList(),
-    /** Screenshot / PDF attachment ids. */
+    /** Page picture / PDF attachment ids. */
     val artifactIds: List<String> = emptyList(),
-    /** screenshot: attached as an image to the next request. */
+    /** A page picture (vision models): attached as an image to the next request. */
     val imageForModelId: String? = null,
 ) : Block {
     val key: String get() = toolKey(step, callId)

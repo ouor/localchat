@@ -166,6 +166,7 @@
     <string name="ui_default">기본</string>
     <string name="ui_approval_title">%1$s 동작을 허용할까요?</string>
     <string name="ui_approval_body">되돌릴 수 없는 동작일 수 있어요.</string>
+    <string name="ui_approval_code">페이지에서 코드를 실행해요.</string>
     <string name="ui_search_chats">대화 제목 검색</string>
     <string name="ui_search_results">검색 결과 %1$d</string>
     <string name="ui_settings">설정</string>

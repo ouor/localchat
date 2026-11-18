@@ -438,12 +438,12 @@ internal fun ChatScreen(
             ApprovalContent(
                 toolVisual(r.toolName).icon,
                 stringResource(R.string.ui_approval_title, toolLabel(r.toolName)),
-                r.targetText ?: stringResource(R.string.ui_approval_body),
+                r.targetText ?: stringResource(if (r.code != null) R.string.ui_approval_code else R.string.ui_approval_body),
                 listOfNotNull(r.tabId?.let { stringResource(R.string.ui_tab_n, it) }, r.url).joinToString(" · "),
                 onDeny = { chat.resolve(Resolution.ApprovalAnswer(p.id, false)) },
                 onAllow = { chat.resolve(Resolution.ApprovalAnswer(p.id, true)) },
                 code = r.code,
-                preview = r.screenshotId?.let(state.attachments::get)?.let(composer::thumbnail),
+                preview = r.previewId?.let(state.attachments::get)?.let(composer::thumbnail),
             )
         }
         is Pause.StepLimit -> LcDialog(

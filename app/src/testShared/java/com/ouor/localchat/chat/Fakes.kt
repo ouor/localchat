@@ -199,12 +199,11 @@ class FakeBrowserPort : BrowserPort {
     var openError: Exception? = null
     /** Runs while the tab is being opened (after it exists): e.g. stops the run to test a cancel mid-open. */
     var whileOpening: suspend (sessionId: String) -> Unit = {}
-    override suspend fun openHiddenTab(sessionId: String, url: String): Int {
+    override suspend fun openHiddenTab(sessionId: String, url: String, opened: (Int) -> Unit) {
         openError?.let { throw it }
-        opened += url
-        val id = 40 + opened.size
+        this.opened += url
+        opened(40 + this.opened.size)
         whileOpening(sessionId)
-        return id
     }
     override suspend fun close(tabId: Int) { closed += tabId }
     override fun isSensitive(url: String) = "bank" in url

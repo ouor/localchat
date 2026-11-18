@@ -74,7 +74,7 @@ fun MessageNode.toEntity() = MessageEntity(
     bodyJson = AppJson.encodeToString(MessageBody.serializer(), body),
 )
 
-/** Every attachment a message keeps alive: user files and tool artifacts (screenshots, PDFs). */
+/** Every attachment a message keeps alive: user files and tool artifacts (page pictures, approval previews, PDFs). */
 fun MessageNode.attachmentIds(): List<String> = when (val b = body) {
     is MessageBody.User -> b.attachmentIds
     is MessageBody.Assistant -> b.blocks.filterIsInstance<ToolResultBlock>()

@@ -39,6 +39,11 @@ class PureLogicTest {
         assertFalse(tools.contains("closed to you"))
         assertTrue(tools.contains("a site ${com.ouor.localchat.browser.safety.SensitiveUrls.REFUSAL}, do not try that site again"))
         assertTrue(tools.contains("tell the user what it asks before doing it"))
+        // QA-M1 / QA minor: the date is the one for "latest"; with tools off but available, the user is told the switch.
+        assertTrue(plain.contains("never add a guessed year to a search query"))
+        assertFalse(plain.contains("switch under the message box"))
+        assertTrue(com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", emptySet(), switchable = true).contains("Browser switch"))
+        assertFalse(com.ouor.localchat.chat.context.SystemPrompt.build(0, zone, null, "", setOf("read"), switchable = true).contains("Browser switch"))
     }
 
     @Test
@@ -126,7 +131,7 @@ class PureLogicTest {
     @Test
     fun `the newest list is the newest result that holds one, not a later error or refusal (G-M2)`() {
         val list = "Clicked e1 → new page.\n" + com.ouor.localchat.chat.context.Untrusted.wrap("Page: A — https://a.test/\n\n- button \"Archive\" [ref=e7]") +
-            "\n(12 more elements: 0 above and 12 below the visible part. Call browse() again to list them.)"
+            "\n(12 more elements: 0 above and 12 below the visible part. browse() with no url lists the remaining elements.)"
         val denied = ToolOutcome.DENIED_TEXT
         val disabled = "e9 is disabled."
         val pageError = com.ouor.localchat.chat.context.Untrusted.wrap("A JavaScript alert dialog is open: \"hi\".")
@@ -149,6 +154,12 @@ class PureLogicTest {
         val afterExec = ToolResultTrimmer.trim(listOf(Triple("1", "click", list), Triple("2", "execute", ran)))
         assertTrue(afterExec["1"]!!, ToolResultTrimmer.STALE in afterExec["1"]!!)
         assertEquals(ran, afterExec["2"])
+        // F9: a list continued by browse() goes on from the one before it; both stay whole (same page, refs valid).
+        val rest = com.ouor.localchat.chat.context.Untrusted.wrap("Page: A — https://a.test/" + com.ouor.localchat.browser.TabRules.CONTINUED + "\n\n- link \"z\" [ref=e40]")
+        val continued = ToolResultTrimmer.trim(listOf(Triple("0", "browse", list), Triple("1", "browse", list), Triple("2", "browse", rest)))
+        assertTrue(continued["0"]!!, ToolResultTrimmer.STALE in continued["0"]!!)
+        assertEquals(list, continued["1"])
+        assertEquals(rest, continued["2"])
         assertTrue(ToolResultTrimmer.hasList(list))
         assertFalse(ToolResultTrimmer.hasList(pageError))
     }

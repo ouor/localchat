@@ -166,17 +166,18 @@ class BrowserEngine @Inject constructor(
 
     /**
      * A hidden tab for one tool call: at [TabRules.MAX_HIDDEN_TABS] it waits for a slot (other chats' reads, link
-     * prefetch) up to [TabRules.HIDDEN_WAIT] instead of failing (B-m9). Any thread.
+     * prefetch) up to [TabRules.HIDDEN_WAIT] instead of failing (B-m9); the wait stops at once on cancel. [opened]
+     * gets the id in the same main-thread step that makes the tab. Any thread.
      */
-    suspend fun openHiddenTab(sessionId: String, url: String): Int {
+    suspend fun openHiddenTab(sessionId: String, url: String, opened: (Int) -> Unit) {
         val start = SystemClock.uptimeMillis()
         while (true) {
-            val id = withContext(Dispatchers.Main.immediate) {
-                if (byId.values.count { it.hidden } < TabRules.MAX_HIDDEN_TABS || SystemClock.uptimeMillis() - start >= TabRules.HIDDEN_WAIT) {
-                    openAiTab(sessionId, url, hidden = true)
-                } else null
+            // Past the wait it opens anyway, which then fails with the tab limit message.
+            val done = withContext(Dispatchers.Main.immediate) {
+                (byId.values.count { it.hidden } < TabRules.MAX_HIDDEN_TABS || SystemClock.uptimeMillis() - start >= TabRules.HIDDEN_WAIT)
+                    .also { if (it) opened(openAiTab(sessionId, url, hidden = true)) }
             }
-            if (id != null) return id
+            if (done) return
             delay(TabRules.HIDDEN_POLL)
         }
     }
@@ -293,7 +294,7 @@ class BrowserEngine @Inject constructor(
 
     /**
      * Called by MainActivity.onCreate with a full-size container placed under the Compose content. Every tab
-     * WebView stays attached there at real size so timers, trusted taps and screenshots work while the panel
+     * WebView stays attached there at real size so timers, trusted taps and page pictures work while the panel
      * is closed (Phase 0 spike (b)).
      */
     @MainThread
@@ -356,7 +357,7 @@ class BrowserEngine @Inject constructor(
         w.translationY = 0f
         val h = host ?: return
         if (w.parent === h) w.layoutParams = full() else h.addView(w, full())
-        // Screen off / dozing: no layout pass runs, so a new WebView would stay 0x0 (page innerWidth 0, no screenshots).
+        // Screen off / dozing: no layout pass runs, so a new WebView would stay 0x0 (page innerWidth 0, no page pictures).
         // Give it the host's size now (when the host was never laid out: the Activity window's, split screen
         // included, else the display's); the next real pass agrees.
         val win = hostActivity?.windowManager?.currentWindowMetrics?.bounds

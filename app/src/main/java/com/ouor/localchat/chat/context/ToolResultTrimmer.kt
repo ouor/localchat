@@ -6,8 +6,8 @@ import com.ouor.localchat.browser.TabRules
  * A-05 (architecture 5.4 rule 9, tools-redesign 5-3): what older tool results look like when sent. The stored
  * original never changes.
  * - Element lists (browse, click, type, request_handoff): only the newest result that holds a list is sent whole; an
- *   error or a refusal after it does not count (G-M2). Older ones keep their head (inside the boundary, up to the
- *   first blank line), since their refs are stale anyway.
+ *   error or a refusal after it does not count (G-M2), and a list continued by browse() keeps the ones it goes on
+ *   from. Older ones keep their head (inside the boundary, up to the first blank line), since their refs are stale.
  * - read: whole while the newest-first total stays within [TabRules.readKeep] (the newest always), else cut.
  * - execute: the newest [KEEP] whole, older ones cut; one that opened a new page holds a list and is trimmed as one.
  */
@@ -32,7 +32,13 @@ object ToolResultTrimmer {
      * Returns key → content to send.
      */
     fun trim(results: List<Triple<String, String, String>>, contextWindow: Int? = null): Map<String, String> {
-        val newestList = results.lastOrNull { listed(it.second, it.third) }?.first
+        // The newest list is sent whole, and so is each list a continued one goes on from (F9: same page, refs valid).
+        val wholeLists = HashSet<String>()
+        for ((id, name, content) in results.asReversed()) {
+            if (!listed(name, content)) continue
+            wholeLists += id
+            if (TabRules.CONTINUED !in content.substringBefore("\n\n")) break
+        }
         val wholeExec = results.filter { it.second == EXECUTE }.takeLast(KEEP).map { it.first }.toSet()
         val wholeRead = HashSet<String>()
         var used = 0
@@ -44,7 +50,7 @@ object ToolResultTrimmer {
         }
         return results.associate { (id, name, content) ->
             id to when {
-                listed(name, content) && id != newestList -> head(content)
+                listed(name, content) && id !in wholeLists -> head(content)
                 name == READ && id !in wholeRead -> cut(content)
                 name == EXECUTE && id !in wholeExec -> cut(content)
                 else -> content

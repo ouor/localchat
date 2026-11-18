@@ -32,11 +32,12 @@ import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.ByteArrayOutputStream
+import java.net.URI
 
 /** Shared by the browser tools: parameters, Main-thread hop, URL checks, the action wait and result shapes (tools-redesign 2, 3). */
 
 private const val HIGHLIGHT_LEAD_MS = 250L
-private const val LIST_BUDGET = 8_000
+private const val LIST_BUDGET = 16_000
 private const val ACT_UNKNOWN = "The page changed while acting, so it is not known whether the action happened. Check with browse() before trying again."
 
 internal fun ParamsBuilder.refParam() = string("ref", "Element ref, e.g. \"e12\".", required = true)
@@ -60,6 +61,13 @@ internal fun ToolContext.checkedUrl(raw: String): String {
     val host = SensitiveUrls.hostOf(url) ?: throw ToolError("Not a valid URL: $raw")
     if (browser.sensitiveUrls.isSensitive(url)) throw ToolError(sensitiveMessage(host))
     return url
+}
+
+/** A path from an element list (G-m5) on the site of [base] (the work tab's page), checked like any URL. */
+internal fun ToolContext.pathUrl(raw: String, base: String): String {
+    val resolved = base.takeIf { it.startsWith("http", ignoreCase = true) }?.let { runCatching { URI(it).resolve(raw).toString() }.getOrNull() }
+        ?: throw ToolError("$raw is a path and your tab has no web page to open it on; pass a full URL.")
+    return checkedUrl(resolved)
 }
 
 internal fun sensitiveMessage(host: String) =
@@ -87,7 +95,7 @@ internal suspend fun ToolContext.guardActivate(
     at: Located? = null,
 ): Boolean {
     if (reason == null) return true
-    return requireApproval(ApprovalRequest(tool, what, tab.url, screenshotId = at?.let { approvalPreview(tab, it) }, reason = reason))
+    return requireApproval(ApprovalRequest(tool, what, tab.url, previewId = at?.let { approvalPreview(tab, it) }, reason = reason))
 }
 
 private suspend fun ToolContext.approvalPreview(tab: BrowserTab, at: Located): String? {
@@ -116,8 +124,13 @@ internal fun ElementInfo.label(): String = (role ?: tag) + (name?.let { " \"$it\
 internal suspend fun ToolContext.locate(tab: BrowserTab, ref: String, scroll: Boolean = true): Located = try {
     PageScript.call(tab, "locate", buildJsonObject { put("target", ref); put("scroll", scroll) })
 } catch (e: StaleRef) {
+    throw staleRef(tab, e)
+}
+
+/** A refused ref, answered with the current element list (G-M1) wherever it comes from: locate, type, a script click. */
+private suspend fun ToolContext.staleRef(tab: BrowserTab, e: StaleRef): ToolError {
     val page = pageResult(tab, Readiness.READY, now())
-    throw ToolError(e.message.orEmpty(), page.copy(isError = true, lead = "${e.message} Use a ref from the element list below."))
+    return ToolError(e.message.orEmpty(), page.copy(isError = true, lead = "${e.message} Use a ref from the element list below."))
 }
 
 internal fun refArgs(ref: String, extra: JsonObjectBuilder.() -> Unit = {}) = buildJsonObject { put("target", ref); extra() }
@@ -156,6 +169,8 @@ internal suspend fun ToolContext.act(tab: BrowserTab, action: suspend () -> Unit
     val t0 = now()
     try {
         action()
+    } catch (e: StaleRef) {
+        throw staleRef(tab, e)
     } catch (e: PageError) {
         if (tab.dialog.value == null && tab.dialogsSince(t0).isEmpty()) {
             throw if (e.message == PageScript.NOT_RUN) PageError(ACT_UNKNOWN) else e
@@ -209,12 +224,15 @@ internal suspend fun ToolContext.pageResult(tab: BrowserTab, readiness: Readines
     } else false
     val err = tab.navError(since)
     val r = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", LIST_BUDGET); put("more", more) })
-    val head = pageHeader(tab, readiness, err, again) + if (r.continued) " (elements not listed last time)" else ""
+    val head = pageHeader(tab, readiness, err, again) + if (r.continued) TabRules.CONTINUED else ""
     val left = r.above + r.below
-    val note = if (left == 0) "" else
+    val more = if (left == 0) "" else
         "($left more elements: ${r.above} above and ${r.below} below the visible part." +
-            hint("browse", " Call browse() again to list them") + hint("read", if ("browse" in exposed) ", or read() for the page text" else " Use read() for the page text") +
+            hint("browse", " browse() with no url lists the remaining elements") + hint("read", if ("browse" in exposed) ", or read() for the page text" else " Use read() for the page text") +
             ".)"
+    // F6: what is past the bound is not promised to browse().
+    val beyond = if (r.beyond == 0) "" else "(${r.beyond} more elements on this very long page cannot be listed." + hint("read", " Use read() for its text.") + ")"
+    val note = listOf(more, beyond).filter { it.isNotEmpty() }.joinToString("\n")
     return ToolOutcome(
         text = listOf(top, head).filter { it.isNotEmpty() }.joinToString("\n") + "\n\n" + r.text.ifBlank { "(no elements)" },
         isError = err?.http == true,

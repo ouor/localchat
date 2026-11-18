@@ -27,7 +27,8 @@ object Click : Tool {
     override val labelRes = R.string.tool_click
     override val description =
         "Click an element by its ref from the latest element list: links, buttons, checkboxes, radio buttons, tabs, menus. " +
-            "Pay, order, delete, send and similar buttons, and buttons that post a form, ask the user first; if they deny, " +
+            "Pay, order, delete, send and similar buttons, buttons that post a form, and links that vote, follow, subscribe, " +
+            "log out and the like ask the user first; if they deny, " +
             "do not retry. Returns the page after the click."
     override val parameters = params { refParam() }
 
@@ -55,7 +56,7 @@ object Click : Tool {
                 if (!(target.hit && tab.tap(target.cx, target.cy, target.innerWidth))) PageScript.callJson(tab, "click", refArgs(ref), retry = false)
             }
             val covered = if (target.hit) "" else " (it was covered by another element, so a script click was used)"
-            ctx.actionResult(tab, "Clicked $ref$covered", acted, label)
+            ctx.actionResult(tab, "Clicked $ref$covered", acted, label, top = "$ref: $label")
         }
     }
 }

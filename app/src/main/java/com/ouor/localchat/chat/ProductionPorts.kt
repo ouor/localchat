@@ -87,7 +87,7 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
         sessions.forEach(engine::closeSessionTabs)
     }
 
-    override suspend fun openHiddenTab(sessionId: String, url: String): Int = engine.openHiddenTab(sessionId, url)
+    override suspend fun openHiddenTab(sessionId: String, url: String, opened: (Int) -> Unit) = engine.openHiddenTab(sessionId, url, opened)
 
     override suspend fun close(tabId: Int) = withContext(Dispatchers.Main.immediate) { engine.close(tabId) }
 

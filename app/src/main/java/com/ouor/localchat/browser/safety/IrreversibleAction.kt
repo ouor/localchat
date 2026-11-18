@@ -18,6 +18,9 @@ object IrreversibleAction {
 
         /** Clicking a frame whose (cross-origin) content cannot be checked, e.g. a payment widget. */
         FRAME,
+
+        /** A link whose address does something (HN's vote?how=up, logout, unsubscribe): a GET that changes state (QA-M3). */
+        ACTION_LINK,
     }
 
     private val EN = listOf(
@@ -29,6 +32,14 @@ object IrreversibleAction {
         "결제", "구매", "주문", "삭제", "전송", "보내기", "게시", "등록", "확인", "송금", "이체", "탈퇴", "해지",
         "제출", "구독",
     )
+    /** Whole words of a link's last path part or of its action parameter that read as doing something. */
+    private val URL_WORDS = setOf(
+        "vote", "upvote", "downvote", "like", "unlike", "follow", "unfollow", "subscribe", "unsubscribe", "delete",
+        "remove", "logout", "signout", "flag", "unflag", "hide", "block", "report", "favorite", "favourite", "fave",
+        "star", "unstar", "pay", "purchase", "buy", "checkout", "confirm", "transfer", "withdraw", "deactivate",
+    )
+    private val ACTION_KEYS = setOf("action", "do", "op", "cmd")
+
     private val enRegex = Regex("\\b(" + EN.joinToString("|") { Regex.escape(it).replace(" ", "\\s+") } + ")\\b", RegexOption.IGNORE_CASE)
 
     /** Only the start of a label is checked: a long name is page content, but a page must not hide "Pay" by padding. */
@@ -42,12 +53,24 @@ object IrreversibleAction {
         val label = e.name?.trim().orEmpty().take(MAX_LABEL)
         val actionable = e.role in CLICKABLE_ROLES || e.tag == "button" || e.tag == "a" || e.tag == "input"
         if (actionable && label.isNotEmpty() && hasRiskyKeyword(label)) return Reason.RISKY_KEYWORD
+        if ((e.tag == "a" || e.tag == "area" || e.role == "link") && isActionUrl(e.href)) return Reason.ACTION_LINK
         return null
     }
 
     /** type's Enter in a POST form submits it; Enter elsewhere is free, and field labels are not keyword-checked. */
     fun reasonForEnter(focused: ElementInfo?): Reason? =
         if (focused?.formMethod == "post" && focused.tag != "textarea") Reason.POST_FORM else null
+
+    /** "vote?id=1", "/account/log-out", "/list?action=delete": the last path part, or an action parameter, is a URL word. */
+    fun isActionUrl(href: String?): Boolean {
+        val h = href?.trim()?.lowercase().orEmpty()
+        if (h.isEmpty() || h.startsWith("#") || h.startsWith("javascript:")) return false
+        val rest = if ("://" in h) h.substringAfter("://").let { if ('/' in it) it.substring(it.indexOf('/')) else "" } else h
+        val last = rest.substringBefore('?').substringBefore('#').trimEnd('/').substringAfterLast('/').substringBefore('.')
+        val actions = rest.substringAfter('?', "").substringBefore('#').split('&')
+            .filter { it.substringBefore('=') in ACTION_KEYS }.map { it.substringAfter('=') }
+        return (listOf(last) + actions).any { it.replace(Regex("[^a-z0-9]"), "") in URL_WORDS }
+    }
 
     fun hasRiskyKeyword(label: String): Boolean = enRegex.containsMatchIn(label) || KO.any { it in label }
 

@@ -61,6 +61,9 @@ internal object TabRules {
     /** Load phase cap: a mobile network's slow first response. */
     const val LOAD_CAP = 15_000L
 
+    /** On the Page line of a list that goes on from the one before it (browse() again, F9); both stay valid. */
+    const val CONTINUED = " (elements not listed last time)"
+
     /** Quiet window: no DOM change or request for this long (Playwright/Puppeteer networkidle). */
     const val QUIET = 500L
 

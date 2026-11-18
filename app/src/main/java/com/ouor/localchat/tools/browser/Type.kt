@@ -2,6 +2,7 @@ package com.ouor.localchat.tools.browser
 
 import android.view.KeyEvent
 import com.ouor.localchat.R
+import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.safety.ElementInfo
 import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.browser.script.PageScript
@@ -62,18 +63,27 @@ object Type : Tool {
             if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED
             ctx.highlight(tab, at, if (select) R.string.browser_highlight_select else R.string.browser_highlight_type)
             var typed: TypeResult? = null
-            var suggested = false
-            val acted = ctx.act(tab) {
-                val before = if (plan.auto) PageScript.call<Suggestions>(tab, "suggestions").n else 0
+            var before: Suggestions? = null
+            val typing = ctx.act(tab) {
+                if (plan.auto) before = PageScript.call<Suggestions>(tab, "suggestions", refArgs(ref))
                 typed = PageScript.call<TypeResult>(tab, "type", refArgs(ref) { put("text", plan.value) }, retry = false)
-                if (plan.auto) {
-                    // G-m2: an autocomplete field opens its suggestions; Enter there would submit before one is chosen.
-                    tab.awaitReady(now())
-                    suggested = PageScript.call<Suggestions>(tab, "suggestions").n > before
-                }
-                if (plan.enter && !suggested) tab.key(KeyEvent.KEYCODE_ENTER, 0)
+                if (plan.enter && !plan.auto) tab.key(KeyEvent.KEYCODE_ENTER, 0)
             }
-            val pressed = plan.enter && !suggested
+            // G-m2: after the wait for the typing, an autocomplete field shows its suggestions; Enter there would submit
+            // before one is chosen. The Enter gets its own wait: one counted from the typing would end before a submit
+            // that the page's script starts a moment later.
+            val suggested = before?.let { b ->
+                try {
+                    b.openedBy(PageScript.call<Suggestions>(tab, "suggestions", refArgs(ref)))
+                } catch (_: PageError) {
+                    false // the field is gone: nothing to choose from
+                }
+            } == true
+            // A search box whose typing already opened a new page gets no Enter there.
+            val enter = plan.auto && !suggested && typing.change != Change.NEW_PAGE
+            val acted = if (!enter) typing else ctx.act(tab) { tab.key(KeyEvent.KEYCODE_ENTER, 0) }
+                .let { Acted(it.change, it.readiness, it.since, typing.dialogs + it.dialogs) }
+            val pressed = if (plan.auto) enter else plan.enter
             val r = typed
             // The model's own text, escaped so a newline in it cannot break the line (G-m12).
             val shown = JsonPrimitive(plan.value.take(100)).toString()
@@ -88,7 +98,9 @@ object Type : Tool {
                     .takeIf { suggested },
                 r?.submitRef?.takeIf { !pressed }?.let { "Not submitted; the form's submit button is $it." },
             )
-            ctx.actionResult(tab, first, acted, label, top = shows, note = notes.joinToString("\n"))
+            // QA m2: what was typed into, named inside the page boundary (the name is page text).
+            val top = listOf("$ref: $label", shows).filter { it.isNotEmpty() }.joinToString("\n")
+            ctx.actionResult(tab, first, acted, label, top = top, note = notes.joinToString("\n"))
         }
     }
 

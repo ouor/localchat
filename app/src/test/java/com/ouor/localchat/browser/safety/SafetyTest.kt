@@ -126,6 +126,19 @@ class SafetyTest {
     }
 
     @Test
+    fun `a link whose address does something asks first`() {
+        fun link(href: String) = IrreversibleAction.reasonForClick(ElementInfo(tag = "a", role = "link", name = "upvote", href = href))
+        listOf(
+            "vote?id=46012300&how=up&goto=news", "https://example.com/account/log-out", "/u/alice/follow/",
+            "/list?action=delete&id=3", "https://news.example/unsubscribe?t=abc", "hide?id=1&goto=news",
+        ).forEach { assertEquals(it, Reason.ACTION_LINK, link(it)) }
+        listOf(
+            "item?id=1", "https://blog.example/how-to-follow-up", "/search?q=delete", "https://vote.example.org/",
+            "#like", "/news.html", "https://example.com/",
+        ).forEach { assertNull(it, link(it)) }
+    }
+
+    @Test
     fun `harmless labels and long text pass`() {
         listOf("Next", "Search", "Sort by price", "Ordered list", "Reposition", "Sender settings", "다음", "검색")
             .forEach { assertNull(it, IrreversibleAction.reasonForClick(button(it))) }

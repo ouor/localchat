@@ -42,7 +42,16 @@ data class PageMark(
  * [continued] = these are the lines the last list of the page left out.
  */
 @Serializable
-data class PageList(val text: String, val listed: Int, val above: Int = 0, val below: Int = 0, val continued: Boolean = false)
+data class PageList(
+    val text: String,
+    val listed: Int,
+    /** Left out for the budget: the next browse() lists them. */
+    val above: Int = 0,
+    val below: Int = 0,
+    /** Past the element bound of a huge page: no list reaches them. */
+    val beyond: Int = 0,
+    val continued: Boolean = false,
+)
 
 /** `readText`: main text; [flags] = "bot" (bot check) and/or "login" (sign-in page). */
 @Serializable
@@ -54,7 +63,10 @@ data class TypeResult(val value: String, val selected: String? = null, val submi
 
 /** `suggestions`: visible ARIA options and listboxes (an autocomplete list opening after type). */
 @Serializable
-data class Suggestions(val n: Int)
+data class Suggestions(val linked: Boolean, val near: Int) {
+    /** Suggestions opened by the typing that ended in [after]. */
+    fun openedBy(after: Suggestions) = (after.linked && !linked) || after.near > near
+}
 
 @Serializable
 data class SearchResult(val title: String, val url: String, val snippet: String? = null)

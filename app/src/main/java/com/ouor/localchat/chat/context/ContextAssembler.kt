@@ -214,7 +214,7 @@ object ContextAssembler {
         return WireMessage("user", JsonArray(parts))
     }
 
-    /** Rules 5-8: one assistant message per step, its tool results, then any screenshot as a user image. */
+    /** Rules 5-8: one assistant message per step, its tool results, then any page picture as a user image. */
     private fun assistantSteps(
         body: MessageBody.Assistant,
         reply: Int,
@@ -247,7 +247,7 @@ object ContextAssembler {
             }
             // Rule 7: tool messages cannot carry images.
             if (input.model.caps.imageInput.value) {
-                // Only the newest screenshot is resent; older ones would pile up on every request (SE 13).
+                // Only the newest page picture is resent; older ones would pile up on every request (SE 13).
                 val images = calls.mapNotNull { results[it.key]?.imageForModelId }.filter { it == latestImage }
                     .mapNotNull { input.attachments[it]?.imageDataUrl }
                 if (images.isNotEmpty()) add(WireMessage("user", JsonArray(images.map(::imagePart))))

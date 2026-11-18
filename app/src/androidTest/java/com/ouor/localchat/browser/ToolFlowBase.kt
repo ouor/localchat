@@ -120,9 +120,23 @@ abstract class ToolFlowBase {
         engine.send(null, Draft(Draft.NEW_CHAT, text, emptyList(), 0), GenOptions(search = searchOn, browser = browserOn), MODEL)
     }
 
-    protected fun awaitRun(sid: String, what: String, predicate: (RunState?) -> Boolean): RunState? = runBlocking {
+    /** The next message in chat [sid]. */
+    protected fun sendTo(sid: String, text: String) = runBlocking {
+        engine.send(sid, Draft(sid, text, emptyList(), 0), GenOptions(browser = true), MODEL)
+    }
+
+    /** A new chat's first reply is followed by a title request; waits for it so it does not take a scripted scenario. */
+    protected fun awaitTitleRequest() {
+        repeat(30) {
+            val r = runCatching { llm.takeRequest(1) }.getOrNull() ?: return@repeat
+            if ("Write the title in" in r.body?.utf8().orEmpty()) return
+        }
+        error("no title request")
+    }
+
+    protected fun awaitRun(sid: String, what: String, timeoutMs: Long = 30_000, predicate: (RunState?) -> Boolean): RunState? = runBlocking {
         try {
-            withTimeout(30_000) { engine.runs.first { predicate(it[sid]) }[sid] }
+            withTimeout(timeoutMs) { engine.runs.first { predicate(it[sid]) }[sid] }
         } catch (e: Exception) {
             val last = store.messages.values.lastOrNull { it.sessionId == sid && it.body is MessageBody.Assistant }?.body
             throw AssertionError("timed out waiting for $what; phase=${engine.runs.value[sid]?.phase}; reply=$last", e)
@@ -136,8 +150,8 @@ abstract class ToolFlowBase {
         (awaitRun(sid, "pause") { (it?.phase as? RunPhase.Paused)?.pause.let { p -> p != null && p != lastPause } }!!.phase as RunPhase.Paused)
             .pause.also { lastPause = it }
 
-    protected fun awaitEnd(sid: String): MessageBody.Assistant {
-        awaitRun(sid, "end of run") { it == null }
+    protected fun awaitEnd(sid: String, timeoutMs: Long = 30_000): MessageBody.Assistant {
+        awaitRun(sid, "end of run", timeoutMs) { it == null }
         return store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }.body as MessageBody.Assistant
     }
 

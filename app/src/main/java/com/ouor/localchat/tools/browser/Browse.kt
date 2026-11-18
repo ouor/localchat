@@ -6,13 +6,11 @@ import com.ouor.localchat.browser.Readiness
 import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
-import com.ouor.localchat.tools.ToolError
 import com.ouor.localchat.tools.ToolGroup
 import com.ouor.localchat.tools.ToolOutcome
 import com.ouor.localchat.tools.optString
 import com.ouor.localchat.tools.params
 import kotlinx.serialization.json.JsonObject
-import java.net.URI
 
 /**
  * tools-redesign 3-3: the work tab (created here when the chat has none) goes to a URL or a search page, and the
@@ -50,11 +48,7 @@ object Browse : Tool {
                 return@onMain ctx.withPicture(tab, ctx.pageResult(tab, ctx.ready(tab, since), since, more = true), keep = true)
             }
             val tab = ctx.workTab(navigating = true)
-            val url = direct ?: if (isPath(raw)) {
-                val resolved = tab.url.takeIf { it.startsWith("http", ignoreCase = true) }?.let { runCatching { URI(it).resolve(raw).toString() }.getOrNull() }
-                    ?: throw ToolError("$raw is a path and your tab has no web page to open it on; pass a full URL.")
-                ctx.checkedUrl(resolved)
-            } else return@onMain searched(ctx, tab, raw)
+            val url = direct ?: if (isPath(raw)) ctx.pathUrl(raw, tab.url) else return@onMain searched(ctx, tab, raw)
             val o = ctx.open(tab, url)
             if (o.readiness == Readiness.FAILED) {
                 val err = tab.navError(o.since)

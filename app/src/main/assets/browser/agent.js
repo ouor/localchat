@@ -3,7 +3,8 @@
  *   (this function)(K, CFG)
  * once per document; it installs a non-enumerable window[K] whose call(fn, args) runs one function below.
  * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs. Ref
- * numbers start at CFG.refBase, which the app raises past every ref the tab handed out, so a ref never repeats in a tab.
+ * numbers start at CFG.refBase, which the app raises past every ref the tab handed out, and every call passes the
+ * tab's next number again (a document back from the back/forward cache), so a ref never repeats in a tab.
  * The file must stay a single function expression (no trailing semicolon or call).
  */
 (function (K, CFG) {
@@ -11,7 +12,8 @@
   if (window[K]) return;
 
   var base = CFG.refBase || 1; // first ref number of this document
-  var refs = [];               // ref "e<n>" -> refs[n - base] = WeakRef(element)
+  var nextNum = base;          // number of the next new ref
+  var refs = new Map();        // n -> WeakRef(element) for ref "e<n>"
   var refOf = new WeakMap();   // element -> "e<n>": an element keeps its ref across snapshots
   var pend = {};               // execute promises: id -> null (running) | {ok} | {error}
   var pendSeq = 0;
@@ -155,7 +157,24 @@
       var img = el.querySelector('img[alt]');
       if (img && norm(img.alt)) return cut(norm(img.alt), 100);
     }
+    if (INTERACTIVE[role] || t === 'summary') {
+      // An icon control: the label of its icon (HN's upvote arrow is a div with title="upvote").
+      var d = el.querySelector('[aria-label],[title],img[alt],svg title');
+      s = d && (d.localName === 'title' ? d.textContent : d.getAttribute('aria-label') || d.getAttribute('title') || d.getAttribute('alt'));
+      if (norm(s)) return cut(norm(s), 100);
+      if (role === 'link') return hrefName(el);
+    }
     return '';
+  }
+
+  /** The last part of a link's path and its query ("vote?id=1&how=up"): what the link does, not a guess. */
+  function hrefName(el) {
+    try {
+      var u = new URL(el.href);
+      if (!/^https?:$/.test(u.protocol)) return '';
+      var segs = u.pathname.split('/').filter(Boolean);
+      return cut(decodeURIComponent(segs.length ? segs[segs.length - 1] : u.hostname) + u.search, 60);
+    } catch (e) { return ''; }
   }
 
   // ---------- B-S1 sensitive fields (rule from browser.safety.SensitiveFields via CFG)
@@ -254,8 +273,8 @@
   function refFor(el) {
     var r = refOf.get(el);
     if (!r) {
-      refs.push(new WeakRef(el));
-      r = 'e' + (base + refs.length - 1);
+      refs.set(nextNum, new WeakRef(el));
+      r = 'e' + nextNum++;
       refOf.set(el, r);
     }
     return r;
@@ -270,7 +289,7 @@
     if (!m) throw new Error('REF:' + q(cut(String(target == null ? '' : target), 40)) + ' is not a ref. Pass a ref from the element list, e.g. e12.');
     var n = +m[1];
     if (n < base) throw new Error('REF:Ref e' + n + ' is from an earlier page of this tab, not this one.');
-    var w = refs[n - base], el = w && w.deref();
+    var w = refs.get(n), el = w && w.deref();
     if (!w) throw new Error('REF:Ref e' + n + ' is not on this page.');
     if (!el || !el.isConnected) throw new Error('REF:Ref e' + n + ' is gone; the page changed.');
     return el;
@@ -297,11 +316,29 @@
     return r === 'textbox' && isSearchBox(el) ? 'searchbox' : r;
   }
 
-  /** Visible suggestion lists (ARIA options): type compares the count before and after typing. */
-  function suggestions() {
-    var n = 0, all = document.querySelectorAll('[role=option], [role=listbox]');
-    for (var i = 0; i < all.length; i++) if (visibleBox(all[i])) n++;
-    return { n: n };
+  /**
+   * Suggestions of the field a.target (G-m2), which type compares before and after typing: `linked` = the field's own
+   * signals (aria-expanded, a visible list its aria-controls / aria-owns names, a <datalist> option for its value),
+   * `near` = visible ARIA options and listboxes just around and below it. Lists elsewhere on the page do not count.
+   */
+  function suggestions(a) {
+    var el = resolve(a.target), linked = el.getAttribute('aria-expanded') === 'true';
+    var ids = ((el.getAttribute('aria-controls') || '') + ' ' + (el.getAttribute('aria-owns') || '')).split(/\s+/);
+    ids.forEach(function (id) {
+      var t = id && el.ownerDocument.getElementById(id);
+      if (t && visibleBox(t) && t.querySelector('[role=option], li, option')) linked = true;
+    });
+    var v = (el.value || '').toLowerCase(), list = el.list;
+    if (list && v) {
+      for (var i = 0; i < list.options.length && !linked; i++) if (String(list.options[i].value).toLowerCase().indexOf(v) >= 0) linked = true;
+    }
+    var r = el.getBoundingClientRect(), near = 0, all = document.querySelectorAll('[role=option], [role=listbox]');
+    for (var j = 0; j < all.length; j++) {
+      if (!visibleBox(all[j])) continue;
+      var b = all[j].getBoundingClientRect();
+      if (b.top >= r.top - 40 && b.top <= r.bottom + 400 && b.left < r.right + 200 && b.right > r.left - 200) near++;
+    }
+    return { linked: linked, near: near };
   }
 
   function info(el) {
@@ -379,9 +416,12 @@
       if (v) s += ' value=' + q(cut(v, 100));
     }
     if (role === 'link') {
-      // Absolute, so browse() and read() can take it as it is (G-m5).
+      // Absolute, or a path on this site, so browse() and read() can take it as it is (G-m5).
       var href = typeof el.href === 'string' ? el.href : (el.getAttribute('href') || '');
-      if (href && !/^javascript:/i.test(href)) s += ' -> ' + cut(href, 150);
+      if (href && !/^javascript:/i.test(href)) {
+        try { var u = new URL(href); if (u.origin === location.origin) href = u.pathname + u.search + u.hash; } catch (e) { /* as it is */ }
+        s += ' -> ' + cut(href, 100);
+      }
     }
     return s;
   }
@@ -395,20 +435,31 @@
   var lastList = null; // { all: Set of every line, shown: Set of listed lines }
 
   function pageList(a) {
-    var budget = a.budget || 8000, vh = innerHeight;
+    var budget = a.budget || 16000, vh = innerHeight;
     var items = [];
-    var MAX_ITEMS = 4000, dropped = { above: 0, below: 0 };
+    // A safety bound for huge pages only: every element below it competes for the budget by nearness (B-M4).
+    var MAX_ITEMS = 20000, beyond = 0, WORDY = /[\p{L}\p{N}]/u, hrefs = new Set();
 
     function emit(depth, line, el, important) {
       var r = rectInTop(el), side = 0, dist = 0;
       if (r.top + r.height <= 0) { side = -1; dist = -(r.top + r.height); }
       else if (r.top >= vh) { side = 1; dist = r.top - vh; }
-      // Past the cap only what is on screen and actionable is kept; the rest is counted (B-M4).
-      if (items.length >= MAX_ITEMS && !(important && side === 0)) {
-        if (side < 0) dropped.above++; else dropped.below++;
-        return;
-      }
+      // Past the bound only what is on screen and actionable is kept; no list can reach the rest, so it is counted apart.
+      if (items.length >= MAX_ITEMS && !(important && side === 0)) { beyond++; return; }
       items.push({ s: new Array(depth + 1).join('  ') + '- ' + line, pri: (important ? 0 : 2) + (side ? 1 : 0), dist: dist, side: side });
+    }
+
+    // A table without headers or caption lays out the page (HN); its rows and cells are not data.
+    function layoutTable(t) {
+      var r = t && t.getAttribute('role');
+      return !!t && (!r || r === 'presentation' || r === 'none') &&
+        !t.querySelector(':scope > caption, :scope > thead, :scope > tr > th, :scope > tbody > tr > th');
+    }
+
+    function container(el) {
+      if (el.hasAttribute('role') || el.hasAttribute('tabindex') || el.hasAttribute('onclick') || el.hasAttribute('aria-label')) return false;
+      var t = el.localName;
+      return t === 'li' || ((t === 'table' || t === 'tr' || t === 'td') && layoutTable(el.closest('table')));
     }
 
     function children(parent, depth, skipText) {
@@ -416,7 +467,7 @@
       for (var i = 0; i < kids.length; i++) {
         var n = kids[i];
         if (n.nodeType === 3) {
-          if (!skipText && n.parentElement) { var t = norm(n.data); if (t) emit(depth, 'text: ' + q(cut(t, 100)), n.parentElement, false); }
+          if (!skipText && n.parentElement) { var t = norm(n.data); if (WORDY.test(t)) emit(depth, 'text: ' + q(cut(t, 100)), n.parentElement, false); }
         } else if (n.nodeType === 1) {
           element(n, depth);
         }
@@ -442,18 +493,24 @@
       if (el.localName === 'iframe' || el.localName === 'frame') return frame(el, depth);
       if (el.localName === 'option' && el.closest('select')) return;
       if (el.localName === 'slot') return children(el, depth, false); // no box of its own; walk assigned nodes
+      if (container(el)) return children(el, depth, false);
       var role = roleShown(el);
       var inner = el.shadowRoot || el;
       var field = isField(el) || el.localName === 'select';
       if (!role) {
         if (!textLeaf(el)) return children(inner, depth, false);
         var t = norm(el.innerText);
-        if (t && visibleBox(el)) emit(depth, 'text: ' + q(cut(t, 100)), el, false);
+        if (WORDY.test(t) && visibleBox(el)) emit(depth, 'text: ' + q(cut(t, 100)), el, false);
         return;
       }
       if (!visibleBox(el)) return field ? undefined : children(inner, depth, false);
       var name = nameOf(el, role);
       var line = describeLine(el, role, name);
+      var arrow = role === 'link' ? line.lastIndexOf(' -> ') : -1;
+      if (arrow > 0) {
+        // A link to a place listed before ("3 hours ago" and "45 comments" on HN): its address is not repeated.
+        if (hrefs.has(line.slice(arrow))) line = line.slice(0, arrow); else hrefs.add(line.slice(arrow));
+      }
       var important = role === 'heading' || line.indexOf('[ref=') >= 0;
       if (!FROM_CONTENT[role] && !field && role !== 'img' && textLeaf(el)) {
         var lt = norm(el.innerText);
@@ -487,14 +544,14 @@
         if (used + len <= budget) { keep.add(i); used += len; }
       });
     }
-    var out = [], above = dropped.above, below = dropped.below, all = new Set(), nowShown = new Set(shown);
+    var out = [], above = 0, below = 0, all = new Set(), nowShown = new Set(shown);
     items.forEach(function (it, i) {
       all.add(it.s);
       if (keep.has(i)) { out.push(it.s); nowShown.add(it.s); }
       else if (!nowShown.has(it.s) && !shown.has(it.s)) { if (it.side < 0) above++; else below++; }
     });
     lastList = { all: all, shown: nowShown };
-    return { text: out.join('\n'), listed: out.length, above: above, below: below, continued: continued };
+    return { text: out.join('\n'), listed: out.length, above: above, below: below, beyond: beyond, continued: continued };
   }
 
   // ---------- main text (read)
@@ -711,7 +768,9 @@
       return f(args || {});
     },
     /** The ref number after the last one this document handed out. */
-    next: function () { return base + refs.length; }
+    next: function () { return nextNum; },
+    /** The tab's next number: a document restored from the back/forward cache numbers on from there (F7). */
+    floor: function (n) { if (n > nextNum) nextNum = n; }
   };
   Object.defineProperty(window, K, { value: api, enumerable: false, configurable: false, writable: false });
 })

@@ -133,7 +133,7 @@ class AgentScriptTest {
         listOf(
             "- navigation \"Main\"",
             "  - link \"Next page\" [ref=",
-            "-> ${server.url("/next")}", // absolute, so browse() can take it as it is (G-m5)
+            "-> /next", // a path on this site, which browse() and read() take as it is (G-m5, QA-M2)
             "- heading \"Search results\" [level=1]",
             "- text: \"Plain paragraph text.\"",
             "- searchbox \"Query\" [ref=", // named q: a search box (G-m4)
@@ -141,7 +141,7 @@ class AgentScriptTest {
             "- checkbox \"I agree\" [checked] [ref=",
             "- combobox \"Color\" [ref=",
             "value=\"Green\" options=[Red, Green, Blue]",
-            "- listitem: \"First item\"",
+            "- list\n    - text: \"First item\"", // list items add no line of their own (QA-M2)
             "- button \"Press me\" [ref=",
             "- button \"Shadow button\" [ref=",
             "- textbox \"Shadow field\" [ref=",
@@ -365,18 +365,67 @@ class AgentScriptTest {
         load("crowded.html")
         val l = PageScript.call<PageList>(tab, "pageList")
         assertTrue(l.text, "button \"Fixed action\" [ref=" in l.text)
-        assertTrue("$l", l.listed + l.above + l.below >= 5_001)
-        assertTrue("$l", l.below > 0)
+        // Past MAX_ITEMS (20,000) only what is important and on screen is kept; the rest is counted apart (F6).
+        assertTrue("$l", l.listed + l.above + l.below + l.beyond >= 21_001)
+        assertTrue("$l", l.below > 0 && l.beyond > 0)
     }
 
     @Test
-    fun suggestionsAreCountedAfterTyping() = runBlocking<Unit> {
-        // G-m2: type sees an autocomplete list open and leaves Enter alone.
+    fun aLayoutTablePageListsEveryLinkInTheFirstList() = runBlocking<Unit> {
+        // QA-M2: an HN-like front page (layout tables, 30 stories) fits in one list, More included.
+        load("hn.html")
+        val l = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 16_000) })
+        assertTrue(l.text, "link \"More\" [ref=" in l.text)
+        // 228 links and the search field: every one of them.
+        assertEquals(l.text, 229, Regex("\\[ref=e").findAll(l.text).count())
+        // QA-M3: the nameless vote link is named by its icon, and a link with nothing else by its address.
+        assertTrue(l.text, "link \"upvote\" [ref=" in l.text)
+        assertTrue(l.text, "link \"news.ycombinator.com\" [ref=" in l.text)
+        assertFalse(l.text, Regex("^ *- (table|row|cell|listitem)", RegexOption.MULTILINE).containsMatchIn(l.text))
+        // ... and asks the user first: it votes.
+        val vote = Regex("link \"upvote\" \\[ref=(e\\d+)]").find(l.text)!!.groupValues[1]
+        assertEquals(Reason.ACTION_LINK, IrreversibleAction.reasonForClick(locate(vote).info))
+    }
+
+    @Test
+    fun suggestionsAreTheFieldsOwn() = runBlocking<Unit> {
+        // G-m2: type leaves Enter alone when the field's own suggestions open, not for any list on the page.
         load("reading.html")
-        assertEquals(0, PageScript.call<Suggestions>(tab, "suggestions").n)
-        call("type", "box", "lamp")
-        delay(200)
-        assertTrue(PageScript.call<Suggestions>(tab, "suggestions").n > 0)
+        suspend fun opened(id: String, text: String): Boolean {
+            val r = ref(id)
+            val before = PageScript.call<Suggestions>(tab, "suggestions", buildJsonObject { put("target", r) })
+            PageScript.callJson(tab, "type", buildJsonObject { put("target", r); put("text", text) })
+            delay(200)
+            return before.openedBy(PageScript.call(tab, "suggestions", buildJsonObject { put("target", r) }))
+        }
+        assertTrue("aria-controls list", opened("box", "lamp"))
+        assertTrue("datalist option", opened("dl", "lamp"))
+        assertFalse("a list far from the field", opened("plain", "lamp"))
+    }
+
+    @Test
+    fun aDocumentNumbersOnFromTheTabsNextRef() = runBlocking<Unit> {
+        // F7: a document back from the back/forward cache keeps its old base; new refs still start at the tab's next.
+        load("snapshot.html")
+        snapshot()
+        val next = tab.refNext
+        tab.refNext = next + 100 // what another document of the tab handed out meanwhile
+        tab.evaluate("document.body.insertAdjacentHTML('afterbegin', '<button>Added later</button>')", 5_000)
+        assertEquals("e${next + 100}", refOf(snapshot(), "button \"Added later\""))
+    }
+
+    @Test
+    fun codeThatBreaksOutOfTheCheckIsNotRun() = runBlocking<Unit> {
+        // The syntax check builds the code with new Function in a blank WebView: nothing of it runs in the page.
+        load("snapshot.html")
+        try {
+            js("window.hits = (window.hits || 0) + 1 })(); window.hits = (window.hits || 0) + 10; (function () {")
+            fail("expected a syntax error")
+        } catch (e: PageError) {
+            assertTrue(e.message, e.message!!.startsWith("SyntaxError"))
+        }
+        assertEquals("\"undefined\"", tab.evaluate("String(window.hits)", 5_000))
+        assertEquals("3", js("1 + 2"))
     }
 
     /** Live DuckDuckGo HTML results (R8). Skipped without network. */

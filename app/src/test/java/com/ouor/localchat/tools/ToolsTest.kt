@@ -101,6 +101,7 @@ class ToolsTest {
         override suspend fun <T> hiddenTab(url: String, block: suspend (BrowserTab) -> T): T = throw AssertionError("hiddenTab used")
         override fun status(s: ToolStatus?, engine: String?) = Unit
         override val readCursors = HashMap<String, ReadCursor>()
+        override val replyId = "r1"
         override fun markVisited(urls: Collection<String>) = Unit
         override fun checkApprovedPage(tab: BrowserTab) = Unit
         override suspend fun requireApproval(request: ApprovalRequest) = throw AssertionError("approval asked")

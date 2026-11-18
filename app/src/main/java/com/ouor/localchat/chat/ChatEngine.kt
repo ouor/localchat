@@ -77,6 +77,9 @@ class ChatRejected(val reason: Reason) : Exception(reason.name) {
 private val COUNT = Regex("""(\d+)""")
 private val COUNT_RES = mapOf("web_search" to R.plurals.chat_step_results)
 
+/** QA m2: steps on an element (argument: a ref) are named by the element the result found, not by the ref. */
+private val NAMED_BY_RESULT = setOf("click", "type")
+
 @Singleton
 class ChatEngine @Inject constructor(
     private val store: ChatStore,
@@ -197,7 +200,8 @@ class ChatEngine @Inject constructor(
         val countRes = COUNT_RES[block.name]?.takeIf { count != null }
         val failureRes = failure(block, result)
         return ToolStep(
-            tool.labelRes, args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
+            tool.labelRes,
+            result?.summary?.takeIf { block.name in NAMED_BY_RESULT } ?: args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
             countRes, count ?: 0, failureRes, turnedOff = failureRes == R.string.chat_step_turned_off,
         )
     }

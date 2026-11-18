@@ -87,10 +87,11 @@ interface BrowserPort {
     fun clearAiActivity(sessionId: String)
 
     /**
-     * A hidden tab at [url] for one tool call (never in the panel or tab list). The caller owns the id: call it
-     * inside NonCancellable and store the id there, or a cancel on return loses it and the tab leaks.
+     * A hidden tab at [url] for one tool call (never in the panel or tab list). The caller owns the id, handed to
+     * [opened] the moment the tab exists, so a cancel on the way back cannot lose it. Waiting for a free slot is
+     * cancellable.
      */
-    suspend fun openHiddenTab(sessionId: String, url: String): Int
+    suspend fun openHiddenTab(sessionId: String, url: String, opened: (Int) -> Unit)
     suspend fun close(tabId: Int)
 
     /** BUG-13: closes the AI tabs of [sessionId] (a deleted chat), or of every chat when null. */

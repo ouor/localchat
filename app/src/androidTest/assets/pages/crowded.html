@@ -4,9 +4,9 @@
 <div id="rows" style="margin-top:2000px"></div>
 <button id="fixed" style="position:fixed;top:0;left:0">Fixed action</button>
 <script>
-  // 5000 off-screen buttons before an on-screen one at the end of the document (B-M4).
+  // 21000 off-screen buttons (past the 20,000 bound) before an on-screen one at the end of the document (B-M4).
   var rows = document.getElementById('rows'), html = '';
-  for (var i = 0; i < 5000; i++) html += '<button>Row ' + i + '</button>';
+  for (var i = 0; i < 21000; i++) html += '<button>Row ' + i + '</button>';
   rows.innerHTML = html;
   document.body.appendChild(document.getElementById('fixed'));
 </script>

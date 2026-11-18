@@ -135,13 +135,19 @@ class TurnRunner @Inject constructor(
                 return
             }
             store.session(sessionId) ?: return // deleted meanwhile
-            var path = MessageTree.ancestors(node, store.nodes(sessionId))
+            val nodes = store.nodes(sessionId)
+            var path = MessageTree.ancestors(node, nodes)
+            // M1: a regenerated reply reads its pages from the start; the other reply's reading positions mean nothing here.
+            if (mode == Mode.NEW && body.steps == 0 && nodes.any { it.parentId == node.parentId && it.id != node.id }) {
+                readCursors(sessionId).clear()
+            }
             val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
             val builtAt = clock.now()
             // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
             val system = body.systemContext.takeIf { mode == Mode.CONTINUE } ?: SystemPrompt.build(
                 builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.mapTo(HashSet()) { it.name },
                 workTab = tools.any { it.name == "browse" } && browserPort.workTabId(sessionId) != null,
+                switchable = model.caps.toolCalling.value == true,
             )
             // FB3 QA M1: the history's tools are listed too (switched off since), or DeepSeek writes its calls as text.
             // With none exposed, no call is allowed (below) and the system prompt stays the toolless one.
@@ -152,7 +158,7 @@ class TurnRunner @Inject constructor(
             val executor = ToolExecutor(
                 sessionId, browser, attachments, browserPort, handle, listed, existingSources,
                 contextWindow = model.caps.contextWindow.value, vision = model.caps.imageInput.value,
-                readCursors = readCursors(sessionId),
+                readCursors = readCursors(sessionId), replyId = node.id,
             ) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }

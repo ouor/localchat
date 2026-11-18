@@ -6,10 +6,15 @@
 <article id="two"><h2>Second story</h2><p id="p2"></p></article>
 <input id="box" role="combobox" aria-label="Find" aria-controls="sug">
 <ul id="sug" role="listbox" hidden><li role="option">lamp shade</li><li role="option">lamp post</li></ul>
+<input id="dl" list="dlist" aria-label="Pick"><datalist id="dlist"><option value="lamp shade"></option></datalist>
+<input id="plain" type="search" name="q" aria-label="Search">
+<ul id="far" role="listbox" hidden style="margin-top:3000px"><li role="option">unrelated</li></ul>
 <script>
   // Two articles of 600+ chars each (B-m11); the second one mentions a captcha in passing (B-M3).
   document.getElementById('p1').textContent = 'ALPHA-STORY ' + 'The first story is about lamps. '.repeat(25);
   document.getElementById('p2').textContent = 'BETA-STORY ' + 'A captcha is a test that tells people and bots apart. '.repeat(20);
   document.getElementById('box').addEventListener('input', function () { document.getElementById('sug').hidden = false; });
+  // A list far from the field that opens on its input (a carousel, a re-render) is no suggestion list.
+  document.getElementById('plain').addEventListener('input', function () { document.getElementById('far').hidden = false; });
 </script>
 </body></html>

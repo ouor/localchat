@@ -20,8 +20,9 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * tools-redesign 3-2: a page's main text in parts. With url the page is read in a hidden tab (the work tab is left
- * alone) and kept for the chat (G-m9), so the next part needs no reload; without url the work tab is read. LinkPrefetcher
- * runs this tool for links in a question to a model without tools.
+ * alone) and kept for the chat (G-m9): within one reply the next part comes without a reload; a later reply reloads
+ * the page and goes on only if its text is unchanged, and a page read to the end starts over (M1). Without url the
+ * work tab is read. LinkPrefetcher runs this tool for links in a question to a model without tools.
  */
 object Read : Tool {
     override val name = "read"
@@ -32,7 +33,7 @@ object Read : Tool {
             "without url, reads the page in your browser tab. Long pages come in parts: call read again with the same url " +
             "for the next part. The result starts with a citation number [n]."
     override val parameters = params {
-        string("url", "http(s) URL to read. Omit to read the page in your browser tab.")
+        string("url", "http(s) URL to read (a path such as /a/b is read on your tab's site). Omit to read the page in your browser tab.")
     }
 
     private const val TAB = "(tab)"
@@ -49,13 +50,18 @@ object Read : Tool {
                 val doc = mark(tab)?.doc
                 val t = PageScript.call<ReadText>(tab, "readText")
                 val old = ctx.readCursors[TAB]
-                val cursor = old?.takeIf { it.doc == doc && it.head == t.text.take(HEAD) }
+                val cursor = old?.takeIf { it.doc == doc && it.head == t.text.take(HEAD) && !it.done }
                     ?: newCursor(ctx, t, r, null).copy(doc = doc, head = t.text.take(HEAD)).also { ctx.readCursors[TAB] = it }
                 part(ctx, cursor, null)
             }
         }
-        val url = ctx.checkedUrl(raw)
-        ctx.readCursors[url]?.let { return part(ctx, it, url) }
+        val url = if (Browse.isPath(raw) && "browse" in ctx.exposed) ctx.pathUrl(raw, onMain { ctx.workTab().url }) else ctx.checkedUrl(raw)
+        val old = ctx.readCursors[url]?.takeIf { !it.done }
+        if (old != null && old.reply == ctx.replyId) {
+            // A domain the user marked sensitive since the first part is refused too.
+            old.urls.firstOrNull(ctx.browser.sensitiveUrls::isSensitive)?.let { throw ToolError(sensitiveMessage(SensitiveUrls.hostOf(it).orEmpty())) }
+            return part(ctx, old, url)
+        }
         val start = now()
         return ctx.hiddenTab(url) { tab ->
             val o = ctx.open(tab, url, alreadyLoading = start)
@@ -70,7 +76,9 @@ object Read : Tool {
             // B-M1: a page reached through a sensitive site is refused before it is kept for the next part.
             val chain = (listOf(url, tab.url, t.url) + tab.mainRequestsSince(0)).distinct()
             chain.firstOrNull(ctx.browser.sensitiveUrls::isSensitive)?.let { throw ToolError(sensitiveMessage(SensitiveUrls.hostOf(it).orEmpty())) }
-            val cursor = newCursor(ctx, t, o.readiness, err).copy(urls = chain)
+            val fresh = newCursor(ctx, t, o.readiness, err)
+            // An earlier reply's position holds while the page says the same; otherwise it is read from the start.
+            val cursor = (old?.takeIf { it.parts == fresh.parts } ?: fresh).copy(urls = chain, reply = ctx.replyId)
             ctx.readCursors[url] = cursor
             ctx.readCursors[t.url] = cursor
             part(ctx, cursor, url).let { if (err?.http == true) it.copy(isError = true) else it }
@@ -78,6 +86,8 @@ object Read : Tool {
     }
 
     private const val HEAD = 500
+
+    private val ReadCursor.done get() = next >= parts.size
 
     private fun newCursor(ctx: ToolContext, t: ReadText, r: Readiness, err: NavError?): ReadCursor {
         val marks = listOfNotNull(
@@ -101,7 +111,6 @@ object Read : Tool {
     private fun part(ctx: ToolContext, c: ReadCursor, url: String?): ToolOutcome {
         ctx.markVisited(c.urls + c.url)
         val k = c.parts.size
-        if (c.next >= k) return ToolOutcome("", lead = "That was the last part ($k of $k).", summary = "${c.title} ($k/$k)")
         val i = c.next++
         // Numbered per message: a cursor kept from an earlier turn gets this message's number.
         val n = ctx.numberSource(c.url, c.title, null)

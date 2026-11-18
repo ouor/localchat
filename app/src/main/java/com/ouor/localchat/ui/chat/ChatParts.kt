@@ -158,11 +158,13 @@ internal fun AssistantTurn(
                 failed > 0 -> StepListState.FailedSome
                 else -> StepListState.Done
             }
+            // QA m1: agent steps (model round trips), as the running "step n of max" counts them, not tool calls.
+            val taken = maxOf(body.steps, calls.map { it.step }.distinct().size)
             val title = when (listState) {
                 StepListState.Running, StepListState.Paused -> stringResource(if (browser) R.string.ui_browser_working else R.string.ui_working)
-                StepListState.Stopped -> stringResource(R.string.ui_steps_stopped, steps.size)
-                StepListState.FailedSome -> stringResource(R.string.ui_steps_failed, steps.size, failed)
-                StepListState.Done -> stringResource(R.string.ui_steps_done, steps.size)
+                StepListState.Stopped -> stringResource(R.string.ui_steps_stopped, taken)
+                StepListState.FailedSome -> stringResource(R.string.ui_steps_failed, taken, failed)
+                StepListState.Done -> stringResource(R.string.ui_steps_done, taken)
             }
             val caption = when {
                 running -> stringResource(R.string.ui_step_of, state.step + 1, state.maxSteps)
@@ -255,7 +257,7 @@ private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor
     val detail = when {
         (state == StepState.Failed || state == StepState.Skipped) && step?.failureRes != null -> stringResource(step.failureRes) // BUG-10
         step?.countRes != null -> androidx.compose.ui.res.pluralStringResource(step.countRes, step.count, step.count) // BUG-08
-        else -> result?.summary
+        else -> result?.summary?.takeIf { it != step?.argSummary }
     }
     return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, detail, v.agent)
 }
@@ -290,7 +292,7 @@ private fun siteName(url: String) = runCatching { java.net.URI(url).host?.remove
 
 private const val LINE = "\n"
 
-/** Full-screen image (tool screenshot): fit to screen, close button. */
+/** Full-screen image (a step's page picture): fit to screen, close button. */
 @Composable
 private fun ImageViewer(model: Any, onClose: () -> Unit) {
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {

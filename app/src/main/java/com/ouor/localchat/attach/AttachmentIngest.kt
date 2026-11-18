@@ -76,7 +76,7 @@ class AttachmentIngest @Inject constructor(
 
     /**
      * Coil model for an image tile: the downscaled request image when it exists (cheaper), else the
-     * original. Image artifacts (approval previews, screenshots) have no request image and use the original.
+     * original. Image artifacts (approval previews, page pictures) have no request image and use the original.
      * null for non-images and when neither file exists (name-only rows, failed copies).
      */
     fun imageModel(a: Attachment): File? {

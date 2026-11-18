@@ -86,6 +86,9 @@ interface ToolContext {
     /** read's continuation per URL (and "(tab)"), for this chat. */
     val readCursors: MutableMap<String, ReadCursor>
 
+    /** The reply this call belongs to: read goes on with a page without reloading it only within one reply. */
+    val replyId: String
+
     /** B-S4: [urls] were visited for this call's result (a cached read part): their cookie values are masked too. */
     fun markVisited(urls: Collection<String>)
 
@@ -111,7 +114,7 @@ data class ApprovalRequest(
     val targetText: String?,
     val url: String?,
     /** SC-13 preview: artifact attachment id of a JPEG crop of the target element (never of a sensitive field). */
-    val screenshotId: String? = null,
+    val previewId: String? = null,
     /** execute: full code shown before running. */
     val code: String? = null,
     /** Why approval is needed; null for execute (always approved). */
@@ -131,6 +134,8 @@ data class ReadCursor(
     val head: String? = null,
     /** Every URL the page was loaded through (redirects): masked again whenever a part is sent (B-S4). */
     val urls: List<String> = emptyList(),
+    /** The reply that last read from it ([ToolContext.replyId]). */
+    val reply: String = "",
 )
 
 /** B-05 request to hand the tab to the user; the loop pauses on it. */

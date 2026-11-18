@@ -28,7 +28,7 @@ enum class AttachmentKind {
     IMAGE,
     DOCUMENT,
 
-    /** Tool output (screenshot, PDF). */
+    /** Tool output (page picture, approval preview, PDF). */
     ARTIFACT,
 }
 

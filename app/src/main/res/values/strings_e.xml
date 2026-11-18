@@ -166,6 +166,7 @@
     <string name="ui_default">default</string>
     <string name="ui_approval_title">Allow %1$s?</string>
     <string name="ui_approval_body">This action may not be reversible.</string>
+    <string name="ui_approval_code">Runs code on the page.</string>
     <string name="ui_search_chats">Search chat titles</string>
     <string name="ui_search_results">Results %1$d</string>
     <string name="ui_settings">Settings</string>

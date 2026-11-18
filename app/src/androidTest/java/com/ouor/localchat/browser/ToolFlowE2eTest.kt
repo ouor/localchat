@@ -29,7 +29,14 @@ import java.util.Collections
 @RunWith(AndroidJUnit4::class)
 class ToolFlowE2eTest : ToolFlowBase() {
 
+    private val tickerVersion = java.util.concurrent.atomic.AtomicInteger()
+
     override fun respond(path: String, request: RecordedRequest): MockResponse? {
+        // M1: a page in three parts; the ticker says something else on every load.
+        if (path == "/long-read" || path == "/ticker") {
+            val v = if (path == "/ticker") "Version ${tickerVersion.incrementAndGet()} " else ""
+            return html("<!doctype html><title>Long read</title><main>" + (0 until 40).joinToString("") { "<p>${v}Para $it ${"x".repeat(950)}</p>" } + "</main>")
+        }
         if (path == "/to-account") return MockResponse.Builder().code(302).addHeader("Location", SENSITIVE_URL).build()
         val body = PAGES[path] ?: return null
         val b = MockResponse.Builder().addHeader("Content-Type", "text/html; charset=utf-8")
@@ -72,6 +79,72 @@ class ToolFlowE2eTest : ToolFlowBase() {
         assertEquals(ToolCallState.DONE, reply.calls().single().state)
         assertTrue(reply.results().single().content, "Page /p1 body text" in reply.results().single().content)
         assertTrue(browser.tabs.value.isEmpty())
+    }
+
+    @Test
+    fun aPageReadToTheEndIsReadAgainFromTheStart() {
+        // M1: a finished cursor does not answer "that was the last part"; the page is read anew.
+        llm.enqueue(
+            Scenario.toolCall("read", """{"url":"${url("/p1")}"}"""),
+            Scenario.toolCall("read", """{"url":"${url("/p1")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("read twice"))
+        reply.results().forEach { assertTrue(it.content, "Page /p1 body text" in it.content) }
+        assertEquals(2, pageHits.count { it == "/p1" })
+    }
+
+    @Test
+    fun readTakesAPathFromTheListOnTheTabsSite() {
+        // QA-M2: same-site links are listed as paths; read opens one on the work tab's site.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("read", """{"url":"/p1"}"""),
+            Scenario.text("done"),
+        )
+        val read = awaitEnd(send("read a path")).results()[1].content
+        assertTrue(read, "Page /p1 body text" in read)
+    }
+
+    @Test
+    fun readingGoesOnInALaterTurnAndARegeneratedReplyStartsOver() {
+        // M1: the next turn goes on from part 2 (same page); regenerating that reply starts from part 1 again.
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/long-read")}"}"""), Scenario.text("first"))
+        val sid = send("read it")
+        assertTrue(awaitEnd(sid).results().single().content.let { "(part 1 of 3)" in it && "Para 0 " in it })
+        awaitTitleRequest()
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/long-read")}"}"""), Scenario.text("second"))
+        sendTo(sid, "go on")
+        val second = awaitEnd(sid).results().single().content
+        assertTrue(second, "(part 2 of 3)" in second)
+        val secondId = store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }.id
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/long-read")}"}"""), Scenario.text("again"))
+        runBlocking { engine.regenerate(secondId, MODEL, GenOptions(browser = true)) }
+        val again = runBlocking {
+            withTimeout(30_000) {
+                var r: MessageBody.Assistant? = null
+                while (r == null) {
+                    r = store.messages.values.lastOrNull { it.sessionId == sid && it.body is MessageBody.Assistant && it.id != secondId }
+                        ?.let { it.body as MessageBody.Assistant }?.takeIf { it.status == ReplyStatus.DONE && it.calls().isNotEmpty() }
+                    if (r == null) delay(100)
+                }
+                r
+            }
+        }
+        assertTrue(again.results().single().content, "(part 1 of 3)" in again.results().single().content)
+    }
+
+    @Test
+    fun aChangedPageIsReadFromTheStartInALaterTurn() {
+        // M1: an earlier turn's position is kept only while the page says the same.
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/ticker")}"}"""), Scenario.text("first"))
+        val sid = send("read the ticker")
+        assertTrue("(part 1 of 3)" in awaitEnd(sid).results().single().content)
+        awaitTitleRequest()
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/ticker")}"}"""), Scenario.text("second"))
+        sendTo(sid, "again")
+        val second = awaitEnd(sid).results().single().content
+        assertTrue(second, "(part 1 of 3)" in second && "Version 2 Para 0 " in second)
     }
 
     @Test
@@ -126,7 +199,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
         val del = awaitPause(sid) as Pause.Approval
         assertEquals("RISKY_KEYWORD", del.request.reason?.name)
         // SC-13: the approval carries a crop of the target element (null when none could be made).
-        assertEquals("artifact-approval-preview.jpg", del.request.screenshotId)
+        assertEquals("artifact-approval-preview.jpg", del.request.previewId)
         engine.resolve(sid, Resolution.ApprovalAnswer(del.id, allow = true))
         val exec = awaitPause(sid) as Pause.Approval
         assertEquals("execute", exec.request.toolName)
@@ -160,6 +233,23 @@ class ToolFlowE2eTest : ToolFlowBase() {
         assertTrue(typed, Regex("^Typed \"lamps\" into e\\d+ and pressed Enter → new page\\.").containsMatchIn(typed))
         assertTrue(typed, "Page /results body text" in typed)
         assertTrue(pageHits.toString(), pageHits.any { it == "/results" })
+    }
+
+    @Test
+    fun typeInASearchBoxWaitsForAScriptHandledSubmit() {
+        // The Enter of a search box is often handled by the page's script, which navigates a moment later (300 ms
+        // here). The wait after Enter must start at the Enter, not at the typing before it.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/search-js")}"}"""),
+            Scenario.toolCall("type", """{"ref":"${Scenario.ref("searchbox")}","text":"lamps"}"""),
+            Scenario.text("done"),
+        )
+        val sid = send("search")
+        val p = awaitPause(sid) as Pause.Approval // http page
+        engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = true))
+        val typed = awaitEnd(sid).results()[1].content
+        assertTrue(typed, Regex("^Typed \"lamps\" into e\\d+ and pressed Enter → new page\\.").containsMatchIn(typed))
+        assertTrue(typed, "Page /results body text" in typed)
     }
 
     @Test
@@ -325,6 +415,26 @@ class ToolFlowE2eTest : ToolFlowBase() {
     }
 
     @Test
+    fun aHiddenTabWaitsForAFreeSlotAndStopsWaitingOnCancel() = runBlocking<Unit> {
+        // B-m9 and its cancel: at the limit the call waits for a slot; a stop ends the wait at once.
+        val held = withContext(Dispatchers.Main) { List(TabRules.MAX_HIDDEN_TABS) { browser.openAiTab("s1", "about:blank", hidden = true) } }
+        var got: Int? = null
+        val waiting = async(Dispatchers.Default) { browser.openHiddenTab("s2", "about:blank") { got = it } }
+        delay(600)
+        assertFalse(waiting.isCompleted)
+        withContext(Dispatchers.Main) { browser.close(held[0]) }
+        withTimeout(2_000) { waiting.await() }
+        assertTrue(browser.tabs.value.any { it.id == got && it.hidden })
+        val cancelled = async(Dispatchers.Default) { browser.openHiddenTab("s3", "about:blank") { error("opened while full") } }
+        delay(300)
+        val t = System.currentTimeMillis()
+        cancelled.cancel()
+        withTimeout(1_000) { cancelled.join() }
+        assertTrue("stopped in ${System.currentTimeMillis() - t} ms", System.currentTimeMillis() - t < 1_000)
+        assertEquals(TabRules.MAX_HIDDEN_TABS, browser.tabs.value.count { it.hidden })
+    }
+
+    @Test
     fun aHiddenTabsDialogsAreRefusedAtOnce() = runBlocking<Unit> {
         // FB3 ui m6: nobody sees a prefetch tab, so alert()/confirm() must not hold the page.
         val hidden = withContext(Dispatchers.Main) { browser.openAiTab("s1", url("/alert"), hidden = true) }
@@ -394,10 +504,10 @@ class ToolFlowE2eTest : ToolFlowBase() {
         )
         val reply = awaitEnd(send("long"))
         val (first, second) = reply.results().map { it.content }
-        assertTrue(first, "Call browse() again to list them" in first)
+        assertTrue(first, "browse() with no url lists the remaining elements" in first)
         assertTrue(first, "button \"Item 1\" [" in first)
         assertTrue(second, "button \"Item 1\" [" !in second)
-        assertTrue(second, "button \"Item 399\"" in second)
+        assertTrue(second, "button \"Item 699\"" in second)
     }
 
     private companion object {
@@ -410,7 +520,11 @@ class ToolFlowE2eTest : ToolFlowBase() {
             "/alert" to """<!doctype html><title>Before</title><script>alert('hi'); confirm('ok?'); document.title = 'After'</script>""",
             "/login" to """<!doctype html><title>Login</title><input id="user"><input id="pw" type="password">
                 <iframe id="f" src="data:text/html,<button>Pay</button>" style="width:300px;height:80px"></iframe>""",
-            "/long" to "<!doctype html><title>Long</title>" + (0 until 400).joinToString("") { "<button>Item $it</button>" },
+            "/long" to "<!doctype html><title>Long</title>" + (0 until 700).joinToString("") { "<button>Item $it</button>" },
+            "/search-js" to """<!doctype html><title>Search</title><form id="f" action="/results"><input id="q" type="search" name="q"></form>
+                <script>document.getElementById('f').addEventListener('submit', function (e) {
+                    e.preventDefault(); setTimeout(function () { location.assign('/results?q=' + encodeURIComponent(document.getElementById('q').value)) }, 300)
+                })</script>""",
             "/search" to """<!doctype html><title>Search</title><form action="/results"><input id="q" type="search" name="q"></form>""",
             "/form" to """<!doctype html><title>Form</title>
                 <button id="plain" onclick="this.textContent='pressed'">Show more</button>

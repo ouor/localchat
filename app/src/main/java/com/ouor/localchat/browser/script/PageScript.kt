@@ -69,7 +69,7 @@ object PageScript {
         timeoutMs: Long = DEFAULT_TIMEOUT,
         retry: Boolean = true,
     ): JsonElement {
-        val js = "(function(){var A;try{${install(tab)}return JSON.stringify({ok:A.call(${JsonPrimitive(fn)},$args),next:A.next()});}" +
+        val js = "(function(){var A;try{${install(tab)}A.floor(${tab.refNext});return JSON.stringify({ok:A.call(${JsonPrimitive(fn)},$args),next:A.next()});}" +
             "catch(e){return JSON.stringify({error:String(e&&e.message||e),next:A&&A.next()});}})()"
         val raw = tab.evaluate(js, timeoutMs).takeUnless { it == "null" } ?: run {
             if (!retry) throw PageError(NOT_RUN)
@@ -102,17 +102,16 @@ object PageScript {
 
     /**
      * `execute` (architecture 7.4): [code] runs as an expression, or as a function body when it is not one; it runs
-     * at most once (tools-redesign 3-6). Which form parses is checked first without running anything, so an empty
+     * at most once (tools-redesign 3-6). Which form parses is checked first without running anything ([JsSyntax]), so an empty
      * answer afterwards can only mean the document changed while the code ran (B-m2). Sensitive input value setters
      * are refused while it runs; a returned Promise is awaited by polling. Returns the JSON-ish result text (not yet
      * capped or cookie-masked).
      */
     suspend fun execute(tab: BrowserTab, code: String, timeoutMs: Long): String {
         val expr = code.trim().trimEnd(';').trim()
-        val body = listOf("return ($expr\n);", "$code\n").firstOrNull { parses(tab, it) } ?: run {
-            if (tab.evaluate("1", DEFAULT_TIMEOUT) != "1") throw PageError(NOT_RUN)
-            throw PageError("SyntaxError: the code could not be parsed as an expression or as statements.")
-        }
+        val ctx = tab.webView.context
+        val body = listOf("return ($expr\n);", "$code\n").firstOrNull { JsSyntax.parses(ctx, it) ?: throw PageError(NOT_CHECKED) }
+            ?: throw PageError("SyntaxError: the code could not be parsed as an expression or as statements; it was not run.")
         val raw = tab.evaluate(execWrapper(body, tab), timeoutMs)
         if (raw == "null") throw PageError(EXEC_UNKNOWN)
         var result = decode(raw)
@@ -131,13 +130,8 @@ object PageScript {
         return okOf(result).jsonPrimitive.content
     }
 
-    /**
-     * [body] parses as a function body: it is declared after a return, so it is compiled and never run. Not
-     * `new Function`, which a page's Content-Security-Policy may forbid.
-     */
-    private suspend fun parses(tab: BrowserTab, body: String): Boolean =
-        tab.evaluate("(function(){return 1;function f(){$body}})()", DEFAULT_TIMEOUT) == "1"
-
+    // shortcut: code that closes the wrapper's braces itself runs outside execBegin's setter guard (still once); a
+    // page-side `new Function` would close that gap but a page's CSP may forbid it.
     private fun execWrapper(body: String, tab: BrowserTab) =
         "(function(){${install(tab)}A.call('execBegin');var r;try{r=(function(){$body})();}" +
             "catch(e){A.call('execEnd');return JSON.stringify({error:String(e&&e.stack||e)});}" +
@@ -155,6 +149,7 @@ object PageScript {
     }
 
     const val NOT_RUN = "The page did not run the script (it may still be loading)."
+    const val NOT_CHECKED = "The code could not be checked before running, so it was not run. Try again."
 
     /** The model-facing text after the one retry; ToolExecutor adds the browse hint when browse is exposed. */
     const val NOT_RUN_AGAIN = "The page was changing and did not run the script."

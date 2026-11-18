@@ -56,6 +56,6 @@ data class ApprovalInfo(
     val url: String?,
     val targetText: String?,
     val code: String? = null,
-    val screenshotId: String? = null,
+    val previewId: String? = null,
     val reason: IrreversibleAction.Reason? = null,
 )

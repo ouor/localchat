@@ -57,6 +57,7 @@ class ToolExecutor(
     override val vision: Boolean = false,
     /** read's continuations of this chat; they outlive the turn (G-m9). */
     override val readCursors: MutableMap<String, ReadCursor>,
+    override val replyId: String,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
     private val onState: (callKey: String, ToolCallState) -> Unit,
 ) : ToolContext {
@@ -244,8 +245,8 @@ class ToolExecutor(
     override suspend fun <T> hiddenTab(url: String, block: suspend (BrowserTab) -> T): T {
         var id: Int? = null
         try {
-            // The id is stored inside NonCancellable: a cancel on the way out of withContext then still finds it in finally.
-            withContext(NonCancellable) { id = browserPort.openHiddenTab(sessionId, url) } // Too many tabs throws (AN 1).
+            // The id is stored the moment the tab exists, so a cancel on the way back still finds it in finally.
+            browserPort.openHiddenTab(sessionId, url) { id = it } // Too many tabs throws (AN 1).
             val tabId = checkNotNull(id)
             visited += url
             val tab = withContext(Dispatchers.Main.immediate) { browserPort.tab(tabId) }
@@ -271,7 +272,7 @@ class ToolExecutor(
     }
 
     override suspend fun requireApproval(request: ApprovalRequest): Boolean = ask(
-        ApprovalInfo(request.toolName, lastTabId, request.url, request.targetText, request.code, request.screenshotId, request.reason),
+        ApprovalInfo(request.toolName, lastTabId, request.url, request.targetText, request.code, request.previewId, request.reason),
     )
 
     private suspend fun ask(info: ApprovalInfo): Boolean {
