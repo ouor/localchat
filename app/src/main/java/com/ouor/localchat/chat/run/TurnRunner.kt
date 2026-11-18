@@ -129,15 +129,20 @@ class TurnRunner @Inject constructor(
             val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
             val builtAt = clock.now()
             // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
-            val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
-                ?: SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
+            val system = body.systemContext.takeIf { mode == Mode.CONTINUE } ?: SystemPrompt.build(
+                builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.mapTo(HashSet()) { it.name },
+                workTab = tools.any { it.name == "browse" } && browserPort.workTabId(sessionId) != null,
+            )
             // FB3 QA M1: the history's tools are listed too (switched off since), or DeepSeek writes its calls as text.
             // With none exposed, no call is allowed (below) and the system prompt stays the toolless one.
             val historyNames = (path.map { it.body } + body).filterIsInstance<MessageBody.Assistant>()
                 .flatMap { b -> b.blocks.filterIsInstance<ToolCallBlock>().map { it.name } }
             val listed = ToolExposure.listedTools(tools, historyNames, model.caps, toolPort::byName)
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
-            val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, listed, existingSources) { id, state ->
+            val executor = ToolExecutor(
+                sessionId, browser, attachments, browserPort, handle, listed, existingSources,
+                contextWindow = model.caps.contextWindow.value, vision = model.caps.imageInput.value,
+            ) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
             // Listed only for the history: a call to one is answered TOOL_OFF, never run.
@@ -274,6 +279,7 @@ class TurnRunner @Inject constructor(
                         // SE 24: one response cannot fan out into an unbounded run of tools.
                         calls.take(MAX_CALLS_PER_STEP).forEach { narrow(); runTool(executor, it) }
                         policy = policy.afterCalls(calls.all { executor.isOff(it.name) }, shape)
+                        if (mode == Mode.NEW) noteStepsLeft(step, maxSteps)
                         calls.drop(MAX_CALLS_PER_STEP).forEach { skipped ->
                             publish(
                                 body.copy(
@@ -303,7 +309,7 @@ class TurnRunner @Inject constructor(
                     // Also on stop: a tab left in USER would stall the next run's first tool (AN 13, SE 22).
                     browserPort.setControl(handoff.tabId, Control.AI)
                 }
-                block = block.copy(content = SystemPrompt.HANDOFF_DONE, isError = false)
+                block = block.copy(content = executor.afterHandoff(handoff.tabId), isError = false)
             }
             val now = clock.now()
             publish(
@@ -315,6 +321,15 @@ class TurnRunner @Inject constructor(
             )
             dispatching = null
             save()
+        }
+
+        /** tools-redesign 5-4: near the step limit, the step's last result tells the model how many steps are left (outside the page boundary, stored). */
+        fun noteStepsLeft(step: Int, maxSteps: Int) {
+            val left = StepPolicy.stepsLeft(step + 1, maxSteps)
+            if (left !in 1..3) return
+            val last = body.blocks.lastOrNull { it is ToolResultBlock && it.step == step } as? ToolResultBlock ?: return
+            val note = "[App note: $left step(s) left before the user is asked whether to continue. Answer soon if you can.]"
+            publish(body.copy(blocks = body.blocks.map { if (it === last) last.copy(content = last.content + "\n\n" + note) else it }))
         }
 
         suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, shape: StepPolicy.Shape) =

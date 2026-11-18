@@ -2,6 +2,7 @@ package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.core.model.MessageNode
 import com.ouor.localchat.browser.safety.IrreversibleAction
+import com.ouor.localchat.core.model.ToolStatus
 
 /** A live run of one session (architecture 5.2). Exposed through ChatEngine.runs. */
 data class RunState(
@@ -19,7 +20,8 @@ sealed interface RunPhase {
     data object Streaming : RunPhase
     data object Compacting : RunPhase
     data class Retrying(val attempt: Int, val max: Int, val delayMs: Long) : RunPhase
-    data class RunningTool(val callId: String, val toolName: String, val tabId: Int?) : RunPhase
+    /** [tabId] = the work tab the call acts on (the panel peeks); [status] = what it waits for ([engine] for OTHER_ENGINE). */
+    data class RunningTool(val callId: String, val toolName: String, val tabId: Int?, val status: ToolStatus? = null, val engine: String? = null) : RunPhase
     data class Paused(val pause: Pause) : RunPhase
 }
 

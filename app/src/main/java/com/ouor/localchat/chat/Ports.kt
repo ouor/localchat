@@ -44,7 +44,7 @@ interface ModelPort {
 interface ToolPort {
     fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool>
 
-    /** Any catalog tool, exposed or not (LinkPrefetcher runs page_text itself). */
+    /** Any catalog tool, exposed or not (LinkPrefetcher runs read itself). */
     fun byName(name: String): Tool?
 }
 
@@ -62,17 +62,19 @@ interface AttachmentPort {
     suspend fun saveText(name: String, text: String): String
 }
 
-/** BrowserEngine (track C) checks behind ToolContext.aiTab (architecture 6.4). */
+/** BrowserEngine (track C) checks behind ToolContext.workTab (architecture 6.4). */
 interface BrowserPort {
-    /** Default or given AI tab id of [sessionId] after ownership and sensitive-URL checks; throws when refused. */
-    suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int
+    /** The chat's work tab id, null when it has none. */
+    suspend fun workTabId(sessionId: String): Int?
+
+    /** Main thread. Throws NoSuchElementException for a closed tab. */
     fun tab(tabId: Int): BrowserTab
 
     /**
-     * F-02: the engine's single AI-tab path (checks, user-control wait, B-09 ② activity for [toolName]).
-     * Returns the tab id; [onUserControl] / [onResumed] bracket the wait.
+     * F-02: the engine's single AI-tab path (checks, user-control wait, B-09 ② activity for [toolName]); only a
+     * [navigating] call creates the work tab. Returns the tab id; [onUserControl] / [onResumed] bracket the wait.
      */
-    suspend fun acquireAiTab(sessionId: String, tabIdArg: Int?, toolName: String, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int
+    suspend fun acquireAiTab(sessionId: String, toolName: String, navigating: Boolean, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int
 
     /** Current URL of the tab, null once closed. */
     fun tabUrl(tabId: Int): String?
@@ -85,10 +87,10 @@ interface BrowserPort {
     fun clearAiActivity(sessionId: String)
 
     /**
-     * S-03 hidden link-prefetch tab (never in the panel, tab list or get_tabs). The caller owns the id: call it
+     * A hidden tab at [url] for one tool call (never in the panel or tab list). The caller owns the id: call it
      * inside NonCancellable and store the id there, or a cancel on return loses it and the tab leaks.
      */
-    suspend fun openPrefetchTab(sessionId: String, url: String): Int
+    suspend fun openHiddenTab(sessionId: String, url: String): Int
     suspend fun close(tabId: Int)
 
     /** BUG-13: closes the AI tabs of [sessionId] (a deleted chat), or of every chat when null. */

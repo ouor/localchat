@@ -143,7 +143,10 @@ internal fun AssistantTurn(
                 val r = results[call.key]
                 // BUG-17 (B-08): a screenshot step shows its image; tap opens it full screen.
                 val image = r?.artifactIds.orEmpty().firstNotNullOfOrNull { id -> state.attachments[id]?.takeIf { it.mime.startsWith("image/") }?.let(thumbnail) }
-                stepOf(call, r, toolStep(call, r)).copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
+                // tools-redesign 2-7: what the running call waits for takes the result's line (same height).
+                val waiting = (state.runPhase as? com.ouor.localchat.chat.run.RunPhase.RunningTool)?.takeIf { running && it.callId == call.callId }
+                val step = stepOf(call, r, toolStep(call, r)).copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
+                waiting?.status?.let { step.copy(result = statusText(it, waiting.engine)) } ?: step
             }
             val failed = steps.count { it.state == StepState.Failed }
             val browser = calls.any { toolVisual(it.name).agent }
@@ -264,6 +267,15 @@ internal fun stepState(call: ToolCallBlock, result: ToolResultBlock?, step: com.
     ToolCallState.FAILED -> if (step?.turnedOff == true) StepState.Skipped else StepState.Failed
     ToolCallState.DENIED -> StepState.Denied
     ToolCallState.CANCELLED -> StepState.Stopped
+}
+
+@Composable
+private fun statusText(s: com.ouor.localchat.core.model.ToolStatus, engine: String?): String = when (s) {
+    com.ouor.localchat.core.model.ToolStatus.OPENING -> stringResource(R.string.ui_tool_status_opening)
+    com.ouor.localchat.core.model.ToolStatus.SETTLING -> stringResource(R.string.ui_tool_status_settling)
+    com.ouor.localchat.core.model.ToolStatus.RETRYING -> stringResource(R.string.ui_tool_status_retrying)
+    com.ouor.localchat.core.model.ToolStatus.OTHER_ENGINE -> stringResource(R.string.ui_tool_status_other_engine, engine.orEmpty())
+    com.ouor.localchat.core.model.ToolStatus.PAGE_DIALOG -> stringResource(R.string.ui_tool_status_page_dialog)
 }
 
 @Composable

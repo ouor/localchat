@@ -206,12 +206,12 @@ internal object DeepSeekImporter {
                     blocks += tool(callId, "web_search", args, s.status ?: "FINISHED", createdAt, content, sources)
                 }
                 "TOOL_OPEN" -> fragment(DsOpen.serializer(), f)?.takeIf { it.url != null && isWebUrl(it.url) }?.let { o ->
-                    blocks += tool(callId, "open_tab", buildJsonObject { put("url", o.url) }, o.status, createdAt, listOfNotNull(o.title, o.url).joinToString("\n"))
+                    blocks += tool(callId, "read", buildJsonObject { put("url", o.url) }, o.status, createdAt, listOfNotNull(o.title, o.url).joinToString("\n"))
                 }
                 "READ_LINK" -> fragment(DsReadLink.serializer(), f)?.results.orEmpty().forEachIndexed { j, r ->
                     // Signature-only results mean nothing outside DeepSeek's server; they are dropped.
                     if (r.url != null && isWebUrl(r.url)) {
-                        blocks += tool("$callId-$j", "open_tab", buildJsonObject { put("url", r.url) }, "FINISHED", createdAt, listOfNotNull(r.title, r.url).joinToString("\n"))
+                        blocks += tool("$callId-$j", "read", buildJsonObject { put("url", r.url) }, "FINISHED", createdAt, listOfNotNull(r.title, r.url).joinToString("\n"))
                     }
                 }
                 // TIP, CONTENT_RISK, PARTIAL_FILE_READ, TOOL_FIND, TOOL_IMAGE_SEARCH ... have no local form.

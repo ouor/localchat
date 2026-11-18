@@ -65,14 +65,13 @@ class StoredAttachmentPort @Inject constructor(private val stored: StoredAttachm
 }
 
 class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) : BrowserPort {
-    // Default tab creation, ownership and B-S3 live in one place in the engine (main thread only).
-    override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int =
-        withContext(Dispatchers.Main.immediate) { engine.aiTabFor(sessionId, tabIdArg).id }
+    override suspend fun workTabId(sessionId: String): Int? = withContext(Dispatchers.Main.immediate) { engine.workTab(sessionId) }
 
     override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
 
-    override suspend fun acquireAiTab(sessionId: String, tabIdArg: Int?, toolName: String, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int =
-        engine.acquireAiTab(sessionId, tabIdArg, toolName, onUserControl, onResumed).id
+    // Work tab creation, ownership and B-S3 live in one place in the engine (main thread only).
+    override suspend fun acquireAiTab(sessionId: String, toolName: String, navigating: Boolean, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int =
+        engine.acquireAiTab(sessionId, toolName, navigating, onUserControl, onResumed).id
 
     override fun setControl(tabId: Int, control: Control) = engine.setControl(tabId, control)
 
@@ -88,7 +87,7 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
         sessions.forEach(engine::closeSessionTabs)
     }
 
-    override suspend fun openPrefetchTab(sessionId: String, url: String): Int =
+    override suspend fun openHiddenTab(sessionId: String, url: String): Int =
         withContext(Dispatchers.Main.immediate) { engine.openAiTab(sessionId, url, hidden = true) }
 
     override suspend fun close(tabId: Int) = withContext(Dispatchers.Main.immediate) { engine.close(tabId) }

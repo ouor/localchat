@@ -4,7 +4,6 @@ import com.ouor.localchat.R
 import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.tools.ApprovalMode
-import com.ouor.localchat.tools.ApprovalRequest
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
@@ -18,7 +17,7 @@ import kotlinx.serialization.json.JsonObject
 /**
  * Native trusted tap at the element centre when elementFromPoint lands on it, JS click() otherwise
  * (architecture 7.4). POST submits, risky labels and frames ask the user first (B-S2); the target is located
- * again right before the tap and must still be the approved one (SE 7).
+ * again right before the tap and must still be the approved one (SE 7). The result is the page after the click.
  */
 object Click : Tool {
     override val name = "click"
@@ -26,34 +25,35 @@ object Click : Tool {
     override val approval = ApprovalMode.CONDITIONAL
     override val labelRes = R.string.tool_click
     override val description =
-        "Click an element in your tab. Submitting forms or pressing buttons like pay, order, delete or send " +
-            "asks the user for approval first; if they deny, do not retry."
-    override val parameters = params {
-        targetParam()
-        tabIdParam()
-    }
+        "Click an element by its ref from the latest element list: links, buttons, checkboxes, radio buttons, tabs, menus. " +
+            "Pay, order, delete, send and similar buttons, and buttons that post a form, ask the user first; if they deny, " +
+            "do not retry. Returns the page after the click."
+    override val parameters = params { refParam() }
 
-    override fun argSummary(args: JsonObject) = args.optString("target").orEmpty()
+    override fun argSummary(args: JsonObject) = args.optString("ref").orEmpty()
 
     override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome {
-        val target = args.string("target")
+        val ref = args.string("ref")
         return onMain {
-            val tab = ctx.tabFor(args)
-            var at = locate(tab, target)
+            val tab = ctx.workTab()
+            var at = locate(tab, ref)
             if (at.disabled) throw ToolError("${at.info.label()} is disabled.")
             val reason = IrreversibleAction.reasonForClick(at.info)
             val label = at.info.label()
             if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED
-            if (reason != null) at = locate(tab, target) // scroll back to it after the approval wait
+            if (reason != null) at = locate(tab, ref) // scroll back to it after the approval wait
             ctx.highlight(tab, at, R.string.browser_highlight_click)
             // SE 7: the page may have moved or swapped the element while the user decided or the outline showed.
-            at = locate(tab, target, scroll = false)
+            at = locate(tab, ref, scroll = false)
             if (at.info.label() != label || IrreversibleAction.reasonForClick(at.info) != reason) {
-                throw ToolError("The element changed before the click. Take a new snapshot and try again.")
+                throw ToolError("The element changed before the click. Use a ref from the latest list.")
             }
-            val native = at.hit && tab.tap(at.cx, at.cy, at.innerWidth)
-            if (!native) tolerateDialog(tab) { PageScript.callJson(tab, "click", targetArgs(target)) }
-            ToolOutcome("Clicked ${at.info.label()}. ${settle(tab)}", summary = at.info.label())
+            val target = at
+            val acted = ctx.act(tab) {
+                if (!(target.hit && tab.tap(target.cx, target.cy, target.innerWidth))) PageScript.callJson(tab, "click", refArgs(ref))
+            }
+            val covered = if (target.hit) "" else " (it was covered by another element, so a script click was used)"
+            ctx.actionResult(tab, "Clicked $label$covered", acted, label)
         }
     }
 }

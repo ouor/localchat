@@ -100,6 +100,7 @@ object ContextAssembler {
                 body.blocks.filterIsInstance<ToolCallBlock>()
                     .map { Triple("$reply/${it.key}", it.name, results[it.key]?.content ?: SystemPrompt.ABORTED) }
             },
+            input.model.caps.contextWindow.value,
         )
 
         val latestImage = replies.flatMap { b -> b.blocks.filterIsInstance<ToolResultBlock>().mapNotNull { it.imageForModelId } }.lastOrNull()

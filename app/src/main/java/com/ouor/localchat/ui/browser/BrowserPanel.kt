@@ -66,6 +66,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FrontHand
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -134,6 +135,8 @@ interface BrowserActions {
     fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<android.net.Uri>?)
     fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean)
     fun answerDownload(p: BrowserPrompt.Download, allow: Boolean)
+    /** Panel ⋮ "Save as PDF": the tab's page into [uri]; [done] gets whether it worked (main thread). */
+    fun savePdf(id: Int, uri: android.net.Uri, done: (Boolean) -> Unit)
     /** Engine-owned WebView for [BrowserSurface]; null in tests (a blank page is drawn). */
     fun webView(id: Int): android.webkit.WebView?
     /** [BrowserSurface] shows / is done with the tab's WebView (paired; the engine counts holders). */
@@ -197,6 +200,8 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
     val cover by rememberUpdatedState(onCoverHeight)
     if (t != null) BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
         val h = constraints.maxHeight.toFloat()
+        // The result of "Save as PDF", shown for a moment.
+        var notice by remember { mutableStateOf<Int?>(null) }
         val target = maxOf(s.panel, PanelState.Peek)
         val panelNow by rememberUpdatedState(target)
         val snapSpec = if (reducedMotion()) snap() else PanelSnap
@@ -289,6 +294,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                                 onTabs = { actions.showTabs(true) },
                                 secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
                                 progress = if (t.loading) 0.5f else null,
+                                trailing = { MoreMenu(t, actions) { notice = it } },
                             )
                         }
                     },
@@ -315,6 +321,10 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                     }
                 }
             }
+            notice?.let { res ->
+                LaunchedEffect(res, notice) { kotlinx.coroutines.delay(NOTICE_MS); notice = null }
+                LcSnackbar(stringResource(res), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)))
+            }
             // QA F2: only while the AI controls the tab; in a handoff (the user already controls it) it never covers the banner.
             if (s.touchedAiTab == t.id && t.control == Control.AI) LcSnackbar(
                 stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
@@ -325,6 +335,36 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
     if (s.showTabs) TabsSheet(s, actions)
     s.prompt?.let { PromptDialog(it, actions) }
 }
+
+private const val NOTICE_MS = 3_000L
+
+/** The toolbar's ⋮ button, there in every state (P-STABLE); its menu saves the page as a PDF through the system file picker. */
+@Composable
+private fun MoreMenu(t: TabInfo, actions: BrowserActions, onNotice: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val tabId by rememberUpdatedState(t.id)
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        uri?.let { actions.savePdf(tabId, it) { ok -> onNotice(if (ok) R.string.ui_pdf_saved else R.string.ui_pdf_failed) } }
+    }
+    Box {
+        com.ouor.localchat.ui.components.LcIconButton(
+            Icons.Rounded.MoreVert, stringResource(R.string.ui_browser_more), { open = true },
+            Modifier.testTag(MORE_TAG), size = com.ouor.localchat.ui.components.IconButtonSize.Sm,
+        )
+        androidx.compose.material3.DropdownMenu(open, { open = false }) {
+            androidx.compose.material3.DropdownMenuItem({ androidx.compose.material3.Text(stringResource(R.string.ui_save_pdf)) }, {
+                open = false
+                save.launch(pdfName(t.title))
+            })
+        }
+    }
+}
+
+/** A file name for the page's PDF: its title without characters file systems refuse. */
+internal fun pdfName(title: String) = title.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").trim('_').take(60).ifEmpty { "page" } + ".pdf"
+
+/** The ⋮ button (P-STABLE test). */
+internal const val MORE_TAG = "browser-more"
 
 /** FB-5 handle: 24dp row, 36×4 bar (48×4 textTertiary while dragged), resize actions for TalkBack. */
 @Composable

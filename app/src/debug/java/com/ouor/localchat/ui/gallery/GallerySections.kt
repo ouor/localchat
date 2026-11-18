@@ -336,8 +336,8 @@ private fun LazyListScope.chat() {
         DividerLabel("이전 대화 요약됨")
         StepList(StepListState.FailedSome, "3단계 · 1개 실패", listOf(
             StepItemData(toolVisual("web_search").icon, "검색 중:", StepState.Done, "2026 소비자물가 전망", "8개 웹페이지 찾음"),
-            StepItemData(toolVisual("page_text").icon, "페이지 읽기", StepState.Failed, "news.example.com", "민감 URL 차단: 읽지 않음"),
-            StepItemData(toolVisual("page_text").icon, "페이지 읽기", StepState.Done, "kostat.go.kr", thumbnail = DEMO_IMG),
+            StepItemData(toolVisual("read").icon, "페이지 읽기", StepState.Failed, "news.example.com", "민감 URL 차단: 읽지 않음"),
+            StepItemData(toolVisual("read").icon, "페이지 읽기", StepState.Done, "kostat.go.kr", thumbnail = DEMO_IMG),
         ), true, noop)
         ThinkingBlock(ThinkingState.Done, "8초", true, noop, "통계청 자료와 민간 전망을 비교해야 한다. 차단된 페이지는 제외하고…")
         Box {
@@ -363,9 +363,9 @@ private fun LazyListScope.chat() {
 private fun demoSteps(done: Boolean): List<StepItemData> {
     fun v(n: String) = toolVisual(n)
     return listOf(
-        StepItemData(v("open_tab").icon, "탭 열기", StepState.Done, "wiki.corp.example/hr", agent = true),
+        StepItemData(v("browse").icon, "브라우저에서 보기", StepState.Done, "wiki.corp.example/hr", agent = true),
         StepItemData(v("request_handoff").icon, "로그인 넘겨받기", StepState.Done, result = "사용자가 로그인 후 돌려줌", agent = true),
-        StepItemData(v("snapshot").icon, "페이지 구조 읽기", StepState.Done, "snapshot · 142개 요소", agent = true),
+        StepItemData(v("click").icon, "클릭", StepState.Done, "e12", agent = true),
         StepItemData(v("click").icon, "클릭", if (done) StepState.Done else StepState.Running, "\"연차·휴가 규정\" 링크", if (done) null else "브라우저에서 보기 ›", agent = true),
     )
 }

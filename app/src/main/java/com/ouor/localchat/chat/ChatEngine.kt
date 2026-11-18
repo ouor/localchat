@@ -73,14 +73,9 @@ class ChatRejected(val reason: Reason) : Exception(reason.name) {
  * Starting calls suspend until the nodes are saved and the run is registered; the run itself
  * continues in the application scope, independent of the caller. One run per session.
  */
-/** Tool results whose summary is just a count; older rows carry the English unit too. */
-private val COUNT = Regex("""(\d+)(?: (?:nodes|lines|tabs))?""")
-private val COUNT_RES = mapOf(
-    "snapshot" to R.plurals.chat_step_nodes,
-    "console_logs" to R.plurals.chat_step_lines,
-    "get_tabs" to R.plurals.chat_step_tabs,
-    "web_search" to R.plurals.chat_step_results,
-)
+/** Tool results whose summary is just a count. */
+private val COUNT = Regex("""(\d+)""")
+private val COUNT_RES = mapOf("web_search" to R.plurals.chat_step_results)
 
 @Singleton
 class ChatEngine @Inject constructor(

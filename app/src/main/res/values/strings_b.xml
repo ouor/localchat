@@ -12,18 +12,6 @@
     <string name="chat_err_model_unavailable_body">It was removed or its provider is turned off. Choose another model.</string>
     <string name="chat_err_config_title">Check the provider settings</string>
     <string name="chat_err_config_body">The base URL is invalid or uses http without permission.</string>
-    <plurals name="chat_step_nodes">
-        <item quantity="one">%d element</item>
-        <item quantity="other">%d elements</item>
-    </plurals>
-    <plurals name="chat_step_lines">
-        <item quantity="one">%d line</item>
-        <item quantity="other">%d lines</item>
-    </plurals>
-    <plurals name="chat_step_tabs">
-        <item quantity="one">%d tab</item>
-        <item quantity="other">%d tabs</item>
-    </plurals>
     <plurals name="chat_step_results">
         <item quantity="one">%d result</item>
         <item quantity="other">%d results</item>

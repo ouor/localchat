@@ -42,7 +42,7 @@ data class BrowserUiState(
     /** Tool the AI runs on each tab right now (B-09 ②). */
     val aiActivity: Map<Int, String> = emptyMap(),
     val highlight: Highlight? = null,
-    /** Prompts the user answers (AI-tab JS dialogs are answered by the dialog_handle tool, not shown). */
+    /** Prompts the user answers: this chat's tabs and user tabs (another chat's AI-tab dialogs are not shown). */
     val prompt: BrowserPrompt? = null,
     /** Set while the run waits for the user in this tab (B-05). */
     val handoff: Pause.Handoff? = null,
@@ -69,8 +69,8 @@ internal fun BrowserUiState.merge(tabs: List<TabInfo>, ai: Map<Int, String>, h: 
         tabs = tabs, aiActivity = ai, highlight = h,
         prompt = prompts.firstOrNull { p ->
             val owner = tabs.firstOrNull { it.id == p.tabId }?.owner ?: return@firstOrNull false
-            // AI-tab JS dialogs belong to the dialog_handle tool (api-spec BrowserEngine.prompts).
-            !(p is BrowserPrompt.Dialog && owner is Owner.Ai)
+            // tools-redesign 2-4: a confirm/prompt on this chat's AI tab is answered by the user here; another chat's waits there.
+            !(p is BrowserPrompt.Dialog && owner is Owner.Ai && owner.sessionId != sessionId)
         },
     )
 }
@@ -134,6 +134,10 @@ class BrowserViewModel @AssistedInject constructor(
             } ?: local.update { it.copy(handoff = null) }
             else -> local.update { it.copy(handoff = null) }
         }
+    }
+
+    override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {
+        viewModelScope.launch { done(engine.savePdf(id, uri)) }
     }
 
     override fun setPanel(p: PanelState) = local.update { it.withPanel(p) }

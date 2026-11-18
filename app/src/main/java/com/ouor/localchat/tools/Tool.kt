@@ -4,6 +4,7 @@ import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.safety.IrreversibleAction
 import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.core.model.ToolStatus
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -17,7 +18,6 @@ interface Tool {
     /** Name exposed to the model, e.g. "click". */
     val name: String
     val groups: Set<ToolGroup>
-    val requiresVision: Boolean get() = false
     val approval: ApprovalMode get() = ApprovalMode.NONE
 
     /** English description for the model. */
@@ -29,7 +29,7 @@ interface Tool {
     /** A-04 step label string resource. */
     val labelRes: Int
 
-    /** A-04 short argument summary (URL, selector). */
+    /** A-04 short argument summary (URL, ref, query). */
     fun argSummary(args: JsonObject): String
 
     suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome
@@ -55,12 +55,33 @@ interface ToolContext {
     val sessionId: String
     val browser: BrowserEngine
 
+    /** The model's context window in tokens, null when unknown (read's part size). */
+    val contextWindow: Int?
+
+    /** The model takes images: browse attaches a picture of the page. */
+    val vision: Boolean
+
+    /** Names of the tools the model can call now; guidance in results names only these. */
+    val exposed: Set<String>
+
     /**
-     * The AI tab to act on, after ownership, sensitive-URL and control checks (architecture 6.4).
-     * Implement with [BrowserEngine.acquireAiTab] (one place for the checks, the control wait and B-09 ②);
-     * throws when denied.
+     * The chat's work tab after the sensitive-URL and control checks (architecture 6.4, tools-redesign 4). Only a
+     * [navigating] call (browse) creates it when missing and may leave a sensitive site from it; otherwise a missing
+     * tab is an error. Implement with [BrowserEngine.acquireAiTab]; waits while the user controls the tab.
      */
-    suspend fun aiTab(tabIdArg: Int?): BrowserTab
+    suspend fun workTab(navigating: Boolean = false): BrowserTab
+
+    /**
+     * Opens a hidden tab at [url], runs [block] in it on the main thread and always closes it. The landing URL is
+     * checked against sensitive sites (an error then) and every URL is kept for cookie masking.
+     */
+    suspend fun <T> hiddenTab(url: String, block: suspend (BrowserTab) -> T): T
+
+    /** What the running call waits for, shown in its step line; null clears it. */
+    fun status(s: ToolStatus?, engine: String? = null)
+
+    /** read's continuation per URL (and "(tab)"), for this turn. */
+    val readCursors: MutableMap<String, ReadCursor>
 
     /** B-S2: suspends until the user answers SC-13. */
     suspend fun requireApproval(request: ApprovalRequest): Boolean
@@ -68,7 +89,7 @@ interface ToolContext {
     /** S-04: citation number for [url], stable within the current message. */
     fun numberSource(url: String, title: String, snippet: String?): Int
 
-    /** B-08: stores a tool artifact (screenshot PNG, PDF) as an ARTIFACT attachment and returns its id. */
+    /** B-08: stores a tool artifact (browse picture, approval preview) as an ARTIFACT attachment and returns its id. */
     suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String
 }
 
@@ -83,6 +104,20 @@ data class ApprovalRequest(
     val code: String? = null,
     /** Why approval is needed; null for execute (always approved). */
     val reason: IrreversibleAction.Reason? = null,
+)
+
+/** A long page read in parts: [parts] of the text, [next] = index of the part the next call returns. */
+data class ReadCursor(
+    val url: String,
+    val title: String,
+    val n: Int,
+    val parts: List<String>,
+    var next: Int,
+    /** Flags line shown with the first part. */
+    val flags: String = "",
+    /** "(tab)" cursor: the document and text start it was made from. */
+    val doc: String? = null,
+    val head: String? = null,
 )
 
 /** B-05 request to hand the tab to the user; the loop pauses on it. */
@@ -100,6 +135,7 @@ data class ToolOutcome(
     val denied: Boolean = false,
 ) {
     companion object {
-        val DENIED = ToolOutcome("User denied.", isError = true, denied = true)
+        const val DENIED_TEXT = "The user denied this action; do not retry it. Continue another way or ask the user."
+        val DENIED = ToolOutcome(DENIED_TEXT, isError = true, denied = true)
     }
 }

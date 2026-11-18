@@ -2,17 +2,15 @@ package com.ouor.localchat.chat
 
 import com.ouor.localchat.chat.run.ToolExecutor
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * S-03 (architecture 5.7): for models without tool calling, pages linked in the question are read
- * in a hidden AI tab with page_text and attached to the question as text documents.
- * The hidden tab shares the in-app browser's cookies: WebView has one process-wide CookieManager, so it cannot be split.
+ * S-03 (architecture 5.7): for models without tool calling, pages linked in the question are read with the read tool
+ * (a hidden tab per page, opened, checked and closed by [ToolExecutor.hiddenTab]) and attached to the question as
+ * text documents. The hidden tab shares the in-app browser's cookies: WebView has one process-wide CookieManager.
  */
 @Singleton
 class LinkPrefetcher @Inject constructor(
@@ -25,27 +23,18 @@ class LinkPrefetcher @Inject constructor(
      * and pages that fail to load. [onReading] shows progress per URL.
      */
     suspend fun prefetch(text: String, alreadyRead: Set<String>, ctx: ToolExecutor, onReading: (String) -> Unit): List<String> {
-        val pageText = tools.byName("page_text") ?: return emptyList()
+        val read = tools.byName("read") ?: return emptyList()
         val urls = URL.findAll(text).map { it.value.trimEnd('.', ',', ';', ':', '!', '?') }.distinct()
             .filter { it !in alreadyRead && !browser.isSensitive(it) }.take(MAX_LINKS).toList()
         return urls.mapNotNull { url ->
             onReading(url)
-            var tabId: Int? = null
             try {
-                // The id is stored inside NonCancellable: a cancel on the way out of withContext then still finds it in finally.
-                withContext(NonCancellable) { tabId = browser.openPrefetchTab(ctx.sessionId, url) } // Too many tabs throws (AN 1).
-                val id = checkNotNull(tabId)
-                val outcome = pageText.run(buildJsonObject { put("tabId", id) }, ctx)
-                // A redirect may have landed on a sensitive page (SE 2).
-                val landed = browser.tabUrl(id)
-                if (outcome.isError || landed == null || browser.isSensitive(landed)) null
-                else attachments.saveText(url, ctx.seal(outcome.text, id))
+                val outcome = read.run(buildJsonObject { put("url", url) }, ctx)
+                if (outcome.isError) null else attachments.saveText(url, ctx.seal(outcome.text, null))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                null // Unreadable page: the question goes without it.
-            } finally {
-                tabId?.let { withContext(NonCancellable) { browser.close(it) } }
+                null // Unreadable page (or a redirect to a sensitive one): the question goes without it.
             }
         }
     }
