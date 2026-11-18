@@ -179,7 +179,7 @@ class PageReadyTest : ToolFlowBase() {
     fun aDownloadLinkIsNotRead() {
         val (text, state) = run("read", """{"url":"${url("/file.pdf")}"}""")
         assertEquals(ToolCallState.FAILED, state)
-        assertTrue(text, "This is a file" in text && "file.pdf" in text && "cannot be read" in text)
+        assertTrue(text, "This is a file" in text && Regex("""as file( \(\d+\))?\.pdf\.""").containsMatchIn(text) && "cannot be read" in text)
     }
 
     @Test
