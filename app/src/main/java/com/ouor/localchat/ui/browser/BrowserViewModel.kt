@@ -196,7 +196,8 @@ class BrowserViewModel @AssistedInject constructor(
     override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) { engine.answerFileChooser(p.id, uris) }
     override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) { engine.answerPermission(p.id, grant) }
     override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) { engine.answerDownload(p.id, allow) }
-    override fun webView(id: Int) = runCatching { engine.unpark(id) }.getOrNull()
+    override fun webView(id: Int) = runCatching { engine.webView(id) }.getOrNull()
+    override fun show(id: Int) = engine.show(id)
     override fun park(id: Int) = engine.park(id)
 
     private companion object {

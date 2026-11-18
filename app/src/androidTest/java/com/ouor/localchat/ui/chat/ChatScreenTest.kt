@@ -136,6 +136,7 @@ class ChatScreenTest {
         override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
         override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
         override fun webView(id: Int): WebView? = null
+        override fun show(id: Int) {}
         override fun park(id: Int) {}
     }
 

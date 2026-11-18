@@ -9,7 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -75,6 +74,7 @@ class BrowserPanelTest {
         override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
         override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
         override fun webView(id: Int): WebView? = page
+        override fun show(id: Int) {}
         override fun park(id: Int) {}
     }
 
@@ -94,7 +94,7 @@ class BrowserPanelTest {
                     androidx.compose.runtime.SideEffect {
                         page?.takeIf { it.parent == null }?.let { root.rootView.findViewById<android.widget.FrameLayout>(android.R.id.content).addView(it, 0) }
                     }
-                    Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }) {
+                    WebViewHoleRoot {
                         Column { BrowserPeek(s, actions) }
                         BrowserOverlay(s, actions) { cover = it; covers += it }
                     }

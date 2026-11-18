@@ -1,0 +1,8 @@
+<resources>
+    <!-- Night variant of values/themes.xml (dark parent, dark LcColors surface). -->
+    <style name="Theme.Localchat" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_surface</item>
+        <item name="android:windowSplashScreenBackground">@color/window_surface</item>
+    </style>
+    <color name="window_surface">#FF121212</color>
+</resources>

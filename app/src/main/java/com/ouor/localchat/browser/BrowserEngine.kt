@@ -46,7 +46,7 @@ import javax.inject.Singleton
  * and suspend functions may be called from any thread; methods that return a tab, id or WebView are
  * [MainThread] (lint WrongThread checks callers). StateFlows may be read anywhere. WebViews outlive Activities: they live in the host container
  * at the Activity root ([attachHost], Phase 0 spike (b)) and ui.browser.BrowserSurface borrows them
- * ([unpark] / [park]). Never calls pauseTimers()/onPause().
+ * ([webView], [show] / [park]). Never calls pauseTimers()/onPause().
  */
 @Singleton
 class BrowserEngine @Inject constructor(
@@ -281,13 +281,28 @@ class BrowserEngine @Inject constructor(
         hostActivity = null
     }
 
-    /** BrowserSurface shows the WebView where it is, in the host, under its panel area (FB5 B4: never moved). */
+    /** The tab's WebView, which stays in the host: BrowserSurface places it under its page area (FB5 B4: never moved). */
     @MainThread
-    fun unpark(tabId: Int): WebView = tab(tabId).webView
+    fun webView(tabId: Int): WebView = tab(tabId).webView
 
-    /** BrowserSurface is done with it: back to parked (hidden, full size). */
+    /** tabId -> BrowserSurfaces showing it; two can overlap (chat cross-fade), the tab is parked when the last one goes. */
+    private val shownBy = HashMap<Int, Int>()
+
+    /** A BrowserSurface shows the tab (pair with [park]). Called before the frame is drawn, so it is visible in it (FB5 M1). */
+    @MainThread
+    fun show(tabId: Int) {
+        val t = byId[tabId] ?: return
+        shownBy[tabId] = (shownBy[tabId] ?: 0) + 1
+        t.webView.visibility = View.VISIBLE
+        // TalkBack reads the page after the app's UI, not before it (the host comes first in the view tree; FB5 M3).
+        host?.let { t.webView.accessibilityTraversalAfter = it.accessibilityTraversalAfter }
+    }
+
+    /** A BrowserSurface is done with it: back to parked (hidden, full size) when no other one shows it. */
     fun park(tabId: Int) {
         onMain {
+            val left = (shownBy.remove(tabId) ?: 0) - 1
+            if (left > 0) { shownBy[tabId] = left; return@onMain }
             val t = byId[tabId] ?: return@onMain
             if (t.refreshThumbnail()) publish() // last frame the user saw
             parkInHost(t.webView)
