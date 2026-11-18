@@ -14,6 +14,7 @@ import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.ReadText
+import com.ouor.localchat.browser.script.Suggestions
 import com.ouor.localchat.browser.script.TypeResult
 import com.ouor.localchat.core.model.SearchEngine
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +98,23 @@ class AgentScriptTest {
     private fun refOf(snap: String, line: String): String =
         Regex(Regex.escape(line) + "[^\\n]*\\[ref=(e\\d+)]").find(snap)?.groupValues?.get(1) ?: error("no ref for '$line' in\n$snap")
 
+    /**
+     * The ref the element list gives the element with [id], as a model would read it (the tools take refs only, F2):
+     * the element is named uniquely for one full list, then its own name is put back.
+     */
+    private suspend fun ref(id: String): String {
+        val e = "document.getElementById('$id')"
+        val old = tab.evaluate("(function () { var e = $e, o = e.getAttribute('aria-label'); e.setAttribute('aria-label', 'zz-$id'); return o; })()", 5_000)
+        try {
+            return refOf(PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 500_000) }).text, "\"zz-$id\"")
+        } finally {
+            tab.evaluate(if (old == "null") "$e.removeAttribute('aria-label')" else "$e.setAttribute('aria-label', $old)", 5_000)
+        }
+    }
+
+    private suspend fun call(fn: String, id: String, text: String? = null) =
+        PageScript.callJson(tab, fn, buildJsonObject { put("target", ref(id)); text?.let { put("text", it) } })
+
     @Test
     fun thumbnailAfterLoad() {
         load("snapshot.html")
@@ -115,10 +133,10 @@ class AgentScriptTest {
         listOf(
             "- navigation \"Main\"",
             "  - link \"Next page\" [ref=",
-            "-> /next",
+            "-> ${server.url("/next")}", // absolute, so browse() can take it as it is (G-m5)
             "- heading \"Search results\" [level=1]",
             "- text: \"Plain paragraph text.\"",
-            "- textbox \"Query\" [ref=",
+            "- searchbox \"Query\" [ref=", // named q: a search box (G-m4)
             "value=\"foo\"",
             "- checkbox \"I agree\" [checked] [ref=",
             "- combobox \"Color\" [ref=",
@@ -130,7 +148,7 @@ class AgentScriptTest {
             "Slotted title",
             "- iframe \"Same origin\"",
             "  - button \"Inner button\" [ref=",
-            "- iframe \"Cross origin\" (cross-origin, not accessible)",
+            "- iframe \"Cross origin\" (cross-origin, not accessible) [ref=", // a click on it asks first
         ).forEach { assertTrue("missing '$it' in\n$s", it in s) }
         assertTrue(s, Regex("textbox \"Password\" \\[ref=e\\d+] \\[sensitive] value=••••").containsMatchIn(s))
         assertTrue(s, Regex("textbox \"One-time code\" \\[ref=e\\d+] \\[sensitive] value=••••").containsMatchIn(s))
@@ -160,22 +178,36 @@ class AgentScriptTest {
     }
 
     @Test
-    fun staleRefAfterNewDocument() = runBlocking<Unit> {
+    fun refsAreNeverReusedInATab() = runBlocking<Unit> {
+        // F7: each document of a tab numbers on from the last; an old ref is told apart from a wrong one.
         load("snapshot.html")
-        val ref = refOf(snapshot(), "button \"Press me\"")
+        val first = snapshot()
+        val old = refOf(first, "button \"Press me\"")
+        val highest = Regex("\\[ref=e(\\d+)]").findAll(first).maxOf { it.groupValues[1].toInt() }
         load("snapshot.html")
+        val second = snapshot()
+        assertTrue(second, Regex("\\[ref=e(\\d+)]").findAll(second).all { it.groupValues[1].toInt() > highest })
         try {
-            locate(ref)
+            locate(old)
             fail("expected stale ref")
-        } catch (e: PageError) {
-            assertEquals("Ref $ref is from an older page; use a ref from the latest element list.", e.message)
+        } catch (e: StaleRef) {
+            assertEquals("Ref $old is from an earlier page of this tab, not this one.", e.message)
         }
         try {
-            locate("#nope")
-            fail("expected no match")
-        } catch (e: PageError) {
-            assertTrue(e.message, "no element matches selector #nope" in e.message!!)
+            locate("e99999")
+            fail("expected unknown ref")
+        } catch (e: StaleRef) {
+            assertEquals("Ref e99999 is not on this page.", e.message)
         }
+        try {
+            locate("#q")
+            fail("selectors are not taken")
+        } catch (e: StaleRef) {
+            assertTrue(e.message, "is not a ref" in e.message!!)
+        }
+        // How models write refs (G-m5): @e1, [ref=e1], e1.
+        val now = refOf(second, "button \"Press me\"")
+        listOf("@$now", "[ref=$now]", " $now ").forEach { assertTrue(it, locate(it).hit) }
     }
 
     @Test
@@ -190,23 +222,23 @@ class AgentScriptTest {
         assertEquals("shadow clicked", text("out"))
         val inner = locate(refOf(s, "button \"Inner button\""))
         assertTrue("iframe element hit in top-level coordinates", inner.hit)
-        assertNotNull(locate("#shadowBtn")) // CSS selectors reach into open shadow roots too
     }
 
     @Test
     fun sensitiveFieldsAreRefusedForTypeAndExecute() = runBlocking<Unit> {
         load("snapshot.html")
-        assertTrue(locate("#pw").sensitive)
-        assertTrue(locate("#otp").sensitive)
-        assertFalse(locate("#q").sensitive)
+        assertTrue(locate(ref("pw")).sensitive)
+        assertTrue(locate(ref("otp")).sensitive)
+        assertFalse(locate(ref("q")).sensitive)
         try {
-            PageScript.callJson(tab, "type", buildJsonObject { put("target", "#pw"); put("text", "x") })
+            call("type", "pw", "x")
             fail("typed into password")
         } catch (e: PageError) {
             assertTrue(e.message, e.message!!.startsWith("refused"))
         }
-        val r = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#q"); put("text", "bar") })
+        val r = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("q")); put("text", "bar") })
         assertEquals("bar", r.value)
+        assertTrue(locate(ref("q")).info.search)
         try {
             js("document.getElementById('pw').value = 'x'")
             fail("execute set a password")
@@ -223,29 +255,29 @@ class AgentScriptTest {
     @Test
     fun postFormAndKeywordJudgement() = runBlocking<Unit> {
         load("forms.html")
-        suspend fun reason(t: String) = IrreversibleAction.reasonForClick(locate(t).info)
-        assertEquals(Reason.POST_FORM, reason("#signin"))
-        assertNull(reason("#go"))
-        assertNull(reason("#plain"))
-        assertNull(reason("#override"))
-        assertEquals(Reason.RISKY_KEYWORD, reason("#del"))
-        assertEquals(Reason.RISKY_KEYWORD, reason("#buy"))
-        assertEquals(Reason.RISKY_KEYWORD, reason("#article")) // SE 18: the label start is checked even on long links
-        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(locate("#user").info))
-        assertNull(IrreversibleAction.reasonForEnter(locate("#sq").info))
+        suspend fun reason(id: String) = IrreversibleAction.reasonForClick(locate(ref(id)).info)
+        assertEquals(Reason.POST_FORM, reason("signin"))
+        assertNull(reason("go"))
+        assertNull(reason("plain"))
+        assertNull(reason("override"))
+        assertEquals(Reason.RISKY_KEYWORD, reason("del"))
+        assertEquals(Reason.RISKY_KEYWORD, reason("buy"))
+        assertEquals(Reason.RISKY_KEYWORD, reason("article")) // SE 18: the label start is checked even on long links
+        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(locate(ref("user")).info))
+        assertNull(IrreversibleAction.reasonForEnter(locate(ref("sq")).info))
         // type reports the form's submit button for the "not submitted" note.
-        val typed = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#user"); put("text", "kim") })
-        assertNotNull(typed.submitRef)
+        val typed = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("user")); put("text", "kim") })
+        assertEquals(ref("signin"), typed.submitRef)
     }
 
     @Test
     fun nativeKeysReachTheFocusedField() = runBlocking<Unit> {
         load("forms.html")
-        PageScript.callJson(tab, "type", buildJsonObject { put("target", "#keys"); put("text", "") })
+        call("type", "keys", "")
         withContext(Dispatchers.Main) { tab.key(KeyEvent.KEYCODE_A, 0) }
         delay(200)
         assertTrue(text("log"), "a:true" in text("log"))
-        PageScript.callJson(tab, "type", buildJsonObject { put("target", "#sq"); put("text", "dogs") })
+        call("type", "sq", "dogs")
         withContext(Dispatchers.Main) { tab.key(KeyEvent.KEYCODE_ENTER, 0) }
         delay(300)
         assertTrue(text("log"), "submitted" in text("log"))
@@ -255,9 +287,9 @@ class AgentScriptTest {
     fun typeChoosesOptionsAndEditsContentEditable_readTextReadsThePage() = runBlocking<Unit> {
         load("snapshot.html")
         // A select takes the option's text or value through type (tools-redesign 3-5).
-        assertEquals("Blue", PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#color"); put("text", "blue") }).selected)
+        assertEquals("Blue", PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("color")); put("text", "blue") }).selected)
         try {
-            PageScript.callJson(tab, "type", buildJsonObject { put("target", "#color"); put("text", "Purple") })
+            call("type", "color", "Purple")
             fail("no such option")
         } catch (e: PageError) {
             assertTrue(e.message, e.message!!.startsWith("No option matches \"Purple\". Options: Red, Green, Blue"))
@@ -267,7 +299,7 @@ class AgentScriptTest {
         assertFalse("hunter22" in t.text)
         assertEquals("Snapshot test", t.title)
         load("forms.html")
-        val r = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", "#editor"); put("text", "new text") })
+        val r = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("editor")); put("text", "new text") })
         assertEquals("new text", r.value)
     }
 
@@ -275,7 +307,7 @@ class AgentScriptTest {
     fun dialogsAreHeldAndAnswered() = runBlocking<Unit> {
         load("dialog.html")
         try {
-            PageScript.callJson(tab, "click", buildJsonObject { put("target", "#ask") })
+            call("click", "ask")
             fail("click should be cut short by confirm()")
         } catch (e: PageError) {
             assertTrue(e.message, "confirm dialog is open: \"Really delete?\". The page is waiting for the user to answer a dialog." in e.message!!)
@@ -284,7 +316,7 @@ class AgentScriptTest {
         assertEquals(DialogKind.CONFIRM, d.kind)
         withContext(Dispatchers.Main) { tab.answerDialog(true, null) }
         assertEquals("confirm=true", text("r"))
-        val at = locate("#name")
+        val at = locate(ref("name"))
         withContext(Dispatchers.Main) { tab.tap(at.cx, at.cy, at.innerWidth) }
         delay(300)
         assertEquals(DialogKind.PROMPT, tab.dialog.value?.kind)
@@ -302,6 +334,49 @@ class AgentScriptTest {
         assertNotNull(bmp)
         val pdf = PdfPrinter.print(tab)
         assertEquals("%PDF", String(pdf, 0, 4))
+    }
+
+    @Test
+    fun severalArticlesAreReadAndALongPageIsNoBotCheck() = runBlocking<Unit> {
+        load("reading.html")
+        val t = PageScript.call<ReadText>(tab, "readText")
+        // B-m11: two articles are both the page's text.
+        assertTrue(t.text, "ALPHA-STORY" in t.text && "BETA-STORY" in t.text)
+        // B-M3: a long page that mentions a captcha is no bot check; a short one that says so is.
+        assertFalse(t.flags.toString(), "bot" in t.flags)
+        load("short-bot.html")
+        assertTrue("bot" in PageScript.call<ReadText>(tab, "readText").flags)
+    }
+
+    @Test
+    fun aSearchForCaptchaIsNotABotCheck() = runBlocking<Unit> {
+        // B-M3: the results page of the query "captcha" names it everywhere; results mean it was no block.
+        load("ddg-captcha.html")
+        val page = PageScript.search(tab, SearchEngine.DUCKDUCKGO)
+        assertFalse(page.blocked)
+        assertEquals(2, page.results.size)
+        load("short-bot.html")
+        assertTrue(PageScript.search(tab, SearchEngine.DUCKDUCKGO).blocked)
+    }
+
+    @Test
+    fun aCrowdedPageStillListsWhatIsOnScreen() = runBlocking<Unit> {
+        // B-M4: past the element cap, on-screen actions are kept and the rest is counted.
+        load("crowded.html")
+        val l = PageScript.call<PageList>(tab, "pageList")
+        assertTrue(l.text, "button \"Fixed action\" [ref=" in l.text)
+        assertTrue("$l", l.listed + l.above + l.below >= 5_001)
+        assertTrue("$l", l.below > 0)
+    }
+
+    @Test
+    fun suggestionsAreCountedAfterTyping() = runBlocking<Unit> {
+        // G-m2: type sees an autocomplete list open and leaves Enter alone.
+        load("reading.html")
+        assertEquals(0, PageScript.call<Suggestions>(tab, "suggestions").n)
+        call("type", "box", "lamp")
+        delay(200)
+        assertTrue(PageScript.call<Suggestions>(tab, "suggestions").n > 0)
     }
 
     /** Live DuckDuckGo HTML results (R8). Skipped without network. */

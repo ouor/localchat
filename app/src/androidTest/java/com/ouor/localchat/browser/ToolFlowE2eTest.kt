@@ -30,6 +30,7 @@ import java.util.Collections
 class ToolFlowE2eTest : ToolFlowBase() {
 
     override fun respond(path: String, request: RecordedRequest): MockResponse? {
+        if (path == "/to-account") return MockResponse.Builder().code(302).addHeader("Location", SENSITIVE_URL).build()
         val body = PAGES[path] ?: return null
         val b = MockResponse.Builder().addHeader("Content-Type", "text/html; charset=utf-8")
         if (path == "/start") b.addHeader("Set-Cookie", "sid=$COOKIE; Path=/")
@@ -40,7 +41,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
     fun browseClickReadMultiStep() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
-            Scenario.toolCall("click", """{"ref":"#go"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Next page\"")}"}"""),
             Scenario.toolCall("read", "{}"),
             Scenario.text("done"),
         )
@@ -49,11 +50,11 @@ class ToolFlowE2eTest : ToolFlowBase() {
         assertEquals(ReplyStatus.DONE, reply.status)
         assertEquals(listOf("browse", "click", "read"), reply.calls().map { it.name })
         assertEquals(reply.results().joinToString { it.content }, List(3) { ToolCallState.DONE }, reply.calls().map { it.state })
-        // Results are wrapped as untrusted page content (B-S5), in the reply and in what the model got.
-        reply.results().forEach { assertTrue(it.content, it.content.startsWith("<untrusted_page_content>")) }
+        // Page content is wrapped as untrusted (B-S5); the app's own lines stay outside it (G-M1).
+        reply.results().forEach { assertTrue(it.content, "<untrusted_page_content>" in it.content) }
         assertTrue(reply.results()[0].content, "link \"Next page\" [ref=" in reply.results()[0].content)
-        // An action's result says what changed and lists the new page (tools-redesign 4).
-        assertTrue(reply.results()[1].content, "→ new page." in reply.results()[1].content)
+        // An action's result says what changed, outside the page, and lists the new page (tools-redesign 4).
+        assertTrue(reply.results()[1].content, Regex("^Clicked e\\d+ → new page.\n<untrusted_page_content>").containsMatchIn(reply.results()[1].content))
         assertTrue(reply.results()[2].content, "Page /next body text" in reply.results()[2].content)
         val tab = browser.tabs.value.single()
         assertTrue(tab.url, tab.url.endsWith("/next"))
@@ -106,10 +107,10 @@ class ToolFlowE2eTest : ToolFlowBase() {
     fun conditionalAndAlwaysApprovals() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/form")}"}"""),
-            Scenario.toolCall("click", """{"ref":"#plain"}"""), // harmless button: no approval
-            Scenario.toolCall("type", """{"ref":"#q","text":"hello"}"""), // http page: approval every time
-            Scenario.toolCall("click", """{"ref":"#send"}"""), // POST submit: denied
-            Scenario.toolCall("click", """{"ref":"#del"}"""), // risky keyword: allowed
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Show more\"")}"}"""), // harmless button: no approval
+            Scenario.toolCall("type", """{"ref":"${Scenario.ref("textbox")}","text":"hello"}"""), // http page: approval every time
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Send\"")}"}"""), // POST submit: denied
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Delete account\"")}"}"""), // risky keyword: allowed
             Scenario.toolCall("execute", """{"code":"document.getElementById('q').value"}"""), // always
             Scenario.text("done"),
         )
@@ -137,7 +138,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
             reply.calls().map { it.state },
         )
         // A field outside a search box is not submitted; the result points at the submit button.
-        assertTrue(reply.results()[2].content, "Not submitted; the form's submit button is button \"Send\" [ref=" in reply.results()[2].content)
+        assertTrue(reply.results()[2].content, Regex("Not submitted; the form's submit button is e\\d+\\.").containsMatchIn(reply.results()[2].content))
         assertTrue(reply.results()[3].content, ToolOutcome.DENIED_TEXT in reply.results()[3].content)
         assertTrue(reply.results()[4].content, "button \"gone\"" in reply.results()[4].content)
         assertTrue(reply.results()[5].content, "hello" in reply.results()[5].content)
@@ -148,7 +149,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
     fun typeInASearchBoxPressesEnter() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/search")}"}"""),
-            Scenario.toolCall("type", """{"ref":"#q","text":"lamps"}"""),
+            Scenario.toolCall("type", """{"ref":"${Scenario.ref("searchbox")}","text":"lamps"}"""),
             Scenario.text("done"),
         )
         val sid = send("search")
@@ -156,7 +157,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
         engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = true))
         val reply = awaitEnd(sid)
         val typed = reply.results()[1].content
-        assertTrue(typed, "Typed \"lamps\" into" in typed && "and pressed Enter → new page." in typed)
+        assertTrue(typed, Regex("^Typed \"lamps\" into e\\d+ and pressed Enter → new page\\.").containsMatchIn(typed))
         assertTrue(typed, "Page /results body text" in typed)
         assertTrue(pageHits.toString(), pageHits.any { it == "/results" })
     }
@@ -178,7 +179,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
         awaitControl(h.tabId, Control.AI)
         // The result is the page as the user left it (tools-redesign 3-7).
         val back = reply.results()[1].content
-        assertTrue(back, back.startsWith("<untrusted_page_content>\nThe user gave the tab back. They may or may not have finished"))
+        assertTrue(back, back.startsWith("The user gave the tab back. They may or may not have finished; check the page below.\n<untrusted_page_content>"))
         assertTrue(back, "link \"Next page\" [ref=" in back)
         assertEquals(ReplyStatus.DONE, reply.status)
     }
@@ -258,8 +259,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
     fun typeIsRefusedInPasswordFieldAndFramesAsk() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/login")}"}"""),
-            Scenario.toolCall("type", """{"ref":"#pw","text":"a"}"""),
-            Scenario.toolCall("click", """{"ref":"#f"}"""), // opaque frame: approval (denied)
+            Scenario.toolCall("type", """{"ref":"${Scenario.ref("[sensitive]")}","text":"a"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("iframe")}"}"""), // opaque frame: approval (denied)
             Scenario.text("done"),
         )
         val sid = send("login")
@@ -317,8 +318,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
         withContext(Dispatchers.Main) {
             repeat(TabRules.MAX_HIDDEN_TABS) { browser.openAiTab("s1", "about:blank", hidden = true) }
             repeat(BrowserEngine.MAX_TABS) { browser.openUserTab("about:blank") }
-            assertTrue(runCatching { browser.openUserTab("about:blank") }.exceptionOrNull() is PageError)
-            assertTrue(runCatching { browser.openAiTab("s1", "about:blank", hidden = true) }.exceptionOrNull() is PageError)
+            assertTrue(runCatching { browser.openUserTab("about:blank") }.exceptionOrNull() is BrowserRefusal)
+            assertTrue(runCatching { browser.openAiTab("s1", "about:blank", hidden = true) }.exceptionOrNull() is BrowserRefusal)
         }
         assertEquals(BrowserEngine.MAX_TABS, browser.visibleTabs.value.size)
     }
@@ -347,7 +348,60 @@ class ToolFlowE2eTest : ToolFlowBase() {
         assertTrue(a.id !in browser.aiActivity.value)
     }
 
+    @Test
+    fun readRefusesARedirectToASensitiveSiteAndKeepsNothing() {
+        // F1 (A-M1, B-M1): /to-account answers 302 to a sign-in page; the second call must not be served from a cache.
+        llm.enqueue(
+            Scenario.toolCall("read", """{"url":"${url("/to-account")}"}"""),
+            Scenario.toolCall("read", """{"url":"${url("/to-account")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("read it"))
+        assertEquals(reply.results().joinToString { it.content }, List(2) { ToolCallState.FAILED }, reply.calls().map { it.state })
+        reply.results().forEach { r ->
+            android.util.Log.i("ToolFlowE2e", "read via redirect: ${r.content}")
+            assertTrue(r.content, "accounts.google.com" in r.content || r.content == com.ouor.localchat.chat.run.ToolExecutor.SENSITIVE)
+            assertFalse(r.content, "<untrusted_page_content>" in r.content)
+            assertTrue(r.sources.isEmpty())
+        }
+        assertEquals(pageHits.toString(), 2, pageHits.count { it == "/to-account" })
+        assertTrue(browser.tabs.value.isEmpty())
+    }
+
+    @Test
+    fun aStaleRefIsAnsweredWithTheNewList() {
+        // F7: refs of the old page are never reused; the error carries the current list.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/start")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Next page\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"e1"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("stale"))
+        val stale = reply.results()[2]
+        assertTrue(stale.content, stale.isError)
+        assertTrue(stale.content, stale.content.startsWith("Ref e1 is from an earlier page of this tab, not this one. Use a ref from the element list below."))
+        assertTrue(stale.content, "Page: Next" in stale.content)
+    }
+
+    @Test
+    fun browseWithoutUrlListsWhatTheLastListLeftOut() {
+        // F9 (G-M3): a long page is listed in parts; browse() continues where the last list stopped.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/long")}"}"""),
+            Scenario.toolCall("browse", "{}"),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("long"))
+        val (first, second) = reply.results().map { it.content }
+        assertTrue(first, "Call browse() again to list them" in first)
+        assertTrue(first, "button \"Item 1\" [" in first)
+        assertTrue(second, "button \"Item 1\" [" !in second)
+        assertTrue(second, "button \"Item 399\"" in second)
+    }
+
     private companion object {
+        const val SENSITIVE_URL = "https://accounts.google.com/signin"
         const val COOKIE = "SECRETCOOKIE123"
         val PAGES = mapOf(
             "/start" to """<!doctype html><title>Start</title><a id="go" href="/next">Next page</a>
@@ -356,6 +410,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
             "/alert" to """<!doctype html><title>Before</title><script>alert('hi'); confirm('ok?'); document.title = 'After'</script>""",
             "/login" to """<!doctype html><title>Login</title><input id="user"><input id="pw" type="password">
                 <iframe id="f" src="data:text/html,<button>Pay</button>" style="width:300px;height:80px"></iframe>""",
+            "/long" to "<!doctype html><title>Long</title>" + (0 until 400).joinToString("") { "<button>Item $it</button>" },
             "/search" to """<!doctype html><title>Search</title><form action="/results"><input id="q" type="search" name="q"></form>""",
             "/form" to """<!doctype html><title>Form</title>
                 <button id="plain" onclick="this.textContent='pressed'">Show more</button>

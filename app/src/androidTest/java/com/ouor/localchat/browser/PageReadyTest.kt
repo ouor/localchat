@@ -54,6 +54,10 @@ class PageReadyTest : ToolFlowBase() {
         "/ddg" -> html("<!doctype html><title>DDG</title>" + (1..3).joinToString("") {
             """<div class="result"><a class="result__a" href="https://example$it.test/page">Result $it title</a><a class="result__snippet">Snippet $it</a></div>"""
         })
+        "/jump" -> html("""<!doctype html><title>Jump</title><a href="#end">Jump down</a> <a href="/file.pdf">Get the file</a>
+            <a href="/empty">No content</a> <button onclick="window.clicks = (window.clicks || 0) + 1; document.getElementById('c').textContent = 'count=' + window.clicks">Count</button>
+            <p id="c">count=0</p><div style="height:3000px"></div><p id="end">End</p>""")
+        "/empty" -> MockResponse.Builder().code(204).build()
         else -> null
     }
 
@@ -91,7 +95,7 @@ class PageReadyTest : ToolFlowBase() {
     fun e2_aClickToASlowFirstByteWaitsForTheNewPage() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/a")}"}"""),
-            Scenario.toolCall("click", """{"ref":"#go"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Slow page\"")}"}"""),
             Scenario.text("done"),
         )
         val reply = awaitEnd(send("go"))
@@ -158,8 +162,8 @@ class PageReadyTest : ToolFlowBase() {
     fun dialogsAreReportedInTheResult() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/dialogs")}"}"""),
-            Scenario.toolCall("click", """{"ref":"#alert"}"""),
-            Scenario.toolCall("click", """{"ref":"#confirm"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Save\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Leave\"")}"}"""),
             Scenario.text("done"),
         )
         val sid = send("dialogs")
@@ -185,7 +189,7 @@ class PageReadyTest : ToolFlowBase() {
     fun enterInAPostFormAsksFirst() {
         llm.enqueue(
             Scenario.toolCall("browse", """{"url":"${url("/post")}"}"""),
-            Scenario.toolCall("type", """{"ref":"#m","text":"hi\n"}"""),
+            Scenario.toolCall("type", """{"ref":"${Scenario.ref("textbox")}","text":"hi\n"}"""),
             Scenario.text("done"),
         )
         val sid = send("post")
@@ -209,6 +213,53 @@ class PageReadyTest : ToolFlowBase() {
         val ok = page("/ddg")
         assertFalse(ok.blocked)
         assertEquals(listOf("https://example1.test/page", "https://example2.test/page", "https://example3.test/page"), ok.results.map { it.url })
+    }
+
+    @Test
+    fun clicksThatOpenNoNewDocumentEndSoon() {
+        // B-m3 and main-frame ERR_ABORTED: a same-page anchor, a download and a 204 commit no document; the wait ends
+        // when the request ends instead of running to the load cap, and an aborted load is no error.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/jump")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Jump down\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Get the file\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"No content\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("jump"))
+        val calls = reply.calls().drop(1)
+        val results = reply.results().drop(1).map { it.content }
+        val ms = calls.map { it.endedAt!! - it.startedAt }
+        Log.i(TAG, "anchor/download/204 clicks: $ms ms")
+        assertEquals(results.joinToString(), List(3) { ToolCallState.DONE }, calls.map { it.state })
+        results.forEach { assertFalse(it, "ERR_ABORTED" in it || "failed" in it) }
+        assertTrue("$ms", ms.all { it < TabRules.LOAD_CAP / 3 })
+        assertTrue(browser.tabs.value.single().url.endsWith("/jump#end"))
+    }
+
+    @Test
+    fun aClickActsOnceAndBrokenCodeIsNotRun() {
+        // B-m1/m2: no second activation of a click, no re-run of code whose answer was lost, and code that does not
+        // parse is reported without running.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/jump")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Count\"")}"}"""),
+            Scenario.toolCall("execute", """{"code":"window.clicks = (window.clicks || 0) + 1; void 0"}"""),
+            Scenario.toolCall("execute", """{"code":"window.clicks = 100; ("}"""),
+            Scenario.toolCall("execute", """{"code":"window.clicks"}"""),
+            Scenario.text("done"),
+        )
+        val sid = send("count")
+        repeat(3) {
+            val p = awaitPause(sid) as Pause.Approval
+            engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = true))
+        }
+        val reply = awaitEnd(sid)
+        val results = reply.results().map { it.content }
+        assertTrue(results[1], "count=1" in results[1])
+        assertEquals(results[3], ToolCallState.FAILED, reply.calls()[3].state)
+        assertTrue(results[3], "SyntaxError" in results[3])
+        assertTrue(results[4], "Result: 2\n" in results[4]) // the click once, the code once, the broken code not at all
     }
 
     private companion object {
