@@ -41,6 +41,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.onFocusChanged
+import android.view.ViewTreeObserver
+import android.webkit.WebView
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.drop
@@ -105,6 +107,8 @@ import com.ouor.localchat.ui.theme.LcTheme
 /** Callbacks of the browser panel; [BrowserViewModel] implements all of them (pure-state screen, architecture 11). */
 interface BrowserActions {
     fun setPanel(p: PanelState)
+    /** FB5 B1: the keyboard opened ([up]) for the panel, or closed (see [BrowserUiState.keyboard]). */
+    fun keyboard(up: Boolean)
     fun select(id: Int)
     fun showTabs(v: Boolean)
     fun close(id: Int)
@@ -209,9 +213,10 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
         val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { abs(state.offset - it) < 1f } ?: 0f } }
         if (shown) Box(Modifier.fillMaxSize()) {
             val drag = remember { MutableInteractionSource() }
-            // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows), so a focused page
-            // field and the panel's controls stay above it; it settles back when the keyboard closes (P-STABLE keyboard
-            // exception). The rise is that of the anchor the panel last settled on, so a drag follows the finger from the
+            // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows) and settles back when
+            // it closes (P-STABLE keyboard exception). Since FB5 B1 a keyboard for the panel makes it Full, where the rise
+            // is 0, so the rise now only carries the move to Full seamlessly and lifts a Half panel over a keyboard that is
+            // not the panel's; it stays because without it a Half page would again be laid out 0px tall (QA F6). The rise is that of the anchor the panel last settled on, so a drag follows the finger from the
             // first pixel: from Half it was already risen (FB4 fix M1), from Full it rises nothing (QA F4, no dead zone).
             // Leaving Full with the keyboard up closes the keyboard, so landing on Half adds no rise (no jump). Height and
             // bottom padding follow the keyboard's target, not its animation, so the page resizes once per open/close (m2).
@@ -222,21 +227,26 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
             val settledAt by remember { derivedStateOf { state.anchors.positionOf(state.settledValue) } }
             val view = LocalView.current
             // FB5 B1: a keyboard for the panel (a page field or the address) makes it Full; when the keyboard closes the
-            // panel goes back to the height the user had (P-STABLE keyboard exception). The U-2 rise above keeps that
-            // change seamless: the panel is already risen by the keyboard while it animates to Full.
+            // panel goes back to the height the user had (P-STABLE keyboard exception). The height to go back to is VM
+            // state ([BrowserUiState.keyboard]), so a rotation keeps it and a height set meanwhile (handoff, drag) wins.
             val keyboardUp = imeTarget.getBottom(LocalDensity.current) > 0
+            // Two focus sources: the address field is Compose focus (onFocusChanged below); the page is the WebView's
+            // Android focus, watched on the view tree so a focus that arrives after the keyboard is seen too.
             var panelFocus by remember { mutableStateOf(false) }
-            var restore by remember { mutableStateOf<PanelState?>(null) }
-            LaunchedEffect(keyboardUp, panelFocus) {
-                if (keyboardUp && panelNow < PanelState.Full && (panelFocus || actions.webView(t.id)?.hasFocus() == true)) {
-                    restore = panelNow
-                    actions.setPanel(PanelState.Full)
-                } else if (!keyboardUp) restore?.let { restore = null; actions.setPanel(it) }
+            var pageFocus by remember { mutableStateOf(false) }
+            DisposableEffect(view) {
+                val watch = ViewTreeObserver.OnGlobalFocusChangeListener { _, now -> pageFocus = now is WebView }
+                view.viewTreeObserver.addOnGlobalFocusChangeListener(watch)
+                pageFocus = view.rootView.findFocus() is WebView
+                onDispose { view.viewTreeObserver.removeOnGlobalFocusChangeListener(watch) }
+            }
+            val forPanel = panelFocus || pageFocus
+            LaunchedEffect(keyboardUp, forPanel) {
+                if (!keyboardUp) actions.keyboard(false) else if (forPanel) actions.keyboard(true)
             }
             LaunchedEffect(state) {
                 snapshotFlow { state.settledValue == PanelState.Full && state.offset > 1f }.collect { leaving ->
-                    // The user drags it down: where they drop it wins over the height to go back to.
-                    if (leaving) { restore = null; ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime()) }
+                    if (leaving) ViewCompat.getWindowInsetsController(view)?.hide(WindowInsetsCompat.Type.ime())
                 }
             }
             Column(
@@ -267,10 +277,10 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                             BrowserToolbar(
                                 t.shortUrl(), s.tabs.size, onCollapse = null,
                                 onBack = actions::back, onForward = actions::forward, onReload = actions::reload,
-                                onNavigate = if (t.owner is Owner.User || t.control == Control.USER) actions::navigate else null,
+                                onNavigate = if (t.owner is Owner.User || t.control == Control.USER) actions::navigate else null, fullUrl = t.url,
                                 onTabs = { actions.showTabs(true) },
                                 secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
-                                progress = if (t.loading) 0.5f else null, fullUrl = t.url,
+                                progress = if (t.loading) 0.5f else null,
                             )
                         }
                     },

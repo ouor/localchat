@@ -53,6 +53,8 @@ data class BrowserUiState(
     val sensitive: Set<Int> = emptySet(),
     /** This chat's run is going (B-09 ②). */
     val running: Boolean = false,
+    /** FB5 B1: the height a keyboard for the panel lifted it from to Full; it goes back there when the keyboard closes. */
+    val keyboardFrom: PanelState? = null,
 ) {
     /** BUG-04: by default the panel and peek show only user tabs and this chat's AI tabs. */
     val visible: List<TabInfo> get() = tabs.filter { it.owner !is Owner.Ai || isMine(it) }
@@ -72,6 +74,19 @@ internal fun BrowserUiState.merge(tabs: List<TabInfo>, ai: Map<Int, String>, h: 
         },
     )
 }
+
+/**
+ * FB5 B1: a keyboard for the panel opens ([up]) → Full, remembering the user's height; it closes → back to that height,
+ * but only while the panel is still Full. Any height set meanwhile ([withPanel]: a drag, Back, a handoff, a tab picked)
+ * drops the memory, so that height wins.
+ */
+internal fun BrowserUiState.keyboard(up: Boolean): BrowserUiState = when {
+    up -> if (panel < PanelState.Full) copy(keyboardFrom = panel, panel = PanelState.Full) else this
+    else -> copy(panel = keyboardFrom?.takeIf { panel == PanelState.Full } ?: panel, keyboardFrom = null)
+}
+
+/** A height the user or the run chose: it replaces the keyboard's return height (FB5 B1). */
+internal fun BrowserUiState.withPanel(p: PanelState): BrowserUiState = copy(panel = p, keyboardFrom = null)
 
 /** The handoff ended with "AI에게 돌려주기": the panel keeps the height the user has it at (FB4 U-3, P-STABLE). */
 internal fun BrowserUiState.handedBack(): BrowserUiState = copy(handoff = null)
@@ -112,21 +127,22 @@ class BrowserViewModel @AssistedInject constructor(
         local.update { it.copy(running = phase != null, panel = if (phase == null && it.panel == PanelState.Peek) PanelState.Hidden else it.panel) }
         when (phase) {
             is RunPhase.RunningTool -> phase.tabId?.let { id ->
-                local.update { it.copy(currentId = id, panel = if (it.panel == PanelState.Hidden) PanelState.Peek else it.panel) }
+                local.update { if (it.panel == PanelState.Hidden) it.copy(currentId = id).withPanel(PanelState.Peek) else it.copy(currentId = id) }
             }
             is RunPhase.Paused -> (phase.pause as? Pause.Handoff)?.let { h ->
-                local.update { it.copy(handoff = h, currentId = h.tabId, panel = PanelState.Full) }
+                local.update { it.copy(handoff = h, currentId = h.tabId).withPanel(PanelState.Full) }
             } ?: local.update { it.copy(handoff = null) }
             else -> local.update { it.copy(handoff = null) }
         }
     }
 
-    override fun setPanel(p: PanelState) = local.update { it.copy(panel = p) }
+    override fun setPanel(p: PanelState) = local.update { it.withPanel(p) }
+    override fun keyboard(up: Boolean) = local.update { it.keyboard(up) }
 
     /** Top-bar browser button / link tap: show the current tab, or open a user tab. */
     override fun open(url: String?) {
         if (url != null || state.value.visible.isEmpty()) newTab(url)
-        else local.update { it.copy(panel = maxOf(it.panel, PanelState.Half)) }
+        else local.update { it.withPanel(maxOf(it.panel, PanelState.Half)) }
     }
 
     /** At the tab limit the tab list opens instead, so the user can close one (api-spec: UI checks tabs.size). */
@@ -136,11 +152,11 @@ class BrowserViewModel @AssistedInject constructor(
             val home = searchUrl(settings.settings.first().searchEngine, null)
             // The AI may have filled the last slot since the check: show the tab list so the user can close one.
             val id = try { engine.openUserTab(url ?: home) } catch (_: PageError) { local.update { it.copy(showTabs = true) }; return@launch }
-            local.update { it.copy(currentId = id, showTabs = false, panel = maxOf(it.panel, PanelState.Half)) }
+            local.update { it.copy(currentId = id, showTabs = false).withPanel(maxOf(it.panel, PanelState.Half)) }
         }
     }
 
-    override fun select(id: Int) = local.update { it.copy(currentId = id, showTabs = false, panel = maxOf(it.panel, PanelState.Half)) }
+    override fun select(id: Int) = local.update { it.copy(currentId = id, showTabs = false).withPanel(maxOf(it.panel, PanelState.Half)) }
     override fun showTabs(v: Boolean) = local.update { it.copy(showTabs = v) }
     override fun close(id: Int) = engine.close(id)
 

@@ -54,7 +54,8 @@ class BrowserStableTest {
     private val navigated = mutableListOf<String>()
 
     private val actions = object : BrowserActions {
-        override fun setPanel(p: PanelState) { s = s.copy(panel = p) }
+        override fun setPanel(p: PanelState) { s = s.withPanel(p) }
+        override fun keyboard(up: Boolean) { s = s.keyboard(up) }
         override fun select(id: Int) {}
         override fun showTabs(v: Boolean) { s = s.copy(showTabs = v) }
         override fun close(id: Int) { s = s.copy(tabs = s.tabs.filterNot { it.id == id }) }

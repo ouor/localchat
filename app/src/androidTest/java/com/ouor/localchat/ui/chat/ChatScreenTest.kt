@@ -115,6 +115,7 @@ class ChatScreenTest {
 
     private val browser = object : BrowserActions {
         override fun setPanel(p: PanelState) {}
+        override fun keyboard(up: Boolean) {}
         override fun select(id: Int) {}
         override fun showTabs(v: Boolean) {}
         override fun close(id: Int) {}
