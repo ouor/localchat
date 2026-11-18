@@ -256,8 +256,7 @@ class BrowserTab internal constructor(
     }
 
     /**
-     * A sleeping tab gets a new WebView with its back/forward list restored, or its URL loaded when there is none
-     * (after a renderer death). The tab object, number, [lock] and [refNext] stay. True when it was asleep.
+     * A sleeping tab gets a new WebView with its back/forward list restored, or its URL loaded when none was saved. The tab object, number, [lock] and [refNext] stay. True when it was asleep.
      */
     suspend fun wake(): Boolean = withContext(Dispatchers.Main.immediate) {
         if (asleep == null) return@withContext false
@@ -281,7 +280,8 @@ class BrowserTab internal constructor(
         val w = _webView.value ?: return
         val repeated = crashUrl == url
         crashUrl = url
-        savedState = null // shortcut: saveState on a dead renderer is assumed impossible (browser-layers 2-1 추정)
+        // Measured on devphone03 (TabModelTest.saveStateAfterRendererDeath): the list still saves after the renderer died.
+        savedState = runCatching { Bundle().takeIf { w.saveState(it) != null } }.getOrNull()
         drop(w)
         asleep = Asleep.CRASHED
         events.onChanged(this)

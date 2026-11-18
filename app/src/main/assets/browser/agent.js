@@ -395,6 +395,14 @@
     if (all.length > 50) return false;
     if (el.querySelector(ROLE_SEL)) return false;
     for (var i = 0; i < all.length; i++) if (all[i].shadowRoot) return false;
+    // Text longer than one line held in blocks (a feed's posts, an article's paragraphs): each block gets its line,
+    // or one cut line would hide all but the first few.
+    if (all.length && norm(el.innerText).length > 100) {
+      for (var c = el.firstElementChild; c; c = c.nextElementSibling) {
+        var d = styleOf(c).display;
+        if (d && d.indexOf('inline') !== 0 && d !== 'contents' && d !== 'none') return false;
+      }
+    }
     return true;
   }
 

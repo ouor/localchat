@@ -73,9 +73,10 @@ class BrowserPanelTest {
         override fun answer(e: BrowserEvent, answer: Answer) {}
         override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {}
         override fun webView(id: Int): StateFlow<WebView?>? = page?.let { MutableStateFlow(it) }
-        override fun show(id: Int) {}
-        override fun park(id: Int) {}
+        override fun show(id: Int) { shows += "show $id" }
+        override fun park(id: Int) { shows += "park $id" }
     }
+    private val shows = mutableListOf<String>()
 
     private val aiTab = TabInfo(1, "인사 규정", "https://wiki.corp.example/hr", loading = false)
     private val working = mapOf(1 to ToolActivity("A", "test_tool"))
@@ -129,6 +130,20 @@ class BrowserPanelTest {
         show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
         rule.onNodeWithText(stripTitle).assertDoesNotExist()
         assertEquals(0, cover)
+    }
+
+    /** browser-layers 2-2 추정: the engine's `shown` follows the drawer; at Peek the page is parked. */
+    @Test fun thePageIsShownOnlyWhileThePanelIsOnScreen() {
+        rule.runOnIdle { page = WebView(ctx) }
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), front = 1, sessionId = "A", activity = working, running = true))
+        assertEquals(emptyList<String>(), shows)
+        rule.onNodeWithText(stripTitle).performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("show 1"), shows)
+        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + rootH, durationMillis = 300) }
+        rule.waitForIdle()
+        assertEquals(PanelState.Peek, panels.last())
+        assertEquals(listOf("show 1", "park 1"), shows)
     }
 
     @Test fun handleDragsHalfToFullAndDownToPeek() {

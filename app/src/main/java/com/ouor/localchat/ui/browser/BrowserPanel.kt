@@ -298,7 +298,9 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                 ) {
                     // P-STABLE M6: a policy's banner floats over the page top (closable) instead of pushing the page down.
                     Box(Modifier.fillMaxSize()) {
-                        BrowserSurface(t.id, s.highlight, actions)
+                        // The page is shown (engine `shown`) only while some of the panel is on screen; at Peek it is parked.
+                        val onScreen by remember { derivedStateOf { state.offset < h - 1f } }
+                        if (onScreen) BrowserSurface(t.id, s.highlight, actions)
                         if (t.asleep != null) Box(Modifier.fillMaxSize().background(LcTheme.colors.surfaceRaised), contentAlignment = Alignment.Center) {
                             com.ouor.localchat.ui.components.LcButton(stringResource(R.string.ui_reload_page), { actions.reload(t.id) })
                         }

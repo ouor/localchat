@@ -46,6 +46,15 @@ class ReadCursorTest {
         assertFalse(next.restarted)
     }
 
+    @Test fun `an anchor that repeats goes on from the place nearest the last read`() {
+        // Filler text: every paragraph ends in the same 200 characters.
+        val t = (0 until 9).joinToString("\n\n") { "q$it " + "x".repeat(296) }
+        val first = ReadRules.plan(t, size, "d", null, null, 1, null)
+        val second = ReadRules.plan(t, size, "d", first.cursor, null, 1, null)
+        assertEquals(1, second.index)
+        assertTrue(second.text, second.text.startsWith("q3 "))
+    }
+
     @Test fun `a lost anchor or another document starts over and says so`() {
         val first = ReadRules.plan(text(0, 10), size, "d", null, null, 1, null)
         val other = ReadRules.plan(text(20, 30), size, "d", first.cursor, null, 1, null)

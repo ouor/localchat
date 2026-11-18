@@ -89,7 +89,8 @@ interface ToolContext {
  * Where read stopped on a tab: [doc] the document, [anchor] the last 200 characters it returned, [part] the part
  * number that ended there, [turn] the [ChatTabs.turn] it was read in.
  */
-data class ReadCursor(val doc: String?, val anchor: String, val part: Int, val turn: Int)
+/** Where a read ended: the text before [end] (its offset then) is [anchor]. */
+data class ReadCursor(val doc: String?, val anchor: String, val part: Int, val turn: Int, val end: Int = 0)
 
 /** ask_user: the user does [task] in [tabId] and taps Done; the loop pauses on it. */
 data class UserStep(val tabId: Int, val task: String)

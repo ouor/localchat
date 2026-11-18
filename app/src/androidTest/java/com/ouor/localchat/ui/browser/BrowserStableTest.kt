@@ -54,11 +54,12 @@ class BrowserStableTest {
 
     private var s by mutableStateOf(BrowserUiState())
     private val navigated = mutableListOf<String>()
+    private val selected = mutableListOf<Int>()
 
     private val actions = object : BrowserActions {
         override fun setPanel(p: PanelState) { s = s.withPanel(p) }
         override fun keyboard(up: Boolean) { s = s.keyboard(up) }
-        override fun select(id: Int) {}
+        override fun select(id: Int) { selected += id }
         override fun showTabs(v: Boolean) { s = s.copy(showTabs = v) }
         override fun close(id: Int) { s = s.copy(tabs = s.tabs.filterNot { it.id == id }) }
         override fun open(url: String?) {}
@@ -124,6 +125,30 @@ class BrowserStableTest {
         change { it.copy(activity = emptyMap(), running = false) }
         assertEquals(page, page().bounds())
         assertEquals(1, s.front)
+    }
+
+    @Test fun aiOpeningAndUsingAnotherTabLeavesTheDrawerAlone() { // 10-2: the user looks at tab 1 while the run opens tab 2
+        show(BrowserUiState(PanelState.Half, listOf(tab(1, "Mine")), front = 1, sessionId = "A", running = true))
+        val page = page().bounds()
+        val address = rule.onNodeWithText("e1.example/").bounds()
+        // A new tab (an AI open, or a popup its click opened) with the run working on it.
+        change { it.copy(tabs = it.tabs + tab(2, "AI"), activity = mapOf(2 to ToolActivity("A", "test_tool"))) }
+        rule.onNodeWithText("e1.example/").assertIsDisplayed()
+        rule.onNodeWithText("e2.example/").assertDoesNotExist()
+        assertEquals(address, rule.onNodeWithText("e1.example/").bounds())
+        assertEquals(page, page().bounds())
+        assertEquals(PanelState.Half, s.panel)
+        rule.onNodeWithText(ctx.getString(R.string.ui_stop)).assertDoesNotExist() // the bar is for the shown tab
+    }
+
+    @Test fun aUserStepInAnotherTabIsABannerOnly() { // 10-2
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Mine"), tab(2, "Login")), front = 1, sessionId = "A", running = true))
+        change { it.copy(userStep = Pause.UserStep(2, "로그인")) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_user_step_other, 2, "로그인")).assertIsDisplayed()
+        rule.onNodeWithText("e1.example/").assertIsDisplayed()
+        assertEquals(PanelState.Full, s.panel)
+        rule.onNodeWithText(ctx.getString(R.string.ui_view)).performClick()
+        assertEquals(listOf(2), selected)
     }
 
     private fun bannerNotice(tabId: Int) = Notice("test-banner", "정책 안내", tabId, Notice.Style.BANNER)

@@ -237,6 +237,11 @@ class TabModelTest {
         main { val since = SystemClock.uptimeMillis(); assertTrue(tab.wake()); tab.awaitReady(since) }
         assertEquals("a", main { tab.title })
         load(tab, "/b")
+        // The back/forward list outlives a renderer death (saved before the WebView goes).
+        main { tab.rendererGone(crashed = true) }
+        main { val since = SystemClock.uptimeMillis(); tab.wake(); tab.awaitReady(since) }
+        assertTrue(main { tab.webView.value!!.canGoBack() })
+        load(tab, "/c")
         // shown: the first death reloads at once, the second in a row on the same URL does not
         main { engine.show(tab.id) }
         try {
@@ -247,7 +252,7 @@ class TabModelTest {
             Thread.sleep(500)
             assertEquals(Asleep.CRASHED, main { tab.asleep })
             val gone = main { tab.eventsSince(0) }.filter { it.event is BrowserEvent.RendererGone }
-            assertEquals(listOf(false, false, true), gone.map { (it.event as BrowserEvent.RendererGone).repeated })
+            assertEquals(listOf(false, false, false, true), gone.map { (it.event as BrowserEvent.RendererGone).repeated })
         } finally {
             main { engine.park(tab.id) }
         }
@@ -259,5 +264,54 @@ class TabModelTest {
         main { a.load("chrome://crash") }
         runBlocking { withTimeout(15_000) { engine.tabs.first { l -> l.size == 2 && l.all { it.asleep == Asleep.CRASHED } } } }
         Log.i("TabModel", "renderer crash: both tabs CRASHED (${a.id}, ${b.id})")
+    }
+
+    /** 추정 check (browser-layers 2-4): a user's tap reaches onCreateWindow well inside USER_INPUT_MS, so its popup is the user's. */
+    @Test fun aUsersTapOpensAUsersPopup() {
+        val tab = openReady("/links")
+        val since = SystemClock.uptimeMillis()
+        val box = main { tab.evaluate("(function(){var r=document.getElementById('pop').getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2,innerWidth].join(',')})()", 5_000) }
+            .trim('"').split(',').map { it.toFloat() }
+        val touchAt = main {
+            val w = tab.webView.value!!
+            val scale = w.width / box[2]
+            val t = SystemClock.uptimeMillis()
+            // As the drawer forwards a finger (BrowserSurface): straight to the WebView, not injected.
+            listOf(android.view.MotionEvent.ACTION_DOWN to t, android.view.MotionEvent.ACTION_UP to t + 50).forEach { (action, at) ->
+                val e = android.view.MotionEvent.obtain(t, at, action, box[0] * scale, box[1] * scale, 0)
+                w.dispatchTouchEvent(e)
+                e.recycle()
+            }
+            t
+        }
+        val h = eventually("popup") { tab.eventsSince(since).firstOrNull { it.event is BrowserEvent.Popup } }
+        Log.i("TabModel", "user popup: onCreateWindow ${h.event.at - touchAt} ms after the touch (USER_INPUT_MS ${BrowserTab.USER_INPUT_MS})")
+        assertTrue((h.event as BrowserEvent.Popup).userInput)
+    }
+
+    /** 추정 check (browser-layers 2-1): what saveState gives on a WebView whose renderer is gone. */
+    @Test fun saveStateAfterRendererDeath() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val result = kotlinx.coroutines.CompletableDeferred<String>()
+        val loaded = kotlinx.coroutines.CompletableDeferred<Unit>()
+        main {
+            val w = WebViewFactory.create(ctx)
+            w.webViewClient = object : android.webkit.WebViewClient() {
+                override fun onPageFinished(view: android.webkit.WebView, u: String) { if (u.endsWith("/b")) loaded.complete(Unit) }
+                override fun onRenderProcessGone(view: android.webkit.WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                    val r = runCatching { view.saveState(android.os.Bundle()) }
+                    result.complete(r.fold({ l -> "returned ${l?.let { "a list of ${it.size}" } ?: "null"}" }, { e -> "threw ${e.javaClass.simpleName}" }))
+                    view.destroy()
+                    return true
+                }
+            }
+            w.loadUrl(url("/a"))
+            delay(1_000)
+            w.loadUrl(url("/b"))
+            withTimeout(10_000) { loaded.await() }
+            w.loadUrl("chrome://crash")
+        }
+        val r = runBlocking { withTimeout(15_000) { result.await() } }
+        Log.i("TabModel", "saveState after renderer death: $r")
     }
 }

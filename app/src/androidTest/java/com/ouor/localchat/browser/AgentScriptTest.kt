@@ -475,7 +475,8 @@ class AgentScriptTest {
         load("scroll.html")
         val top = PageScript.call<ReadText>(tab, "readText")
         assertFalse(top.text, "\u0001" in top.text)
-        assertTrue(top.text.substring(top.screenAt!!), top.text.substring(top.screenAt!!).startsWith("Box line 1"))
+        // The page has a <main>: its text is read, so the screen starts at its first paragraph.
+        assertTrue(top.text.substring(top.screenAt!!).take(80), top.text.substring(top.screenAt!!).startsWith("Paragraph 1 "))
         scroll("down")
         scroll("down")
         val lower = PageScript.call<ReadText>(tab, "readText")
@@ -491,6 +492,7 @@ class AgentScriptTest {
         val at = locate(ref)
         // a smooth scroll still running when the tap comes: the down would only stop it
         tab.evaluate("window.scrollTo({top: 3000, behavior: 'smooth'})", 5_000)
+        while (scrollY() == 0) delay(5) // the scroll is under way, as a fling the user just let go of
         assertEquals(BrowserTab.Tap.MOVING, tab.tap(at.cx, at.cy, at.innerWidth))
     }
 

@@ -118,6 +118,7 @@ class Scenario private constructor(
         val index = toolCalls++
         deltas += { request ->
             val args = REF.replace(argumentsJson) { m -> pickRef(request, String(Base64.getDecoder().decode(m.groupValues[1]))) }
+                .let { if (LAST_REF in it) it.replace(LAST_REF, lastRef(request)) else it }
             val half = args.length / 2
             listOf(toolDelta(index, id, name, "")) + listOf(args.take(half), args.drop(half)).map { toolDelta(index, null, null, it) }
         }
@@ -193,6 +194,21 @@ class Scenario private constructor(
          * `button "Go"`) in the newest tool result of the request that this scenario answers.
          */
         fun ref(line: String): String = "@ref:" + Base64.getEncoder().encodeToString(line.toByteArray()) + "@"
+
+        private const val LAST_REF = "@lastref@"
+
+        /** The ref the newest earlier call passed (a ref that may be stale by now). */
+        fun lastRef(): String = LAST_REF
+
+        private fun lastRef(request: RecordedRequest): String {
+            val messages = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject["messages"]?.jsonArray.orEmpty()
+            return messages.asReversed().firstNotNullOfOrNull { m ->
+                m.jsonObject["tool_calls"]?.jsonArray?.firstNotNullOfOrNull { c ->
+                    val args = c.jsonObject["function"]?.jsonObject?.get("arguments")?.jsonPrimitive?.content ?: return@firstNotNullOfOrNull null
+                    Json.parseToJsonElement(args).jsonObject["ref"]?.jsonPrimitive?.content
+                }
+            } ?: error("no earlier call with a ref")
+        }
 
         private fun pickRef(request: RecordedRequest, line: String): String {
             val messages = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject["messages"]?.jsonArray.orEmpty()

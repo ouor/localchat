@@ -76,6 +76,16 @@ class JsRenderEngine @Inject constructor(@ApplicationContext private val context
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse =
                     loader.shouldInterceptRequest(request.url)
                         ?: WebResourceResponse("text/plain", "utf-8", 403, "blocked", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+
+                // The renderer is shared with the browser tabs: unhandled, its death takes the app down. The next diagram makes a new one.
+                override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                    if (webView === view) {
+                        webView = null
+                        ready = CompletableDeferred()
+                    }
+                    view.destroy()
+                    return true
+                }
             }
             loadUrl("https://appassets.androidplatform.net/assets/render/index.html")
         }

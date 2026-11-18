@@ -87,7 +87,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
         val reply = awaitEnd(send("read it"))
         val t = reply.results().map { it.modelText }
         val tab = browser.tabs.value.single()
-        assertTrue(t[0], "(tab ${tab.id}, part 1 of " in t[0])
+        val heads = t.joinToString(" | ") { it.lines().take(3).joinToString(" / ") }
+        assertTrue(heads, "(tab ${tab.id}, part 1 of " in t[0])
         assertTrue(t[1], "(tab ${tab.id}, part 2 of " in t[1])
         assertEquals(pageHits.toString(), 1, pageHits.count { it == "/redir" })
     }
@@ -182,7 +183,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
         llm.enqueue(
             Scenario.toolCall("open", """{"url":"${url("/start")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Next page\"")}"}"""),
-            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Next page\"")}"}"""),
+            // The same ref again: the page it was on is gone (the newest list of the tab no longer holds it).
+            Scenario.toolCall("click", """{"ref":"${Scenario.lastRef()}"}"""),
             Scenario.text("done"),
         )
         val reply = awaitEnd(send("stale"))
@@ -284,7 +286,7 @@ class ToolFlowPolicyTest : ToolFlowBase() {
         )
         val sid = send("order")
         val ask = awaitPause(sid) as Pause.Approval
-        assertEquals("button \"Place order\"", ask.request.target)
+        assertEquals("Place order", ask.request.target)
         assertTrue(ask.request.pageUrl.orEmpty().endsWith("/shop"))
         engine.resolve(sid, Resolution.ApprovalAnswer(ask.id, allow = false))
         val reply = awaitEnd(sid)

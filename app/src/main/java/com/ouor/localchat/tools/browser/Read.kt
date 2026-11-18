@@ -157,18 +157,29 @@ object ReadRules {
         return out.ifEmpty { listOf(0 to 0) }
     }
 
+    /** The anchor's place in [text]; when it repeats (a feed's same footer, filler text), the one nearest the old end. */
+    private fun nearest(text: String, c: ReadCursor): Int {
+        var best = -1
+        var at = text.indexOf(c.anchor)
+        while (at >= 0) {
+            if (best < 0 || kotlin.math.abs(at + c.anchor.length - c.end) < kotlin.math.abs(best + c.anchor.length - c.end)) best = at
+            at = text.indexOf(c.anchor, at + 1)
+        }
+        return best
+    }
+
     fun plan(text: String, size: Int, doc: String?, cursor: ReadCursor?, part: Int?, turn: Int, screenAt: Int?): Plan {
         val b = bounds(text, size)
         val screen = screenAt?.takeIf { it > 0 }?.let { at -> b.indexOfFirst { at >= it.first && at < it.second }.takeIf { it >= 0 }?.plus(1) }
         fun of(i: Int, start: Int, end: Int, restarted: Boolean = false, earlier: Boolean = false) = Plan(
             i, b.size, text.substring(start, end).trim('\n'),
-            ReadCursor(doc, text.substring(maxOf(start, end - ANCHOR), end), i + 1, turn), restarted, earlier, screen,
+            ReadCursor(doc, text.substring(maxOf(start, end - ANCHOR), end), i + 1, turn, end), restarted, earlier, screen,
         )
         if (part != null) {
             val i = (part - 1).coerceIn(0, b.size - 1)
             return of(i, b[i].first, b[i].second)
         }
-        val pos = cursor?.takeIf { it.doc == doc && it.anchor.isNotEmpty() }?.let { text.lastIndexOf(it.anchor) } ?: -1
+        val pos = cursor?.takeIf { it.doc == doc && it.anchor.isNotEmpty() }?.let { nearest(text, it) } ?: -1
         if (pos < 0) {
             return of(0, b[0].first, b[0].second, restarted = cursor != null)
         }
