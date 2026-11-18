@@ -129,7 +129,8 @@ class LayoutStressTest {
                 start = { ModelChip(provider40, model80, Color.Red, {}, Modifier.weight(1f, fill = false)) },
                 end = { ContextGauge(null, {}, tokensText = ctx.getString(R.string.ui_tokens, "31.6k")) },
             )
-            BrowserStatusStrip("S-$title100", "www.example.com", {}, {})
+            BrowserStatusStrip("S-$title100", "www.example.com", {})
+            com.ouor.localchat.ui.components.ActivityBar("A-$title100", chat = cjk60)
         }
         // Top bar: title and subtitle end in an ellipsis on one line (not clipped); the action stays visible.
         listOf(title100, provider40).forEach {
@@ -148,10 +149,10 @@ class LayoutStressTest {
         assertFalse(gauge.isLineEllipsized(0))
         assertTrue("gauge cut: right=${gauge.getLineRight(0)} width=${gauge.size.width}", gauge.getLineRight(0) <= gauge.size.width + 1f)
         assertTrue(layout(rule.onNodeWithText(model80, substring = true, useUnmergedTree = true)).isLineEllipsized(0))
-        // Agent strip: the take-over button is whole and on screen.
-        val take = rule.onNodeWithText(ctx.getString(R.string.ui_take_over), useUnmergedTree = true)
-        layout(take).let { assertTrue("take over cut", it.getLineRight(0) <= it.size.width + 1f) }
-        assertOnScreen(take)
+        // Activity bar: a long tool line gives way; Stop is whole and on screen.
+        val stop = rule.onNodeWithText(ctx.getString(R.string.ui_stop), useUnmergedTree = true)
+        layout(stop).let { assertTrue("stop cut", it.getLineRight(0) <= it.size.width + 1f) }
+        assertOnScreen(stop)
     }
 
     private fun assertBelow(lower: SemanticsNodeInteraction, upper: SemanticsNodeInteraction) {

@@ -2,9 +2,9 @@ package com.ouor.localchat.chat
 
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
-import com.ouor.localchat.browser.Control
-import com.ouor.localchat.browser.Owner
-import com.ouor.localchat.browser.safety.CookieMasker
+import com.ouor.localchat.browser.Front
+import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.provider.KnownModels
 import com.ouor.localchat.tools.ToolCatalog
 import com.ouor.localchat.tools.ToolExposure
@@ -65,33 +65,13 @@ class StoredAttachmentPort @Inject constructor(private val stored: StoredAttachm
 }
 
 class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) : BrowserPort {
-    // Default tab creation, ownership and B-S3 live in one place in the engine (main thread only).
-    override suspend fun aiTabId(sessionId: String, tabIdArg: Int?): Int =
-        withContext(Dispatchers.Main.immediate) { engine.aiTabFor(sessionId, tabIdArg).id }
-
-    override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
-
-    override suspend fun acquireAiTab(sessionId: String, tabIdArg: Int?, toolName: String, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int =
-        engine.acquireAiTab(sessionId, tabIdArg, toolName, onUserControl, onResumed).id
-
-    override fun setControl(tabId: Int, control: Control) = engine.setControl(tabId, control)
-
-    override fun tabUrl(tabId: Int): String? = engine.tabs.value.firstOrNull { it.id == tabId }?.url
-
-    override fun maskCookies(text: String, url: String): String = CookieMasker.mask(text, engine.cookieHeader(url))
-
-    override fun clearAiActivity(sessionId: String) = engine.clearAiActivity(sessionId)
-
-    override fun closeAiTabs(sessionId: String?) {
-        val sessions = sessionId?.let(::listOf)
-            ?: engine.tabs.value.mapNotNull { (it.owner as? Owner.Ai)?.sessionId }.distinct()
-        sessions.forEach(engine::closeSessionTabs)
-    }
-
-    override suspend fun openPrefetchTab(sessionId: String, url: String): Int =
-        withContext(Dispatchers.Main.immediate) { engine.openAiTab(sessionId, url, hidden = true) }
-
+    override fun tabs(): List<TabInfo> = engine.tabs.value
+    override fun front(): Front? = engine.front.value
+    override fun shown(): Int? = engine.shown.value
+    override suspend fun open(): Int = withContext(Dispatchers.Main.immediate) { engine.open() }
     override suspend fun close(tabId: Int) = withContext(Dispatchers.Main.immediate) { engine.close(tabId) }
-
-    override fun isSensitive(url: String): Boolean = engine.sensitiveUrls.isSensitive(url)
+    override fun setActivity(tabId: Int, activity: ToolActivity?) = engine.setActivity(tabId, activity)
+    override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
+    override fun cookieHeader(url: String): String? = engine.cookieHeader(url)
+    override fun now(): Long = android.os.SystemClock.uptimeMillis()
 }

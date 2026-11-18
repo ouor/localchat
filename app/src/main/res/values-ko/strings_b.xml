@@ -11,19 +11,22 @@
     <string name="chat_err_model_unavailable_body">모델이 삭제되었거나 프로바이더가 꺼져 있어요. 다른 모델을 고르세요.</string>
     <string name="chat_err_config_title">프로바이더 설정을 확인하세요</string>
     <string name="chat_err_config_body">기본 URL이 올바르지 않거나, 허용하지 않은 http 주소예요.</string>
-    <plurals name="chat_step_nodes">
-        <item quantity="other">요소 %d개</item>
-    </plurals>
-    <plurals name="chat_step_lines">
-        <item quantity="other">%d줄</item>
-    </plurals>
-    <plurals name="chat_step_tabs">
-        <item quantity="other">탭 %d개</item>
-    </plurals>
     <plurals name="chat_step_results">
         <item quantity="other">결과 %d개</item>
     </plurals>
-    <string name="chat_step_fail_sensitive">민감 URL 차단: 읽지 않음</string>
+    <string name="chat_step_fail_blocked">앱이 막음</string>
     <string name="chat_step_fail_interrupted">끝나기 전에 중단됨</string>
     <string name="chat_step_fail_error">오류로 실패함</string>
+    <string name="ui_protections">보호 장치</string>
+    <string name="ui_peek_activity">AI가 탭 %1$d에서 %2$s</string>
+    <string name="ui_user_step_here">AI가 기다립니다: %1$s</string>
+    <string name="ui_user_step_other">AI가 탭 %1$d에서 기다립니다: %2$s</string>
+    <string name="ui_event_other_tab">탭 %1$d의 페이지가 묻습니다</string>
+    <string name="ui_view">보기</string>
+    <string name="ui_open">열기</string>
+    <string name="ui_reload_page">이 페이지 다시 불러오기</string>
+    <string name="ui_tab_asleep">잠든 탭</string>
+    <string name="ui_new_tab_failed">새 탭을 열지 못했습니다</string>
+    <string name="ui_external_title">다른 앱에서 열까요?</string>
+    <string name="ui_popup_title">페이지가 새 탭을 열려고 합니다</string>
 </resources>

@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.captureToImage
@@ -25,10 +26,12 @@ import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
-import com.ouor.localchat.browser.BrowserPrompt
-import com.ouor.localchat.browser.Control
-import com.ouor.localchat.browser.Owner
+import com.ouor.localchat.browser.Answer
+import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Assert.assertEquals
@@ -46,7 +49,7 @@ class BrowserPanelTest {
 
     private var s by mutableStateOf(BrowserUiState())
     private val panels = mutableListOf<PanelState>()
-    private val takeOvers = mutableListOf<Int>()
+    private val stops = mutableListOf<String?>()
     private var cover = -1
     /** Null draws the blank placeholder; [realWebViewStillScrollsAfterHandleDrags] sets a real one. */
     private var page: WebView? = null
@@ -54,31 +57,31 @@ class BrowserPanelTest {
     private val actions = object : BrowserActions {
         override fun setPanel(p: PanelState) { panels += p; s = s.withPanel(p) }
         override fun keyboard(up: Boolean) { s = s.keyboard(up) }
-        override fun select(id: Int) {}
+        override fun select(id: Int) = setPanel(maxOf(s.panel, PanelState.Half))
         override fun showTabs(v: Boolean) {}
         override fun close(id: Int) {}
         override fun open(url: String?) {}
         override fun newTab(url: String?) {}
+        override fun dismissOpenFailed() {}
         override fun navigate(input: String) {}
         override fun back() {}
         override fun forward() {}
         override fun reload() {}
-        override fun takeOver(id: Int) { takeOvers += id }
-        override fun dismissTouch() {}
-        override fun giveBack(id: Int) {}
-        override fun handToAi(id: Int) {}
-        override fun takeTab(id: Int) {}
-        override fun stopRun() {}
-        override fun answerDialog(p: BrowserPrompt.Dialog, accept: Boolean, text: String?) {}
-        override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
-        override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
-        override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
-        override fun webView(id: Int): WebView? = page
-        override fun show(id: Int) {}
-        override fun park(id: Int) {}
+        override fun reload(id: Int) {}
+        override fun stopRun(sessionId: String?) { stops += sessionId }
+        override fun userStepDone() {}
+        override fun answer(e: BrowserEvent, answer: Answer) {}
+        override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {}
+        override fun webView(id: Int): StateFlow<WebView?>? = page?.let { MutableStateFlow(it) }
+        override fun show(id: Int) { shows += "show $id" }
+        override fun park(id: Int) { shows += "park $id" }
     }
+    private val shows = mutableListOf<String>()
 
-    private val aiTab = TabInfo(1, "인사 규정", "https://wiki.corp.example/hr", Owner.Ai("A"), Control.AI, loading = false)
+    private val aiTab = TabInfo(1, "인사 규정", "https://wiki.corp.example/hr", loading = false)
+    private val working = mapOf(1 to ToolActivity("A", "test_tool"))
+    /** The Peek strip line for [working] (an unknown tool name is shown as is). */
+    private val stripTitle get() = ctx.getString(R.string.ui_peek_activity, 1, "test_tool")
 
     private val covers = mutableListOf<Int>()
     /** Screen height in px: swipes are fractions of it, so they cross the same anchors on any density. */
@@ -108,26 +111,39 @@ class BrowserPanelTest {
     private fun handle() = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd))
 
     @Test fun stripShowsWhileTheRunOperatesAndOpensHalf() {
-        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
-        rule.onNodeWithText("인사 규정", substring = true).assertIsDisplayed()
-        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "인사 규정")).performClick()
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", activity = working, running = true))
+        rule.onNodeWithText(stripTitle).assertIsDisplayed()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, stripTitle)).performClick()
         rule.waitForIdle()
         assertEquals(PanelState.Half, panels.last())
         handle().assertIsDisplayed()
         assertTrue("panel covers the bottom at Half", cover > 0)
     }
 
-    @Test fun stripTakeOverSwitchesControlAndOpens() {
-        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
-        rule.onNodeWithText(ctx.getString(R.string.ui_take_over)).performClick()
-        assertEquals(listOf(1), takeOvers)
-        assertEquals(PanelState.Half, panels.last())
+    @Test fun activityBarStopsTheRunOnThatTab() {
+        show(BrowserUiState(PanelState.Half, listOf(aiTab), front = 1, sessionId = "A", activity = working, running = true))
+        rule.onNodeWithText(ctx.getString(R.string.ui_stop)).performClick()
+        assertEquals(listOf<String?>("A"), stops)
     }
 
-    @Test fun userTabPeekShowsNothing() {
-        show(BrowserUiState(PanelState.Peek, listOf(aiTab.copy(owner = Owner.User)), running = true))
-        rule.onNodeWithText("인사 규정").assertDoesNotExist()
+    @Test fun idleTabPeekShowsNothing() {
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
+        rule.onNodeWithText(stripTitle).assertDoesNotExist()
         assertEquals(0, cover)
+    }
+
+    /** browser-layers 2-2 추정: the engine's `shown` follows the drawer; at Peek the page is parked. */
+    @Test fun thePageIsShownOnlyWhileThePanelIsOnScreen() {
+        rule.runOnIdle { page = WebView(ctx) }
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), front = 1, sessionId = "A", activity = working, running = true))
+        assertEquals(emptyList<String>(), shows)
+        rule.onNodeWithText(stripTitle).performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("show 1"), shows)
+        handle().performTouchInput { swipeDown(startY = centerY, endY = centerY + rootH, durationMillis = 300) }
+        rule.waitForIdle()
+        assertEquals(PanelState.Peek, panels.last())
+        assertEquals(listOf("show 1", "park 1"), shows)
     }
 
     @Test fun handleDragsHalfToFullAndDownToPeek() {
@@ -165,6 +181,31 @@ class BrowserPanelTest {
         assertEquals(PanelState.Full, panels.last())
     }
 
+    /** P-STABLE: the toolbar's ⋮ stays in one place whatever the tab does; its menu offers Save as PDF. */
+    @Test fun moreMenuStaysPutAndOffersPdf() {
+        show(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "A", activity = working, running = true))
+        val more = rule.onNodeWithTag(MORE_TAG)
+        val at = more.fetchSemanticsNode().boundsInRoot
+        listOf(
+            aiTab.copy(loading = true),
+            aiTab.copy(title = "아주 긴 제목 ".repeat(10), url = "https://wiki.corp.example/" + "x".repeat(200)),
+            aiTab.copy(asleep = com.ouor.localchat.browser.Asleep.DISCARDED),
+            aiTab.copy(url = "http://plain.example/"),
+        ).forEachIndexed { i, t ->
+            rule.runOnIdle { s = s.copy(tabs = listOf(t), activity = if (i % 2 == 0) working else emptyMap()) }
+            rule.waitForIdle()
+            assertEquals("⋮ for $t", at, more.fetchSemanticsNode().boundsInRoot)
+        }
+        more.performClick()
+        rule.onNodeWithText(ctx.getString(R.string.ui_save_pdf)).assertIsDisplayed()
+    }
+
+    @Test fun pdfNamesAreSafeFileNames() {
+        assertEquals("인사_규정_-_회사.pdf", pdfName("인사 규정 - 회사"))
+        assertEquals("a_b_c.pdf", pdfName("a/b:c?"))
+        assertEquals("page.pdf", pdfName("  "))
+    }
+
     /** Device check: handle drags move the panel, page drags scroll the real WebView and never move the panel. */
     @Test fun realWebViewStillScrollsAfterHandleDrags() {
         rule.runOnIdle {
@@ -172,9 +213,9 @@ class BrowserPanelTest {
                 loadDataWithBaseURL(null, "<html><body style='margin:0'>" + (1..300).joinToString("") { "<p>line $it</p>" } + "</body></html>", "text/html", "utf-8", null)
             }
         }
-        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", activity = working, running = true))
         shot("peek-strip")
-        rule.onNodeWithText("인사 규정", substring = true).performClick()
+        rule.onNodeWithText(stripTitle).performClick()
         rule.waitUntil(5_000) { rule.runOnIdle { page!!.contentHeight } > 0 }
         rule.waitForIdle()
         shot("half")
@@ -209,8 +250,8 @@ class BrowserPanelTest {
     // ---- R2a ----
 
     @Test fun coverIsReportedOnlyWhenSettledAndNeverForFull() { // R2a-1
-        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true))
-        rule.onNodeWithText("인사 규정", substring = true).performClick()
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", activity = working, running = true))
+        rule.onNodeWithText(stripTitle).performClick()
         rule.waitForIdle()
         val half = cover
         assertTrue(half > 0)
@@ -223,9 +264,9 @@ class BrowserPanelTest {
 
     @Test fun reducedMotionSnapsThePanelAndStopsTheWorkingBar() { // R2a-2
         rule.mainClock.autoAdvance = false
-        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", running = true), reduced = true, idle = false)
+        show(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "A", activity = working, running = true), reduced = true, idle = false)
         rule.mainClock.advanceTimeByFrame()
-        val strip = rule.onNodeWithText("인사 규정", substring = true)
+        val strip = rule.onNodeWithText(stripTitle)
         val a = strip.captureToImage().asAndroidBitmap()
         rule.mainClock.advanceTimeBy(600)
         val b = strip.captureToImage().asAndroidBitmap()

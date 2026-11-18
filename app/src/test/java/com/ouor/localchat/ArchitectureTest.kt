@@ -16,10 +16,12 @@ class ArchitectureTest {
 
     /** Layer -> app layers it may import (besides itself). Nobody may import ui or app. */
     private val allowed = mapOf(
-        "app" to setOf("ui", "chat", "backup", "browser", "provider", "storage", "attach", "speech", "tools", "llm", "core"),
-        "ui" to setOf("chat", "provider", "browser", "backup", "attach", "speech", "storage", "core"),
+        "app" to setOf("ui", "chat", "backup", "browser", "provider", "storage", "attach", "speech", "tools", "llm", "policy", "core"),
+        "ui" to setOf("chat", "provider", "browser", "backup", "attach", "speech", "storage", "policy", "core"),
         "backup" to setOf("chat", "provider", "storage", "core"),
-        "chat" to setOf("tools", "browser", "provider", "llm", "attach", "storage", "core"),
+        "chat" to setOf("tools", "browser", "provider", "llm", "attach", "storage", "policy", "core"),
+        // browser-layers 1-3: layer 3 sees layers 1 and 2; they never see it.
+        "policy" to setOf("browser", "tools", "storage", "core"),
         "tools" to setOf("browser", "storage", "core"),
         "browser" to setOf("storage", "core"),
         "attach" to setOf("storage", "core"),
@@ -38,11 +40,18 @@ class ArchitectureTest {
         "chat" to listOf("ChatEngine.kt", "SessionRepository.kt", "DraftRepository.kt", "run/RunState.kt"),
         "provider" to listOf("ProviderRepository.kt", "Presets.kt"),
         "attach" to listOf("AttachmentIngest.kt"),
-        "browser" to listOf("BrowserEngine.kt", "BrowserPrompt.kt", "Highlight.kt"), // element types of its public flows
+        "browser" to listOf("BrowserEngine.kt", "BrowserEvent.kt", "BrowserFacts.kt", "Highlight.kt", "SearchEngines.kt"), // element types of its public flows; the address bar's search URL
+        "policy" to POLICY_GENERIC,
         "backup" to listOf("BackupService.kt"),
         "storage" to listOf("SettingsStore.kt"),
         "speech" to listOf("VoiceInput.kt", "ReadAloud.kt"),
     )
+
+    /** browser-layers S20: outside policy/ and di/ only these files' types are used, never one policy by name. */
+    private val policyGeneric by lazy { surfaceTypes("policy", POLICY_GENERIC) }
+
+    /** browser-layers 4-1: what policies read of layer 2. */
+    private val policyReadsOfTools = setOf("tools.ToolOutcome", "tools.ToolFacts", "tools.TargetRule")
 
     /** 2.2: Room entities and DAOs stay inside these layers. */
     private val dbLayers = setOf("storage", "chat", "provider", "attach", "backup", "app")
@@ -61,16 +70,14 @@ class ArchitectureTest {
 
     private val files by lazy { root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
 
-    private val uiAllowed by lazy {
-        uiSurface.flatMap { (layer, names) ->
-            names.flatMap { name ->
-                val file = File(root, "$layer/$name")
-                require(file.isFile) { "10.2 surface file missing: ${file.path}" }
-                val pkg = "$layer/$name".substringBeforeLast('/').replace('/', '.')
-                file.readLines().mapNotNull { topLevel.find(it)?.groupValues?.get(1) }.map { "$pkg.$it" }
-            }
-        }.toSet()
-    }
+    private val uiAllowed by lazy { uiSurface.flatMap { (layer, names) -> surfaceTypes(layer, names) }.toSet() }
+
+    private fun surfaceTypes(layer: String, names: List<String>): Set<String> = names.flatMap { name ->
+        val file = File(root, "$layer/$name")
+        require(file.isFile) { "surface file missing: ${file.path}" }
+        val pkg = "$layer/$name".substringBeforeLast('/').replace('/', '.')
+        file.readLines().mapNotNull { topLevel.find(it)?.groupValues?.get(1) }.map { "$pkg.$it" }
+    }.toSet()
 
     @Test
     fun `references follow the dependency table`() {
@@ -96,31 +103,46 @@ class ArchitectureTest {
         assertEquals(emptyList<String>(), check("ui", "import com.ouor.localchat.browser.Highlight"))
         assertEquals(emptyList<String>(), check("core", "// see com.ouor.localchat.llm.X and android.os"))
         assertEquals(emptyList<String>(), check("chat", "const val A = \"com.ouor.localchat.action.STOP\""))
+        // browser-layers 1-3, S20
+        assertEquals(listOf("may not use policy"), check("browser", "import com.ouor.localchat.policy.Policies"))
+        assertEquals(listOf("may not use policy"), check("tools", "import com.ouor.localchat.policy.ApprovalRequest"))
+        assertEquals(listOf("policy internals stay in policy/ and di/: policy.SiteBlockPolicy"), check("chat", "import com.ouor.localchat.policy.SiteBlockPolicy"))
+        assertEquals(emptyList<String>(), check("chat", "import com.ouor.localchat.policy.Policies"))
+        assertEquals(emptyList<String>(), check("app", "import com.ouor.localchat.policy.SiteBlockPolicy", di = true))
+        assertEquals(listOf("policy reads only tool facts and outcomes: tools.browser.Click"), check("policy", "import com.ouor.localchat.tools.browser.Click"))
+        assertEquals(emptyList<String>(), check("policy", "import com.ouor.localchat.tools.ToolFacts"))
     }
 
     private fun violationsOf(file: File): List<String> {
         val layer = layerOf(file)
         requireNotNull(allowed[layer]) { "unknown layer '$layer' for ${file.path}: add it to the table" }
-        return file.readLines().flatMap { line -> check(layer, line).map { "${file.relativeTo(root).invariantSeparatorsPath}: $it (${line.trim()})" } }
+        val di = file.relativeTo(root).invariantSeparatorsPath.startsWith("di/")
+        return file.readLines().flatMap { line -> check(layer, line, di).map { "${file.relativeTo(root).invariantSeparatorsPath}: $it (${line.trim()})" } }
     }
 
-    private fun check(layer: String, raw: String): List<String> {
+    private fun check(layer: String, raw: String, di: Boolean = false): List<String> {
         val line = raw.trim()
         if (line.startsWith("//") || line.startsWith("*") || line.startsWith("/*") || line.startsWith("package ")) return emptyList()
         val code = line.replace(stringLiteral, "\"\"")
         val android = if (layer in noAndroid && androidRef.containsMatchIn(code)) listOf("Android reference") else emptyList()
-        return android + appRef.findAll(code).mapNotNull { problem(layer, it.groupValues[1]) }
+        return android + appRef.findAll(code).mapNotNull { problem(layer, it.groupValues[1], di) }
     }
 
-    private fun problem(layer: String, target: String): String? {
+    private fun problem(layer: String, target: String, di: Boolean): String? {
         // Generated resources (R) belong to no layer.
         if (target == "R" || target.startsWith("R.")) return null
         val targetLayer = layerOfImport(target)
         if (targetLayer == layer) return null
         if (targetLayer !in allowed.getValue(layer)) return "may not use $targetLayer"
         if (target.startsWith("storage.db") && layer !in dbLayers) return "Room types stay in storage users: $target"
+        if (targetLayer == "policy" && !di && typeOf(target) !in policyGeneric) return "policy internals stay in policy/ and di/: ${typeOf(target)}"
+        if (layer == "policy" && targetLayer == "tools" && typeOf(target) !in policyReadsOfTools) return "policy reads only tool facts and outcomes: ${typeOf(target)}"
         if (layer == "ui" && targetLayer != "core" && typeOf(target) !in uiAllowed) return "not in the 10.2 surface: ${typeOf(target)}"
         return null
+    }
+
+    private companion object {
+        val POLICY_GENERIC = listOf("Policy.kt", "ToolPolicy.kt", "BrowserPolicy.kt", "Policies.kt")
     }
 
     /** `chat.run.Pause.Approval` -> `chat.run.Pause`; a top-level function stays as it is. */

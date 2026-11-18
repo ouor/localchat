@@ -1,7 +1,6 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.browser.BrowserEngine
-import com.ouor.localchat.browser.Control
 import com.ouor.localchat.chat.AttachmentPayload
 import com.ouor.localchat.chat.AttachmentPort
 import com.ouor.localchat.chat.BrowserPort
@@ -14,9 +13,11 @@ import com.ouor.localchat.chat.ModelPort
 import com.ouor.localchat.chat.ResolvedModel
 import com.ouor.localchat.chat.TitleGenerator
 import com.ouor.localchat.chat.ToolPort
+import com.ouor.localchat.tools.browser.Read
 import com.ouor.localchat.chat.context.AssemblyInput
 import com.ouor.localchat.chat.context.ContextAssembler
 import com.ouor.localchat.chat.context.SystemPrompt
+import com.ouor.localchat.chat.context.TabNote
 import com.ouor.localchat.chat.context.TokenEstimate
 import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
@@ -34,9 +35,12 @@ import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.llm.LlmError
 import com.ouor.localchat.llm.toChatError
 import com.ouor.localchat.llm.LlmEvent
+import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.storage.SettingsStore
+import com.ouor.localchat.tools.ChatTabs
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolExposure
+import com.ouor.localchat.tools.ToolGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -58,6 +62,7 @@ class TurnRunner @Inject constructor(
     private val attachments: AttachmentPort,
     private val browserPort: BrowserPort,
     private val browser: Provider<BrowserEngine>,
+    private val policies: Policies,
     private val settings: SettingsStore,
     private val compactor: Compactor,
     private val titles: TitleGenerator,
@@ -67,9 +72,20 @@ class TurnRunner @Inject constructor(
 ) {
     enum class Mode { NEW, CONTINUE }
 
+    /**
+     * Each chat's memory of tabs (browser-layers 3-2: current tab, tabs it opened, its search tab, read positions),
+     * kept across turns in this process; the least recent chats are dropped. Not ownership.
+     */
+    private val chats = object : LinkedHashMap<String, ChatTabs>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ChatTabs>) = size > CHATS_KEPT
+    }
+
+    private fun chatTabs(sessionId: String): ChatTabs = synchronized(chats) { chats.getOrPut(sessionId) { ChatTabs() } }
+
     /** Runs until the reply is DONE, ERROR or cancelled; the reply is always saved at the end. */
     suspend fun run(handle: RunRegistry.RunHandle, mode: Mode) {
         val turn = Turn(handle, mode)
+        policies.turnStart(turn.sessionId)
         try {
             turn.loop()
         } catch (e: CancellationException) {
@@ -78,8 +94,7 @@ class TurnRunner @Inject constructor(
             // A broken row, a full disk, a bug: the reply ends as ERROR instead of killing the process (AN 3).
             turn.fail(e)
         } finally {
-            // BUG-04: however the run ends, B-09 ② "AI is operating" must not outlive it.
-            browserPort.clearAiActivity(turn.sessionId)
+            policies.turnEnd(turn.sessionId)
             withContext(NonCancellable) { turn.finish() }
         }
     }
@@ -125,19 +140,39 @@ class TurnRunner @Inject constructor(
                 return
             }
             store.session(sessionId) ?: return // deleted meanwhile
-            var path = MessageTree.ancestors(node, store.nodes(sessionId))
-            val tools = if (mode == Mode.CONTINUE) emptyList() else toolPort.exposed(model.caps, body.options.search, body.options.browser)
+            val nodes = store.nodes(sessionId)
+            var path = MessageTree.ancestors(node, nodes)
+            val chat = chatTabs(sessionId)
+            if (mode == Mode.NEW && body.steps == 0) chat.turn++
+            // M1: a regenerated reply reads its pages from the start; the other reply's reading positions mean nothing here.
+            if (mode == Mode.NEW && body.steps == 0 && nodes.any { it.parentId == node.parentId && it.id != node.id }) {
+                chat.readCursors.clear()
+            }
+            // Policies may hide tools (browser-layers 4-1); ToolExposure itself does not change.
+            val hidden = policies.hiddenTools()
+            val tools = if (mode == Mode.CONTINUE) emptyList() else exposed(model, body.options.search, body.options.browser, hidden)
             val builtAt = clock.now()
             // Audit #9: CONTINUE reuses the reply's own system context by design, so the continued text stays consistent.
-            val system = body.systemContext.takeIf { mode == Mode.CONTINUE }
-                ?: SystemPrompt.build(builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.isNotEmpty())
+            val system = body.systemContext.takeIf { mode == Mode.CONTINUE } ?: SystemPrompt.build(
+                builtAt, ZoneId.systemDefault(), prefs.region, prefs.userInstructions, tools.mapTo(HashSet()) { it.name },
+                switchable = model.caps.toolCalling.value == true,
+                policyLines = if (tools.isEmpty()) emptyList() else policies.promptLines(),
+            )
+            // 5-1: the tabs as they stand when the turn starts, at most three lines; not stored.
+            val tabNote = if (mode == Mode.NEW && body.steps == 0 && tools.any { ToolGroup.BROWSER in it.groups }) {
+                TabNote.build(browserPort.tabs(), browserPort.front(), browserPort.shown(), chat)
+            } else null
             // FB3 QA M1: the history's tools are listed too (switched off since), or DeepSeek writes its calls as text.
             // With none exposed, no call is allowed (below) and the system prompt stays the toolless one.
             val historyNames = (path.map { it.body } + body).filterIsInstance<MessageBody.Assistant>()
                 .flatMap { b -> b.blocks.filterIsInstance<ToolCallBlock>().map { it.name } }
-            val listed = ToolExposure.listedTools(tools, historyNames, model.caps, toolPort::byName)
+            val listed = ToolExposure.listedTools(tools, historyNames, model.caps, toolPort::byName).filter { it.name !in hidden }
             val existingSources = body.blocks.filterIsInstance<ToolResultBlock>().flatMap { it.sources }
-            val executor = ToolExecutor(sessionId, browser, attachments, browserPort, handle, listed, existingSources) { id, state ->
+            val executor = ToolExecutor(
+                sessionId, browser, attachments, browserPort, policies, handle, listed, existingSources,
+                contextWindow = model.caps.contextWindow.value, vision = model.caps.imageInput.value, chat = chat,
+                readTool = toolPort.byName(Read.name) ?: Read,
+            ) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }
             // Listed only for the history: a call to one is answered TOOL_OFF, never run.
@@ -160,7 +195,7 @@ class TurnRunner @Inject constructor(
                 val now = handle.switches ?: return
                 if (!now.search) search = false
                 if (!now.browser) browserOn = false
-                if (executor.tools.isNotEmpty()) executor.narrow(toolPort.exposed(model.caps, search, browserOn).mapTo(HashSet()) { it.name })
+                if (executor.tools.isNotEmpty()) executor.narrow(exposed(model, search, browserOn, hidden).mapTo(HashSet()) { it.name })
             }
             publish(body.copy(status = ReplyStatus.STREAMING, systemContext = system, finishReason = null, error = null))
             handle.update { it.copy(maxSteps = maxSteps) }
@@ -183,7 +218,8 @@ class TurnRunner @Inject constructor(
                 val shape = policy.shape(listed.isNotEmpty(), executor.tools.isNotEmpty(), mode == Mode.NEW, body.blocks.any { it is ToolCallBlock })
                 val stepTools = if (shape.sendTools) listed else emptyList()
 
-                var request = assemble(path, model, stepTools, system, shape)
+                val left = if (mode == Mode.NEW) StepPolicy.stepsLeft(step, maxSteps) else 0
+                var request = assemble(path, model, stepTools, system, shape, left, tabNote)
                 val window = model.caps.contextWindow.value
                 var input = estimate(request, path)
                 if (!compacted && window != null && (input > window * 0.8 || ContextAssembler.tooLittleRoom(request, window, input))) {
@@ -196,7 +232,7 @@ class TurnRunner @Inject constructor(
                     } catch (_: CompactionFailed) {
                         // Too-long context will surface as ContextOverflow; nothing else to do here.
                     }
-                    request = assemble(path, model, stepTools, system, shape)
+                    request = assemble(path, model, stepTools, system, shape, left, tabNote)
                     input = estimate(request, path)
                 }
                 request = ContextAssembler.fitOutput(request, window, input)
@@ -278,7 +314,7 @@ class TurnRunner @Inject constructor(
                             publish(
                                 body.copy(
                                     blocks = body.blocks.map { if (it is ToolCallBlock && it.key == skipped.key) it.copy(state = ToolCallState.CANCELLED, endedAt = clock.now()) else it } +
-                                        ToolResultBlock(skipped.callId, skipped.step, TOO_MANY_CALLS, isError = true),
+                                        ToolResultBlock(skipped.callId, skipped.step, page = "", isError = true, lead = TOO_MANY_CALLS),
                                 ),
                             )
                         }
@@ -293,17 +329,11 @@ class TurnRunner @Inject constructor(
             dispatching = call.key
             val result = executor.execute(call)
             var block = result.block
-            result.handoff?.let { handoff ->
-                // B-05: hand the tab to the user until they give it back.
-                browserPort.setControl(handoff.tabId, Control.USER)
+            result.userStep?.let { step ->
+                // ask_user: the run waits until the user taps Done; nothing changes hands, the tab is theirs as before.
                 save()
-                try {
-                    handle.pause(Pause.Handoff(handoff.tabId, handoff.reason))
-                } finally {
-                    // Also on stop: a tab left in USER would stall the next run's first tool (AN 13, SE 22).
-                    browserPort.setControl(handoff.tabId, Control.AI)
-                }
-                block = block.copy(content = SystemPrompt.HANDOFF_DONE, isError = false)
+                handle.pause(Pause.UserStep(step.tabId, step.task))
+                block = executor.afterUserStep(call, step)
             }
             val now = clock.now()
             publish(
@@ -317,7 +347,7 @@ class TurnRunner @Inject constructor(
             save()
         }
 
-        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, shape: StepPolicy.Shape) =
+        suspend fun assemble(path: List<MessageNode>, model: ResolvedModel, tools: List<Tool>, system: String, shape: StepPolicy.Shape, stepsLeft: Int, tabNote: String?) =
             ContextAssembler.build(
                 AssemblyInput(
                     system = system,
@@ -332,6 +362,9 @@ class TurnRunner @Inject constructor(
                     noCalls = shape.noCalls,
                     note = shape.note,
                     noteText = shape.noteText,
+                    stepsLeft = stepsLeft,
+                    tabNote = tabNote,
+                    openTabs = if (tools.any { ToolGroup.BROWSER in it.groups }) browserPort.tabs().mapTo(HashSet()) { it.id } else null,
                 ),
             )
 
@@ -364,6 +397,9 @@ class TurnRunner @Inject constructor(
             return path.dropLast(1) + updated
         }
 
+        fun exposed(model: ResolvedModel, search: Boolean, browserOn: Boolean, hidden: Set<String>) =
+            toolPort.exposed(model.caps, search, browserOn).filter { it.name !in hidden }
+
         fun launchTitle(path: List<MessageNode>, model: ResolvedModel) {
             val question = (path.last().body as? MessageBody.User)?.text ?: return
             val answer = body.blocks.filterIsInstance<TextBlock>().joinToString("") { it.text }
@@ -383,6 +419,7 @@ class TurnRunner @Inject constructor(
         /** Architecture 8.1: streaming writes at most once a second, plus at step boundaries and the end. */
         const val SAVE_INTERVAL_MS = 1000L
         const val MAX_CALLS_PER_STEP = 10
+        const val CHATS_KEPT = 8
         /** A class name would be R8-obfuscated in release builds, so a message-less exception gets fixed text. */
         const val UNEXPECTED = "Unexpected error"
         const val TOO_MANY_CALLS = "Not run: at most 10 tool calls per step. Call it again in the next step if still needed."

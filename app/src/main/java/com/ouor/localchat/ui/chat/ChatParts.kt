@@ -35,6 +35,7 @@ import com.ouor.localchat.core.model.ThinkingBlock as ThinkingData
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
+import com.ouor.localchat.core.model.ToolStatus
 import com.ouor.localchat.speech.VoiceState
 import com.ouor.localchat.ui.components.AssistantMessage
 import com.ouor.localchat.ui.components.BranchSwitcher
@@ -141,9 +142,15 @@ internal fun AssistantTurn(
             // BUG-08: the result goes to toolStep too, or counts stay the raw "458 nodes".
             val steps = calls.map { call ->
                 val r = results[call.key]
-                // BUG-17 (B-08): a screenshot step shows its image; tap opens it full screen.
+                // BUG-17 (B-08): a step with a page picture (look, an action's new page) shows it; tap opens it full screen.
                 val image = r?.artifactIds.orEmpty().firstNotNullOfOrNull { id -> state.attachments[id]?.takeIf { it.mime.startsWith("image/") }?.let(thumbnail) }
-                stepOf(call, r, toolStep(call, r)).copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
+                // tools-redesign 2-7: what the running call waits for takes the result's line (same height).
+                val waiting = (state.runPhase as? com.ouor.localchat.chat.run.RunPhase.RunningTool)?.takeIf { running && it.callId == call.callId }
+                // A click/type waiting for approval is named like the sheet names it (the element, not its ref).
+                val asked = (state.pause as? com.ouor.localchat.chat.run.Pause.Approval)?.takeIf { it.id == call.key }?.request?.target
+                val step = stepOf(call, r, toolStep(call, r)).let { s -> asked?.let { s.copy(arg = it) } ?: s }
+                    .copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
+                waiting?.status?.let { step.copy(result = statusText(it, waiting.engine)) } ?: step
             }
             val failed = steps.count { it.state == StepState.Failed }
             val browser = calls.any { toolVisual(it.name).agent }
@@ -154,11 +161,13 @@ internal fun AssistantTurn(
                 failed > 0 -> StepListState.FailedSome
                 else -> StepListState.Done
             }
+            // QA m1: agent steps (model round trips), as the running "step n of max" counts them, not tool calls.
+            val taken = maxOf(body.steps, calls.map { it.step }.distinct().size)
             val title = when (listState) {
                 StepListState.Running, StepListState.Paused -> stringResource(if (browser) R.string.ui_browser_working else R.string.ui_working)
-                StepListState.Stopped -> stringResource(R.string.ui_steps_stopped, steps.size)
-                StepListState.FailedSome -> stringResource(R.string.ui_steps_failed, steps.size, failed)
-                StepListState.Done -> stringResource(R.string.ui_steps_done, steps.size)
+                StepListState.Stopped -> stringResource(R.string.ui_steps_stopped, taken)
+                StepListState.FailedSome -> stringResource(R.string.ui_steps_failed, taken, failed)
+                StepListState.Done -> stringResource(R.string.ui_steps_done, taken)
             }
             val caption = when {
                 running -> stringResource(R.string.ui_step_of, state.step + 1, state.maxSteps)
@@ -251,7 +260,7 @@ private fun stepOf(call: ToolCallBlock, result: ToolResultBlock?, step: com.ouor
     val detail = when {
         (state == StepState.Failed || state == StepState.Skipped) && step?.failureRes != null -> stringResource(step.failureRes) // BUG-10
         step?.countRes != null -> androidx.compose.ui.res.pluralStringResource(step.countRes, step.count, step.count) // BUG-08
-        else -> result?.summary
+        else -> result?.summary?.takeIf { it != step?.argSummary }
     }
     return StepItemData(v.icon, step?.let { stringResource(it.labelRes) } ?: call.name, state, step?.argSummary?.ifEmpty { null }, detail, v.agent)
 }
@@ -267,6 +276,15 @@ internal fun stepState(call: ToolCallBlock, result: ToolResultBlock?, step: com.
 }
 
 @Composable
+private fun statusText(s: ToolStatus, engine: String?): String = when (s) {
+    ToolStatus.OPENING -> stringResource(R.string.ui_tool_status_opening)
+    ToolStatus.SETTLING -> stringResource(R.string.ui_tool_status_settling)
+    ToolStatus.RETRYING -> stringResource(R.string.ui_tool_status_retrying)
+    ToolStatus.OTHER_ENGINE -> stringResource(R.string.ui_tool_status_other_engine, engine.orEmpty())
+    ToolStatus.PAGE_DIALOG -> stringResource(R.string.ui_tool_status_page_dialog)
+}
+
+@Composable
 internal fun toolLabel(name: String): String = toolVisual(name).label?.let { stringResource(it) } ?: name
 
 
@@ -277,7 +295,7 @@ private fun siteName(url: String) = runCatching { java.net.URI(url).host?.remove
 
 private const val LINE = "\n"
 
-/** Full-screen image (tool screenshot): fit to screen, close button. */
+/** Full-screen image (a step's page picture): fit to screen, close button. */
 @Composable
 private fun ImageViewer(model: Any, onClose: () -> Unit) {
     androidx.compose.ui.window.Dialog(onClose, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {

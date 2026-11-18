@@ -66,7 +66,7 @@ class DeepSeekRealApiTest {
         // still wrote its next call as markup under tool_choice "none" (measured with a full browser run: 16 of 16
         // empty replies; with the note 16 of 16 answers).
         val tool = com.ouor.localchat.llm.wire.WireTool(com.ouor.localchat.llm.wire.WireFunction(
-            "page_text", "Read the text of a tab", AppJson.parseToJsonElement("""{"type":"object","properties":{"tabId":{"type":"integer"}}}""") as kotlinx.serialization.json.JsonObject,
+            "read", "Read the text of a tab", AppJson.parseToJsonElement("""{"type":"object","properties":{"tabId":{"type":"integer"}}}""") as kotlinx.serialization.json.JsonObject,
         ))
         for (thinking in listOf(false, true)) {
             val request = ChatRequest(
@@ -75,7 +75,7 @@ class DeepSeekRealApiTest {
                     WireMessage("user", JsonPrimitive("Read tabs 1 and 2 and tell me their titles.")),
                     WireMessage(
                         "assistant", null,
-                        toolCalls = listOf(com.ouor.localchat.llm.wire.WireToolCall("call_1", com.ouor.localchat.llm.wire.WireFunctionCall("page_text", """{"tabId":1}"""))),
+                        toolCalls = listOf(com.ouor.localchat.llm.wire.WireToolCall("call_1", com.ouor.localchat.llm.wire.WireFunctionCall("read", """{"tabId":1}"""))),
                         reasoningContent = "I will read tab 1 first.".takeIf { thinking },
                     ),
                     WireMessage("tool", JsonPrimitive("Title: Seoul"), toolCallId = "call_1"),

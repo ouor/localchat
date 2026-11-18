@@ -16,6 +16,7 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import mockwebserver3.SocketEffect
 import java.io.Closeable
+import java.util.Base64
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -55,7 +56,7 @@ class FakeOpenAiServer : Closeable {
                     path.endsWith("/chat/completions") && rejectUserAfterTool && userAfterTool(request) ->
                         json(400, errorBody("Unexpected role 'user' after role 'tool'"))
                     path.endsWith("/chat/completions") ->
-                        scenarios.poll()?.response() ?: json(500, errorBody("no scenario queued"))
+                        scenarios.poll()?.response(request) ?: json(500, errorBody("no scenario queued"))
                     else -> json(404, errorBody("unknown path $path"))
                 }
             }
@@ -97,24 +98,29 @@ class Scenario private constructor(
     private val rawSse: String? = null,
     private val errorMessage: String? = null,
 ) {
-    private val deltas = mutableListOf<JsonObject>()
+    /** Built when answered: a tool call's arguments may pick refs from the request (see [ref]). */
+    private val deltas = mutableListOf<(RecordedRequest) -> List<JsonObject>>()
     private var toolCalls = 0
     private var finishReason: String? = null
     private var dropAfter: Int? = null
 
     fun reasoning(text: String, field: String = "reasoning_content") = apply {
-        deltas += buildJsonObject { put(field, text) }
+        deltas += { listOf(buildJsonObject { put(field, text) }) }
     }
 
-    fun text(text: String) = apply { deltas += buildJsonObject { put("content", text) } }
+    fun text(text: String) = apply { deltas += { listOf(buildJsonObject { put("content", text) }) } }
 
-    /** First delta carries id and name; arguments arrive in two pieces to exercise assembly. */
+    /**
+     * First delta carries id and name; arguments arrive in two pieces to exercise assembly. A [ref] placeholder in
+     * [argumentsJson] becomes the ref the newest tool result lists for that line, as a model reading the list would.
+     */
     fun toolCall(name: String, argumentsJson: String, id: String = "call_$toolCalls") = apply {
         val index = toolCalls++
-        deltas += toolDelta(index, id, name, "")
-        val half = argumentsJson.length / 2
-        listOf(argumentsJson.take(half), argumentsJson.drop(half)).forEach { piece ->
-            deltas += toolDelta(index, null, null, piece)
+        deltas += { request ->
+            val args = REF.replace(argumentsJson) { m -> pickRef(request, String(Base64.getDecoder().decode(m.groupValues[1]))) }
+                .let { if (LAST_REF in it) it.replace(LAST_REF, lastRef(request)) else it }
+            val half = args.length / 2
+            listOf(toolDelta(index, id, name, "")) + listOf(args.take(half), args.drop(half)).map { toolDelta(index, null, null, it) }
         }
     }
 
@@ -123,7 +129,7 @@ class Scenario private constructor(
     /** Sends only the first [chunks] chunks, then closes the connection without finish or [DONE]. */
     fun dropAfter(chunks: Int) = apply { dropAfter = chunks }
 
-    internal fun response(): MockResponse {
+    internal fun response(request: RecordedRequest): MockResponse {
         if (httpCode != 200) {
             return MockResponse.Builder().code(httpCode)
                 .setHeader("Content-Type", "application/json")
@@ -131,7 +137,7 @@ class Scenario private constructor(
                 .body(errorBody(errorMessage ?: "fake error $httpCode").toString())
                 .build()
         }
-        val events = rawSse?.let { listOf(it) } ?: chunks().map { "data: $it\n\n" }.let { all ->
+        val events = rawSse?.let { listOf(it) } ?: chunks(request).map { "data: $it\n\n" }.let { all ->
             dropAfter?.let { all.take(it) } ?: (all + "data: [DONE]\n\n")
         }
         return MockResponse.Builder()
@@ -141,9 +147,9 @@ class Scenario private constructor(
             .build()
     }
 
-    private fun chunks(): List<JsonObject> {
+    private fun chunks(request: RecordedRequest): List<JsonObject> {
         val finish = finishReason ?: if (toolCalls > 0) "tool_calls" else "stop"
-        val body = deltas.map { chunk(it, finishReason = null, usage = false) }
+        val body = deltas.flatMap { it(request) }.map { chunk(it, finishReason = null, usage = false) }
         return body + chunk(buildJsonObject { put("content", "") }, finish, usage = true)
     }
 
@@ -181,6 +187,40 @@ class Scenario private constructor(
     }
 
     companion object {
+        private val REF = Regex("@ref:([A-Za-z0-9+/=]+)@")
+
+        /**
+         * A ref placeholder for tool arguments: the ref of the first element line containing [line] (e.g.
+         * `button "Go"`) in the newest tool result of the request that this scenario answers.
+         */
+        fun ref(line: String): String = "@ref:" + Base64.getEncoder().encodeToString(line.toByteArray()) + "@"
+
+        private const val LAST_REF = "@lastref@"
+
+        /** The ref the newest earlier call passed (a ref that may be stale by now). */
+        fun lastRef(): String = LAST_REF
+
+        private fun lastRef(request: RecordedRequest): String {
+            val messages = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject["messages"]?.jsonArray.orEmpty()
+            return messages.asReversed().firstNotNullOfOrNull { m ->
+                m.jsonObject["tool_calls"]?.jsonArray?.firstNotNullOfOrNull { c ->
+                    val args = c.jsonObject["function"]?.jsonObject?.get("arguments")?.jsonPrimitive?.content ?: return@firstNotNullOfOrNull null
+                    Json.parseToJsonElement(args).jsonObject["ref"]?.jsonPrimitive?.content
+                }
+            } ?: error("no earlier call with a ref")
+        }
+
+        private fun pickRef(request: RecordedRequest, line: String): String {
+            val messages = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject["messages"]?.jsonArray.orEmpty()
+            val results = messages.map { it.jsonObject }.filter { it["role"]?.jsonPrimitive?.content == "tool" }
+                .mapNotNull { it["content"]?.jsonPrimitive?.content }
+            val ref = Regex("\\[ref=(\\d*e\\d+)]")
+            return results.asReversed().firstNotNullOfOrNull { r ->
+                r.lineSequence().filter { line in it }.firstNotNullOfOrNull { ref.find(it)?.groupValues?.get(1) }
+            }
+                ?: error("no ref for '$line' in the newest tool results")
+        }
+
         fun text(text: String) = Scenario().text(text)
         fun reasoning(text: String) = Scenario().reasoning(text)
         fun toolCall(name: String, argumentsJson: String) = Scenario().toolCall(name, argumentsJson)

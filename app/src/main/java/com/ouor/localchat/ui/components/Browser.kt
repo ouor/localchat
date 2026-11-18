@@ -33,16 +33,15 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FrontHand
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
@@ -95,50 +94,30 @@ import com.ouor.localchat.ui.theme.LcRadius
 import com.ouor.localchat.ui.theme.LcTheme
 import kotlin.math.roundToInt
 
-enum class BrowserOwner { Ai, Me, Waiting }
-
-// ---------------- OwnershipBar (.agentbar) ----------------
+// ---------------- ActivityBar (.agentbar) ----------------
 
 /**
- * Always visible under the browser toolbar (B-03): who is operating.
- * Ai = purple "AI 조작 중 · {tool}" + [직접 조작]; Me = "나" + [AI에게 맡기기]; Waiting = warning (handoff, AI waits).
+ * Always under the browser toolbar, one fixed height (P-STABLE): [tool] is what an AI runs on the shown tab right now
+ * (browser-layers 6-2), with [chat] naming the chat when it is another one; [onStop] stops that chat's run. Idle = an
+ * empty bar of the same height.
  */
 @Composable
-fun OwnershipBar(owner: BrowserOwner, modifier: Modifier = Modifier, toolName: String? = null, onTakeOver: () -> Unit = {}, onGiveBack: () -> Unit = {}, idle: Boolean = false) {
+fun ActivityBar(tool: String?, modifier: Modifier = Modifier, chat: String? = null, onStop: () -> Unit = {}) {
     val c = LcTheme.colors
-    val (bg, fg) = when (owner) {
-        BrowserOwner.Ai -> c.agentContainer to c.onAgentContainer
-        BrowserOwner.Me -> c.surfaceSunken to c.textPrimary
-        BrowserOwner.Waiting -> c.surfaceSunken to c.textPrimary
-    }
+    val bg = if (tool != null) c.agentContainer else c.surfaceSunken
     Row(
         modifier.fillMaxWidth().height(40.dp).background(bg).drawBehind {
-            if (owner == BrowserOwner.Ai && !idle) drawRect(c.agent, topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width * 0.35f, 2.dp.toPx()))
+            if (tool != null) drawRect(c.agent, topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width * 0.35f, 2.dp.toPx()))
         }.padding(start = 12.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        when (owner) {
-            BrowserOwner.Ai -> {
-                LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
-                // B-09 ②: "operating" only while the chat's run is going; otherwise an idle AI tab.
-                Text(stringResource(if (idle) R.string.ui_ai_tab_idle else R.string.ui_ai_operating) + (toolName?.let { " · " } ?: ""), style = LcTheme.text.label, color = fg)
-                if (toolName != null) Text(toolName, style = LcTheme.text.label.copy(fontWeight = FontWeight.SemiBold), color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(x = (-8).dp))
-                Box(Modifier.weight(1f))
-                BarButton(stringResource(R.string.ui_take_over), Icons.Outlined.FrontHand, onTakeOver)
-            }
-            BrowserOwner.Me -> {
-                Icon(Icons.Outlined.Person, null, Modifier.size(16.dp), tint = fg)
-                Text(stringResource(R.string.ui_me), style = LcTheme.text.label, color = fg)
-                Box(Modifier.weight(1f))
-                BarButton(stringResource(R.string.ui_give_to_ai), Icons.Rounded.AutoAwesome, onGiveBack)
-            }
-            BrowserOwner.Waiting -> {
-                Icon(Icons.Outlined.Person, null, Modifier.size(16.dp), tint = fg)
-                Text(stringResource(R.string.ui_me), style = LcTheme.text.label, color = fg)
-                Text(stringResource(R.string.ui_manual_ai_waiting), style = LcTheme.text.label, color = c.textSecondary)
-                Box(Modifier.weight(1f))
-            }
-        }
+        if (tool == null) return@Row
+        LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
+        Text(
+            listOfNotNull(tool, chat).joinToString(" · "), style = LcTheme.text.label.copy(fontWeight = FontWeight.SemiBold),
+            color = c.onAgentContainer, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+        )
+        BarButton(stringResource(R.string.ui_stop), Icons.Rounded.Stop, onStop)
     }
 }
 
@@ -153,36 +132,11 @@ private fun BarButton(text: String, icon: ImageVector, onClick: () -> Unit) {
     }
 }
 
-// ---------------- HandoffBanner (.handoff) ----------------
-
-/** B-05: reason + explanation + [작업 중지] [AI에게 돌려주기]. */
-@Composable
-fun HandoffBanner(title: String, body: String, onStop: () -> Unit, onGiveBack: () -> Unit, modifier: Modifier = Modifier) {
-    val c = LcTheme.colors
-    Column(modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp).background(c.warningContainer, LcRadius.lg).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Icons.Outlined.FrontHand, null, Modifier.size(20.dp), tint = c.onWarningContainer)
-            Column {
-                Text(title, style = LcTheme.text.bodyStrong, color = c.onWarningContainer)
-                Text(body, style = LcTheme.text.body, color = c.onWarningContainer.copy(alpha = 0.85f))
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onStop) { Text(stringResource(R.string.ui_stop_task), style = LcTheme.text.label, color = c.onWarningContainer) }
-            Box(Modifier.weight(1f))
-            LcButton(stringResource(R.string.ui_give_back_to_ai), onGiveBack, variant = ButtonVariant.Agent, icon = Icons.Rounded.AutoAwesome)
-        }
-    }
-}
-
 // ---------------- BrowserStatusStrip (FB-1c) ----------------
 
-/**
- * One-line "AI is operating" strip above the composer = the browser panel's Peek state (FB-1c).
- * Body tap or an upward drag = [onOpen]; the take-over button always keeps its width.
- */
+/** One-line "AI is working" strip above the composer = the browser panel's Peek state (FB-1c). Body tap or an upward drag = [onOpen]. */
 @Composable
-fun BrowserStatusStrip(title: String, host: String, onOpen: () -> Unit, onTakeOver: () -> Unit, modifier: Modifier = Modifier) {
+fun BrowserStatusStrip(title: String, host: String, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val c = LcTheme.colors
     val desc = stringResource(R.string.fb_e4_strip_cd, title)
     val density = LocalDensity.current
@@ -198,19 +152,13 @@ fun BrowserStatusStrip(title: String, host: String, onOpen: () -> Unit, onTakeOv
             .semantics { contentDescription = desc; liveRegion = LiveRegionMode.Polite },
     ) {
         Box {
-            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
                 BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     val hostMax = maxWidth * 0.4f
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(title, style = LcTheme.text.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         Text(" · $host", style = LcTheme.text.caption, color = c.onAgentContainer.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = hostMax))
-                    }
-                }
-                Surface(onClick = onTakeOver, shape = LcRadius.full, color = c.surfaceRaised, contentColor = c.textPrimary) {
-                    Row(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Outlined.FrontHand, null, Modifier.size(16.dp))
-                        Text(stringResource(R.string.ui_take_over), style = LcTheme.text.label, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -311,21 +259,21 @@ private fun UrlEditor(url: String, onGo: (String) -> Unit, onCancel: () -> Unit,
 private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = combinedClickable(onClick = onClick)
 
 /**
- * Browser panel container (phone sheet body / tablet pane): toolbar, ownership bar, page. P-STABLE M5 (FB3 ui B1): the
- * optional [banner] sits in the flow under the page, so the toolbar, ownership bar and page top never move and only the
+ * Browser panel container (phone sheet body / tablet pane): toolbar, activity bar, page. P-STABLE M5 (FB3 ui B1): the
+ * optional [banner] sits in the flow under the page, so the toolbar, activity bar and page top never move and only the
  * page's bottom edge rises; nothing of the page is covered.
  */
 @Composable
 fun BrowserPanelFrame(
     toolbar: @Composable () -> Unit,
-    ownership: @Composable () -> Unit,
+    activity: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     banner: (@Composable () -> Unit)? = null,
     page: @Composable () -> Unit,
 ) {
     Column(modifier.fillMaxSize().background(LcTheme.colors.surfaceRaised)) {
         toolbar()
-        ownership()
+        activity()
         Box(Modifier.weight(1f).fillMaxWidth()) { page() }
         banner?.invoke()
     }
@@ -333,30 +281,33 @@ fun BrowserPanelFrame(
 
 // ---------------- TabCard / TabGrid (.tabcard) ----------------
 
-enum class TabOwner { Ai, Me, OtherChat }
-
+/**
+ * A tab in the list (6-1): no owner. [activity] = the tool an AI runs on it now (AI border and its name), [asleep] dims
+ * the thumbnail, [badges] are policies' BADGE notices. [enabled] false = a placeholder slot (no tap, no focus).
+ */
 @Composable
-fun TabCard(title: String, url: String, owner: TabOwner, onClick: () -> Unit, modifier: Modifier = Modifier, onClose: (() -> Unit)? = null, thumbnail: @Composable () -> Unit = {}) {
+fun TabCard(
+    title: String, url: String, onClick: () -> Unit, modifier: Modifier = Modifier, onClose: (() -> Unit)? = null,
+    activity: String? = null, asleep: Boolean = false, badges: List<String> = emptyList(), enabled: Boolean = true,
+    thumbnail: @Composable () -> Unit = {},
+) {
     val c = LcTheme.colors
-    val other = owner == TabOwner.OtherChat
     Surface(
-        onClick = onClick, enabled = !other, modifier = modifier.alpha(if (other) 0.55f else 1f), shape = LcRadius.lg, color = c.surfaceRaised,
-        border = if (owner == TabOwner.Ai) BorderStroke(2.dp, c.agent) else BorderStroke(1.dp, c.border),
+        onClick = onClick, enabled = enabled, modifier = modifier.alpha(if (enabled) 1f else 0.55f), shape = LcRadius.lg, color = c.surfaceRaised,
+        border = if (activity != null) BorderStroke(2.dp, c.agent) else BorderStroke(1.dp, c.border),
     ) {
         Column {
             Box(Modifier.fillMaxWidth().height(120.dp).background(Color.White)) {
-                thumbnail()
-                if (onClose != null && !other) {
+                Box(Modifier.fillMaxSize().alpha(if (asleep) 0.4f else 1f)) { thumbnail() }
+                if (asleep) Icon(Icons.Outlined.Bedtime, stringResource(R.string.ui_tab_asleep), Modifier.align(Alignment.Center).size(24.dp), tint = c.textSecondary)
+                if (onClose != null && enabled) {
                     LcIconButton(Icons.Rounded.Close, stringResource(R.string.ui_close_tab), onClose, Modifier.align(Alignment.TopEnd), variant = IconButtonVariant.Raised, size = IconButtonSize.Xs)
                 }
             }
             Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    when (owner) {
-                        TabOwner.Ai -> LcBadge(stringResource(R.string.ui_ai), variant = BadgeVariant.Ai)
-                        TabOwner.Me -> LcBadge(stringResource(R.string.ui_me), variant = BadgeVariant.Me)
-                        TabOwner.OtherChat -> LcBadge(stringResource(R.string.ui_other_chat), variant = BadgeVariant.Neutral)
-                    }
+                    if (activity != null) LcBadge(activity, variant = BadgeVariant.Ai)
+                    badges.forEach { LcBadge(it, variant = BadgeVariant.Neutral) }
                     Text(title, style = LcTheme.text.label, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text(url, style = LcTheme.text.caption, color = c.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -441,8 +392,8 @@ fun ApprovalContent(
     modifier: Modifier = Modifier,
     code: String? = null,
     allowLabel: String = stringResource(R.string.ui_allow),
-    /** SC-13 crop around the target element (an image model for Coil); null hides it. */
-    preview: Any? = null,
+    /** SC-13 crop around the target element; null hides it. */
+    preview: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     val c = LcTheme.colors
     Column(modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -457,7 +408,7 @@ fun ApprovalContent(
         }
         Text(description, style = LcTheme.text.body, color = c.textSecondary)
         if (preview != null) {
-            coil3.compose.AsyncImage(
+            androidx.compose.foundation.Image(
                 preview, stringResource(R.string.ui_approval_preview),
                 Modifier.fillMaxWidth().heightIn(max = 180.dp).clip(LcRadius.md).border(1.dp, c.border, LcRadius.md),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,

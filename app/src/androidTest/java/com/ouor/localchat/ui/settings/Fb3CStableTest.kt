@@ -253,7 +253,7 @@ class Fb3CStableTest {
 
     @Test fun l8_deletingADomainLeavesTheNextXInPlace() {
         var domains by mutableStateOf(listOf("a.example.com", "b.example.com", "c.example.com"))
-        show { SettingsGroup { SensitiveDomainRows(domains) { domains = it } } }
+        show { SettingsGroup { TextListRows(domains) { domains = it } } }
         val del = ctx.getString(R.string.ui_delete)
         val secondX = rule.onAllNodesWithContentDescription(del)[1].box()
         rule.onAllNodesWithContentDescription(del)[0].performClick()
@@ -323,7 +323,7 @@ class Fb3CStableTest {
 
     @Test fun fix_m4_removedDomainSaysSoToTalkBack() { // FB3 fix ui m4
         var domains by mutableStateOf(listOf("a.example.com", "b.example.com"))
-        show { SettingsGroup { SensitiveDomainRows(domains) { domains = it } } }
+        show { SettingsGroup { TextListRows(domains) { domains = it } } }
         val removed = hasStateDescription(ctx.getString(R.string.fb3_c_removed))
         rule.onNode(removed).assertDoesNotExist()
         rule.onAllNodesWithContentDescription(ctx.getString(R.string.ui_delete))[0].performClick()

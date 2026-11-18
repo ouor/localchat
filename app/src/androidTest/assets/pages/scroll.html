@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroll</title>
+<style>
+  body { margin: 0; scroll-behavior: smooth; }
+  header { position: fixed; top: 0; left: 0; right: 0; height: 60px; background: #eee; }
+  #box { height: 150px; overflow-y: auto; border: 1px solid #999; }
+  p { margin: 0; padding: 12px 8px; }
+</style>
+</head>
+<body>
+<header><p>Fixed header text</p></header>
+<div style="height: 70px"></div>
+<div id="box"></div>
+<main id="main"></main>
+<script>
+  var box = document.getElementById('box'), main = document.getElementById('main');
+  for (var i = 1; i <= 30; i++) box.insertAdjacentHTML('beforeend', '<p>Box line ' + i + '</p>');
+  for (var j = 1; j <= 80; j++) main.insertAdjacentHTML('beforeend', '<p>Paragraph ' + j + ' with a few words of body text to read.</p>');
+</script>
+</body>
+</html>

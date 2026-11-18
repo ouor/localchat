@@ -1,10 +1,11 @@
 /*
  * Search result extractors (S-01, architecture 7.4, R8). Evaluated by browser.script.PageScript as
- *   (this function)(engine, max)
- * on a loaded result page; returns [{title, url, snippet}]. Engine markup changes are fixed here only.
+ *   (this function)(engine, max, cfg)
+ * on a loaded result page; returns {results: [{title, url, snippet}], blocked}. blocked = no results and the page reads
+ * as a bot check or consent page (cfg.bot is SearchEngines.BOT_PATTERN; results that mention "captcha" stay results). Engine markup changes are fixed here only.
  * The file must stay a single function expression.
  */
-(function (engine, max) {
+(function (engine, max, cfg) {
   'use strict';
   function norm(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
   function txt(root, sel) { var n = sel && root ? root.querySelector(sel) : null; return n ? norm(n.innerText || n.textContent) : ''; }
@@ -17,7 +18,11 @@
         var b = u.searchParams.get('u');
         if (b && b.indexOf('a1') === 0) return atob(b.slice(2).replace(/-/g, '+').replace(/_/g, '/'));
       }
-      if (/google\./.test(u.hostname) && u.pathname === '/url') return u.searchParams.get('q') || u.searchParams.get('url') || href;
+      if (/google\./.test(u.hostname) && (u.pathname === '/url' || u.pathname === '/goto')) {
+        // /goto's url is opaque since 2026-11 (measured): the absolute redirect then, which lands on the site when opened.
+        var g = u.searchParams.get('q') || u.searchParams.get('url');
+        return g && /^https?:/i.test(g) ? g : u.href;
+      }
       return u.href;
     } catch (e) {
       return href;
@@ -29,8 +34,8 @@
   var RULES = {
     // html.duckduckgo.com/html: no JS, stable markup
     DUCKDUCKGO: { card: '.result:not(.result--ad)', link: 'a.result__a', snippet: '.result__snippet' },
-    // Organic links are opaque /goto redirects; the absolute redirect URL is returned (opening it lands on the site).
-    GOOGLE: { card: '#rso div.MjjYud, #search div.MjjYud, #rso div.g', link: 'a:has(h3), a:has([role=heading])', title: 'h3, [role=heading]', snippet: '.VwiC3b, [data-sncf]' },
+    // site: the shown source line; a /goto result's URL does not name the site (B-m7)
+    GOOGLE: { card: '#rso div.MjjYud, #search div.MjjYud, #rso div.g', link: 'a:has(h3), a:has([role=heading])', title: 'h3, [role=heading]', snippet: '.VwiC3b, [data-sncf]', site: 'cite, .VuuXrf' },
     // Some layouts put the site attribution (.tilk/.tptt/cite) inside the title link or h2.
     BING: { card: 'li.b_algo', link: 'h2 a:not(.tilk), a:has(h2)', strip: '.b_tpcn, .tilk, .tptt, .b_attribution, cite, h2', snippet: '.b_caption p, .b_rcGenCap p, .b_algoSlug, .b_lineclamp2, .b_lineclamp3, .b_lineclamp4' },
     // m.search.naver.com: hashed sds-comps classes; profile = site name/url/date row
@@ -82,11 +87,20 @@
     var card = cards[i], a = titleLink(card, r);
     if (!a) continue;
     var title = (r.title && txt(a, r.title)) || titleText(a, r);
-    add(title, a.getAttribute('href'), txt(card, r.snippet) || rest(card, a, r));
+    var snippet = txt(card, r.snippet) || rest(card, a, r), site = r.site ? txt(card, r.site) : '';
+    add(title, a.getAttribute('href'), site ? site + ' · ' + snippet : snippet);
+  }
+  // A bot check is judged only when nothing was found (B-M3).
+  if (!out.length) {
+    var body = document.body ? (document.body.innerText || '') : '';
+    if (new RegExp(cfg.bot, 'i').test(body.slice(0, 3000))) return { results: [], blocked: true };
   }
   // Fallback when the markup changed: external links with real titles.
   if (!out.length) {
-    var host = location.hostname.split('.').slice(-2).join('.');
+    // Registered domain: three labels for co.kr, or.kr, co.uk, com.au ... (2-3 letters then 2), else two.
+    var labels = location.hostname.split('.');
+    var two = labels.slice(-2);
+    var host = labels.slice(two[0].length <= 3 && two[1].length === 2 && labels.length > 2 ? -3 : -2).join('.');
     var links = document.querySelectorAll('main a[href], #main a[href], body a[href]');
     for (var j = 0; j < links.length && out.length < max; j++) {
       var l = links[j], t = norm(l.innerText);
@@ -96,5 +110,5 @@
       add(t, u, norm((l.closest('li, article, div') || l).innerText).slice(t.length, t.length + 300));
     }
   }
-  return out;
+  return { results: out, blocked: false };
 })

@@ -1,5 +1,6 @@
 package com.ouor.localchat.browser
 
+import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.FrameLayout
@@ -11,7 +12,6 @@ import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.core.model.SearchEngine
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.After
@@ -42,26 +42,30 @@ class SearchEnginesLiveTest {
         scenario.onActivity { a ->
             val host = FrameLayout(a)
             a.addContentView(host, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            tab = BrowserTab(1, a.applicationContext, Owner.Ai("s"), object : BrowserTab.Events {})
+            tab = BrowserTab(1, a.applicationContext, object : BrowserTab.Events {})
             tab.contextWrapper.baseContext = a
-            host.addView(tab.webView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            host.addView(tab.view, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
     }
 
     @After
     fun tearDown() {
         if (!::scenario.isInitialized) return
-        scenario.onActivity { tab.webView.destroy() }
+        scenario.onActivity { tab.destroy() }
         scenario.close()
     }
 
     private fun check(engine: SearchEngine, query: String) = runBlocking<Unit> {
+        val since = SystemClock.uptimeMillis()
         withContext(Dispatchers.Main) { tab.load(SearchEngines.url(engine, query)) }
-        assumeTrue("network", tab.awaitLoaded(20_000))
-        delay(1_500) // result pages finish rendering after load
-        val results = PageScript.search(tab, engine, 8)
-        Log.i(TAG, "$engine ${tab.url} -> ${results.size}: " + results.joinToString(" | ") { "${it.title} <${it.url}> «${it.snippet?.take(60)}»" })
-        assumeTrue("blocked page on $engine", results.isNotEmpty() || !tab.evaluate(BLOCKED, 5_000).toBoolean())
+        val ready = tab.awaitReady(since) // no fixed sleep: the page is read once it is quiet (tools-redesign 2-1)
+        Log.i(TAG, "$engine ready=$ready in ${SystemClock.uptimeMillis() - since} ms")
+        assumeTrue("network", ready != Readiness.FAILED)
+        val page = PageScript.search(tab, engine)
+        val results = page.results
+        Log.i(TAG, "$engine ${tab.url} blocked=${page.blocked} -> ${results.size}: " + results.joinToString(" | ") { "${it.title} <${it.url}> «${it.snippet?.take(60)}»" })
+        if (results.isEmpty()) Log.i(TAG, "$engine empty page: " + tab.evaluate(PAGE_SHAPE, 5_000))
+        assumeTrue("blocked page on $engine", !page.blocked)
         assertTrue("$engine results: $results", results.size >= 3)
         results.forEach { r ->
             assertTrue(r.url, r.url.startsWith("http"))
@@ -71,7 +75,6 @@ class SearchEnginesLiveTest {
         assertTrue("$engine snippets", results.count { !it.snippet.isNullOrBlank() } >= results.size / 2)
     }
 
-
     @Test fun duckDuckGo() = check(SearchEngine.DUCKDUCKGO, "kotlin coroutines")
     @Test fun google() = check(SearchEngine.GOOGLE, "kotlin coroutines")
     @Test fun bing() = check(SearchEngine.BING, "kotlin coroutines")
@@ -79,7 +82,7 @@ class SearchEnginesLiveTest {
 
     private companion object {
         const val TAG = "SearchLive"
-        const val BLOCKED = "/captcha|unusual traffic|before you continue|robot|consent/i.test(document.body.innerText.slice(0, 3000))"
-
+        /** What an empty result page looks like, for diagnosing markup changes. */
+        const val PAGE_SHAPE = "document.readyState + ' h3=' + document.querySelectorAll('h3').length + ' text=' + document.body.innerText.slice(0, 300)"
     }
 }

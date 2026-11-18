@@ -2,21 +2,75 @@
  * localchat page agent (architecture 7.3). Evaluated by browser.script.PageScript as
  *   (this function)(K, CFG)
  * once per document; it installs a non-enumerable window[K] whose call(fn, args) runs one function below.
- * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs.
+ * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs. A ref
+ * is "{tab}e{n}" (CFG.tab, browser-layers S4); n starts at CFG.refBase, which the app raises past every ref the tab
+ * handed out, and every call passes the tab's next number again (a document back from the back/forward cache), so a
+ * ref never repeats in the app.
  * The file must stay a single function expression (no trailing semicolon or call).
  */
 (function (K, CFG) {
   'use strict';
   if (window[K]) return;
 
-  var refs = [];               // ref "e<n>" -> refs[n - 1] = WeakRef(element)
-  var refOf = new WeakMap();   // element -> "e<n>": an element keeps its ref across snapshots
+  var base = CFG.refBase || 1; // first ref number of this document
+  var nextNum = base;          // number of the next new ref
+  var tabNo = CFG.tab || 0;    // the tab's number, the first part of every ref
+  var refs = new Map();        // n -> WeakRef(element) for ref "<tab>e<n>"
+  var refOf = new WeakMap();   // element -> "<tab>e<n>": an element keeps its ref across snapshots
   var pend = {};               // execute promises: id -> null (running) | {ok} | {error}
   var pendSeq = 0;
-  var patched = 0;
-  var sensRe = new RegExp(CFG.pattern, 'i');
   var inputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   var textareaValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  var botRe = new RegExp(CFG.bot, 'i');
+
+  // ---------- readiness (tools-redesign 2-1): installed with the agent, so the first check of a document is real
+  var docId = Math.random().toString(36).slice(2);
+  var changes = 0, lastChange = 0, resCount = -1;
+  try { performance.setResourceTimingBufferSize(1000); } catch (e) { /* older engines */ }
+  function resources() {
+    var es = performance.getEntriesByType('resource'), end = 0;
+    for (var i = 0; i < es.length; i++) if (es[i].responseEnd > end) end = es[i].responseEnd;
+    return { n: es.length, end: end };
+  }
+  (function () {
+    var nav = performance.getEntriesByType('navigation')[0];
+    lastChange = Math.max(nav ? (nav.loadEventEnd || nav.domContentLoadedEventEnd || nav.responseEnd) : 0, resources().end);
+    // Attribute-only changes (animations, focus rings) do not count as the page changing.
+    new MutationObserver(function (recs) { changes += recs.length; lastChange = performance.now(); })
+      // State attributes too (a tab panel's hidden, aria-selected); not class/style, which animations churn.
+      .observe(document, { subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ['hidden', 'open', 'aria-hidden', 'aria-expanded', 'aria-selected', 'aria-checked', 'aria-pressed'] });
+  })();
+
+  function mark() {
+    var r = resources();
+    if (r.n !== resCount) { resCount = r.n; if (r.end > lastChange) lastChange = r.end; }
+    return {
+      doc: docId, n: changes, quietMs: Math.max(0, Math.round(performance.now() - lastChange)),
+      textLen: textLen(), readyState: document.readyState, url: location.href, title: norm(document.title)
+    };
+  }
+
+  // Whether the page has SPARSE characters of text, without layout (no innerText): text nodes and open shadow
+  // roots, scripts and styles left out. A document that once had enough is not measured again.
+  var SPARSE = 200, enoughText = false;
+  function textLen() {
+    if (enoughText) return SPARSE;
+    var n = countText(document.body, 0);
+    if (n >= SPARSE) enoughText = true;
+    return n;
+  }
+  function countText(root, n) {
+    if (!root) return n;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (x) { return x.nodeType === 1 && SKIP_TAGS[x.localName] ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+    });
+    for (var x = w.nextNode(); x && n < SPARSE; x = w.nextNode()) {
+      if (x.nodeType === 3) n += x.data.trim().length;
+      else if (x.shadowRoot) n = countText(x.shadowRoot, n);
+    }
+    return n;
+  }
 
   // ---------- text helpers
 
@@ -105,24 +159,39 @@
       var img = el.querySelector('img[alt]');
       if (img && norm(img.alt)) return cut(norm(img.alt), 100);
     }
+    if (INTERACTIVE[role] || t === 'summary') {
+      // An icon control: the label of its icon (HN's upvote arrow is a div with title="upvote").
+      var d = el.querySelector('[aria-label],[title],img[alt],svg title');
+      s = d && (d.localName === 'title' ? d.textContent : d.getAttribute('aria-label') || d.getAttribute('title') || d.getAttribute('alt'));
+      if (norm(s)) return cut(norm(s), 100);
+      if (role === 'link') return hrefName(el);
+    }
     return '';
   }
 
-  // ---------- B-S1 sensitive fields (rule from browser.safety.SensitiveFields via CFG)
+  /** The last part of a link's path and its query ("vote?id=1&how=up"): what the link does, not a guess. */
+  function hrefName(el) {
+    try {
+      var u = new URL(el.href);
+      if (!/^https?:$/.test(u.protocol)) return '';
+      var segs = u.pathname.split('/').filter(Boolean);
+      return cut(decodeURIComponent(segs.length ? segs[segs.length - 1] : u.hostname) + u.search, 60);
+    } catch (e) { return ''; }
+  }
+
+  // ---------- fields
 
   function isField(el) {
     return el.localName === 'input' || el.localName === 'textarea' || el.isContentEditable;
   }
 
-  function isSensitive(el) {
+  var SECRET_AC = { 'current-password': 1, 'new-password': 1, 'one-time-code': 1 };
+  /** A password, one-time code or card field: a fact the list marks [secret]; whether to hide it is a policy's call. */
+  function isSecret(el) {
     if (!isField(el)) return false;
     if ((el.getAttribute('type') || '').toLowerCase() === 'password') return true;
     var ac = (el.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
-    for (var i = 0; i < ac.length; i++) {
-      if (CFG.autocomplete.indexOf(ac[i]) >= 0 || (ac[i] && ac[i].indexOf(CFG.prefix) === 0)) return true;
-    }
-    var c = [el.getAttribute('name'), el.id, nameOf(el, roleOf(el)), el.getAttribute('placeholder')];
-    for (i = 0; i < c.length; i++) if (c[i] && sensRe.test(c[i])) return true;
+    for (var i = 0; i < ac.length; i++) if (SECRET_AC[ac[i]] || ac[i].indexOf('cc-') === 0) return true;
     return false;
   }
 
@@ -204,44 +273,78 @@
   function refFor(el) {
     var r = refOf.get(el);
     if (!r) {
-      refs.push(new WeakRef(el));
-      r = 'e' + refs.length;
+      refs.set(nextNum, new WeakRef(el));
+      r = tabNo + 'e' + nextNum++;
       refOf.set(el, r);
     }
     return r;
   }
 
-  function deepQuery(root, sel) {
-    var found = root.querySelector(sel);
-    if (found) return found;
-    var all = root.querySelectorAll('*');
-    for (var i = 0; i < all.length; i++) {
-      var sub = all[i].shadowRoot;
-      if (!sub && (all[i].localName === 'iframe' || all[i].localName === 'frame')) sub = all[i].contentDocument;
-      if (sub) { found = deepQuery(sub, sel); if (found) return found; }
-    }
-    return null;
+  // "4e12", "@4e12", "#4e12", "[ref=4e12]"
+  var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?[@#]?(\d+)e(\d+)\s*\]?\s*$/i;
+
+  /** The element of a ref; anything else is refused with a "REF:" message (the app then shows the current list). */
+  function resolve(target) {
+    var m = REF_RE.exec(target == null ? '' : String(target));
+    if (!m) throw new Error('REF:' + q(cut(String(target == null ? '' : target), 40)) + ' is not a ref. Pass a ref from the element list, e.g. ' + tabNo + 'e12.');
+    var t = +m[1], n = +m[2], name = t + 'e' + n;
+    if (t !== tabNo) throw new Error('REF:Ref ' + name + ' is from tab ' + t + ', not tab ' + tabNo + '.');
+    if (n < base) throw new Error('REF:Ref ' + name + ' is from an earlier page of this tab, not this one.');
+    var w = refs.get(n), el = w && w.deref();
+    if (!w) throw new Error('REF:Ref ' + name + ' is not on this page.');
+    if (!el || !el.isConnected) throw new Error('REF:Ref ' + name + ' is gone; the page changed.');
+    return el;
   }
 
-  var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?e(\d+)\s*\]?\s*$/;
+  // ---------- search boxes (type presses Enter in them by itself; the list shows them as searchbox)
 
-  function resolve(target) {
-    if (!target) throw new Error('missing target: pass a ref from snapshot (e.g. e12) or a CSS selector');
-    var m = REF_RE.exec(target);
-    if (m) {
-      var w = refs[+m[1] - 1];
-      var el = w && w.deref();
-      if (!el || !el.isConnected) throw new Error('stale ref ' + target.trim() + ': take a new snapshot');
-      return el;
+  var SEARCH_NAMES = { q: 1, query: 1, search: 1, keyword: 1, keywords: 1, s: 1, search_query: 1, wd: 1 };
+  var SEARCH_WORD = /search|검색/i;
+
+  /** A one-line search field. A combobox is left out: Enter may pick one of its suggestions. */
+  function isSearchBox(el) {
+    if (el.localName !== 'input' || !isEditable(el)) return false;
+    var role = (el.getAttribute('role') || '').trim().toLowerCase();
+    if (role === 'combobox') return false;
+    if ((el.getAttribute('type') || '').toLowerCase() === 'search' || role === 'searchbox') return true;
+    if (el.closest('[role=search]')) return true;
+    if (SEARCH_NAMES[(el.getAttribute('name') || '').toLowerCase()]) return true;
+    return SEARCH_WORD.test(nameOf(el, 'textbox')) || SEARCH_WORD.test(el.getAttribute('placeholder') || '');
+  }
+
+  function roleShown(el) {
+    var r = roleOf(el);
+    return r === 'textbox' && isSearchBox(el) ? 'searchbox' : r;
+  }
+
+  /**
+   * Suggestions of the field a.target (G-m2), which type compares before and after typing: `linked` = the field's own
+   * signals (aria-expanded, a visible list its aria-controls / aria-owns names, a <datalist> option for its value),
+   * `near` = visible ARIA options and listboxes just around and below it. Lists elsewhere on the page do not count.
+   */
+  function suggestions(a) {
+    var el = resolve(a.target), linked = el.getAttribute('aria-expanded') === 'true';
+    var ids = ((el.getAttribute('aria-controls') || '') + ' ' + (el.getAttribute('aria-owns') || '')).split(/\s+/);
+    ids.forEach(function (id) {
+      var t = id && el.ownerDocument.getElementById(id);
+      if (t && visibleBox(t) && t.querySelector('[role=option], li, option')) linked = true;
+    });
+    var v = (el.value || '').toLowerCase(), list = el.list;
+    if (list && v) {
+      for (var i = 0; i < list.options.length && !linked; i++) if (String(list.options[i].value).toLowerCase().indexOf(v) >= 0) linked = true;
     }
-    var found = deepQuery(document, target);
-    if (!found) throw new Error('no element matches selector ' + target);
-    return found;
+    var r = el.getBoundingClientRect(), near = 0, all = document.querySelectorAll('[role=option], [role=listbox]');
+    for (var j = 0; j < all.length; j++) {
+      if (!visibleBox(all[j])) continue;
+      var b = all[j].getBoundingClientRect();
+      if (b.top >= r.top - 40 && b.top <= r.bottom + 400 && b.left < r.right + 200 && b.right > r.left - 200) near++;
+    }
+    return { linked: linked, near: near };
   }
 
   function info(el) {
     var form = el.form || (el.closest && el.closest('form'));
-    var role = roleOf(el);
+    var role = roleShown(el);
     return {
       tag: el.localName,
       role: role,
@@ -253,8 +356,93 @@
       placeholder: el.getAttribute('placeholder'),
       formMethod: form ? (el.getAttribute('formmethod') || form.getAttribute('method') || 'get').toLowerCase() : null,
       formAction: form ? (el.getAttribute('formaction') || form.getAttribute('action') || '') : null,
-      href: el.getAttribute('href')
+      href: el.getAttribute('href'),
+      search: isSearchBox(el)
     };
+  }
+
+  function formOf(el) { return el.form || (el.closest && el.closest('form')) || null; }
+
+  /** Label of the button that submits el's form (a money or account check reads it before a click or Enter). */
+  function submitLabel(el) {
+    var form = formOf(el);
+    var sub = form && form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
+    return sub ? (nameOf(sub, 'button') || null) : null;
+  }
+
+  /** Where the element's page comes from when it is not this document: an iframe's src, a frame document's URL. */
+  function frameOf(el) {
+    if (el.localName === 'iframe' || el.localName === 'frame') return el.src || null;
+    return el.ownerDocument !== document ? el.ownerDocument.location.href : null;
+  }
+
+  /** What a tap at a point would reach, for a click that cannot: `<div#id.cls> "text"`. */
+  function brief(el) {
+    if (!el) return 'nothing';
+    var cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+    var t = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    return '<' + el.localName + (el.id ? '#' + el.id : '') + (cls ? '.' + cls : '') + '>' + (t ? ' "' + t + '"' : '');
+  }
+
+  // ---------- the AI's tap presses its element or nothing (QA R-B1b)
+
+  /**
+   * Armed around one injected tap only (removed by disarmTap, or 3 s later): the first pointerdown/touchstart says what
+   * the tap reached. Anything other than the element (or its label) is stopped before the page sees it, so nothing
+   * else is pressed.
+   */
+  var tapGuard = null;
+
+  function armTap(a) {
+    disarmTap();
+    var el = resolve(a.target);
+    var g = { seen: false, hit: false, at: null };
+    var docs = [document];
+    if (el.ownerDocument !== document) docs.push(el.ownerDocument);
+    function ok(t) {
+      return within(el, t) || (el.labels ? Array.prototype.some.call(el.labels, function (l) { return within(l, t); }) : false);
+    }
+    function start(e) {
+      if (!g.seen) { g.seen = true; g.hit = ok(e.target); g.at = g.hit ? null : brief(e.target); }
+      if (!g.hit) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }
+    function block(e) { if (g.seen && !g.hit) { e.preventDefault(); e.stopImmediatePropagation(); } }
+    var on = { pointerdown: start, touchstart: start, touchend: block, pointerup: block, mousedown: block, mouseup: block, click: block };
+    g.off = function () {
+      docs.forEach(function (d) { Object.keys(on).forEach(function (t) { d.removeEventListener(t, on[t], true); }); });
+    };
+    docs.forEach(function (d) { Object.keys(on).forEach(function (t) { d.addEventListener(t, on[t], { capture: true, passive: false }); }); });
+    var timer = setTimeout(function () { if (tapGuard === g) disarmTap(); }, 3000);
+    g.timer = timer;
+    tapGuard = g;
+    return {};
+  }
+
+  /** What the armed tap reached; armed false on a new document (the old one went, so the tap did something). */
+  function tapCheck() {
+    var g = tapGuard;
+    return g ? { armed: true, seen: g.seen, hit: g.hit, at: g.at } : { armed: false, seen: false, hit: false, at: null };
+  }
+
+  function disarmTap() {
+    if (tapGuard) { clearTimeout(tapGuard.timer); tapGuard.off(); tapGuard = null; }
+    return {};
+  }
+
+  /**
+   * click(ref) in a tab that is not on screen when the tap reached another element: the element's own press sequence,
+   * and el.click() for its default action (a link follows, a button submits).
+   */
+  function press(a) {
+    var el = resolve(a.target), r = el.getBoundingClientRect(), win = el.ownerDocument.defaultView || window;
+    var o = { bubbles: true, cancelable: true, composed: true, view: win, button: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    var P = win.PointerEvent || win.MouseEvent;
+    el.dispatchEvent(new P('pointerdown', Object.assign({ pointerType: 'touch', isPrimary: true }, o)));
+    el.dispatchEvent(new win.MouseEvent('mousedown', o));
+    el.dispatchEvent(new P('pointerup', Object.assign({ pointerType: 'touch', isPrimary: true }, o)));
+    el.dispatchEvent(new win.MouseEvent('mouseup', o));
+    el.click();
+    return {};
   }
 
   function locate(el, scroll) {
@@ -265,13 +453,20 @@
     var hitEl = inView ? deepHit(cx, cy) : null;
     var hit = !!hitEl && (within(el, hitEl) ||
       (el.labels ? Array.prototype.some.call(el.labels, function (l) { return within(l, hitEl); }) : false));
+    // Touches and the drawn view are in the visual viewport: it is offset from the layout viewport when the keyboard
+    // overlaps the view or the page is pinch-zoomed (re-QA 2: an IME over a parked tab moved every tap 332 px down).
+    var vv = window.visualViewport, ox = vv ? vv.offsetLeft : 0, oy = vv ? vv.offsetTop : 0, k = vv && vv.width ? innerWidth / vv.width : 1;
+    function seen(b) { return { left: (b.left - ox) * k, top: (b.top - oy) * k, width: b.width * k, height: b.height * k }; }
+    var f = formOf(el);
     return {
-      info: info(el), rect: r, innerWidth: innerWidth, cx: cx, cy: cy, hit: hit,
-      sensitive: isSensitive(el), editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true')
+      info: info(el), rect: seen(r), innerWidth: innerWidth, cx: (cx - ox) * k, cy: (cy - oy) * k, hit: hit,
+      atPoint: hit ? null : (inView ? brief(hitEl) : 'nothing (its centre is outside the viewport)'),
+      editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
+      formSubmitLabel: submitLabel(el), frame: frameOf(el), formRect: f ? seen(rectInTop(f)) : null
     };
   }
 
-  // ---------- snapshot
+  // ---------- element list (open, look and action results)
 
   function textLeaf(el) {
     if (el.shadowRoot) return false;
@@ -279,6 +474,14 @@
     if (all.length > 50) return false;
     if (el.querySelector(ROLE_SEL)) return false;
     for (var i = 0; i < all.length; i++) if (all[i].shadowRoot) return false;
+    // Text longer than one line held in blocks (a feed's posts, an article's paragraphs): each block gets its line,
+    // or one cut line would hide all but the first few.
+    if (all.length && norm(el.innerText).length > 100) {
+      for (var c = el.firstElementChild; c; c = c.nextElementSibling) {
+        var d = styleOf(c).display;
+        if (d && d.indexOf('inline') !== 0 && d !== 'contents' && d !== 'none') return false;
+      }
+    }
     return true;
   }
 
@@ -295,12 +498,12 @@
     if (ex === 'true' || ex === 'false') s += ' [expanded=' + ex + ']';
     if (el.getAttribute('aria-selected') === 'true') s += ' [selected]';
     if (el.getAttribute('aria-pressed') === 'true') s += ' [pressed]';
-    var tabindex = el.getAttribute('tabindex');
-    if (INTERACTIVE[role] || (tabindex !== null && +tabindex >= 0) || el.hasAttribute('onclick')) s += ' [ref=' + refFor(el) + ']';
-    if (isField(el) && isSensitive(el)) {
-      s += ' [sensitive]';
-      if ((el.isContentEditable ? el.textContent : el.value)) s += ' value=••••';
-    } else if (el.localName === 'select') {
+    if (role === 'link' && el.hasAttribute('download')) s += ' [download]';
+    var tabindex = el.getAttribute('tabindex'), box = scrollBox(el);
+    if (box) s += ' [scrollable]';
+    if (isSecret(el)) s += ' [secret]';
+    if (box || INTERACTIVE[role] || (tabindex !== null && +tabindex >= 0) || el.hasAttribute('onclick')) s += ' [ref=' + refFor(el) + ']';
+    if (el.localName === 'select') {
       var opts = Array.prototype.slice.call(el.options);
       var sel = opts.filter(function (o) { return o.selected; }).map(function (o) { return norm(o.text); });
       if (sel.length) s += ' value=' + q(cut(sel.join(', '), 100));
@@ -313,30 +516,67 @@
       if (v) s += ' value=' + q(cut(v, 100));
     }
     if (role === 'link') {
-      var href = el.getAttribute('href') || '';
-      if (href && !/^javascript:/i.test(href)) s += ' -> ' + cut(href, 150);
+      // Absolute, or a path on this site, so open() and read() can take it as it is (G-m5).
+      var href = typeof el.href === 'string' ? el.href : (el.getAttribute('href') || '');
+      if (href && !/^javascript:/i.test(href)) {
+        try { var u = new URL(href); if (u.origin === location.origin) href = u.pathname + u.search + u.hash; } catch (e) { /* as it is */ }
+        s += ' -> ' + cut(href, 100);
+      }
     }
     return s;
   }
 
-  function snapshot(a) {
-    var maxNodes = a.maxNodes || 500, maxChars = a.maxChars || 20000;
-    var out = ['page: ' + norm(document.title) + ' — ' + location.href];
-    var count = 0, chars = 0, truncated = false;
+  /** An element that scrolls inside the page (a chat pane, a map's result list); the document's own scroller is not one. */
+  function scrollBox(el) {
+    if (el.scrollHeight <= el.clientHeight + 20) return false;
+    var se = document.scrollingElement || document.documentElement;
+    if (el === se || el === document.body || el === document.documentElement) return false;
+    var o = styleOf(el).overflowY;
+    return o === 'auto' || o === 'scroll' || o === 'overlay';
+  }
 
-    function emit(depth, line) {
-      if (truncated) return;
-      var s = new Array(depth + 1).join('  ') + '- ' + line;
-      if (count >= maxNodes || chars + s.length > maxChars) { truncated = true; return; }
-      out.push(s); count++; chars += s.length + 1;
+  /**
+   * Lines of the page's elements within budget characters. When everything does not fit, interactive elements and
+   * headings on screen come first, then those off screen (nearest first), then text on screen, then other text; with
+   * a.screen (after a scroll) every line on screen comes first, text included (S12). The chosen lines are printed in
+   * document order.
+   */
+
+  function pageList(a) {
+    var budget = a.budget || 16000, vh = innerHeight;
+    var items = [];
+    // A safety bound for huge pages only: every element below it competes for the budget by nearness (B-M4).
+    var MAX_ITEMS = 20000, beyond = 0, WORDY = /[\p{L}\p{N}]/u, hrefs = new Set();
+
+    function emit(depth, line, el, important) {
+      var r = rectInTop(el), side = 0, dist = 0;
+      if (r.top + r.height <= 0) { side = -1; dist = -(r.top + r.height); }
+      else if (r.top >= vh) { side = 1; dist = r.top - vh; }
+      // Past the bound only what is on screen and actionable is kept; no list can reach the rest, so it is counted apart.
+      if (items.length >= MAX_ITEMS && !(important && side === 0)) { beyond++; return; }
+      var pri = a.screen ? (side === 0 ? 0 : important ? 1 : 2) : (important ? 0 : 2) + (side ? 1 : 0);
+      items.push({ s: new Array(depth + 1).join('  ') + '- ' + line, pri: pri, dist: dist, side: side });
+    }
+
+    // A table without headers or caption lays out the page (HN); its rows and cells are not data.
+    function layoutTable(t) {
+      var r = t && t.getAttribute('role');
+      return !!t && (!r || r === 'presentation' || r === 'none') &&
+        !t.querySelector(':scope > caption, :scope > thead, :scope > tr > th, :scope > tbody > tr > th');
+    }
+
+    function container(el) {
+      if (el.hasAttribute('role') || el.hasAttribute('tabindex') || el.hasAttribute('onclick') || el.hasAttribute('aria-label')) return false;
+      var t = el.localName;
+      return t === 'li' || ((t === 'table' || t === 'tr' || t === 'td') && layoutTable(el.closest('table')));
     }
 
     function children(parent, depth, skipText) {
       var kids = parent.localName === 'slot' ? parent.assignedNodes({ flatten: true }) : parent.childNodes;
-      for (var i = 0; i < kids.length && !truncated; i++) {
+      for (var i = 0; i < kids.length; i++) {
         var n = kids[i];
         if (n.nodeType === 3) {
-          if (!skipText) { var t = norm(n.data); if (t) emit(depth, 'text: ' + q(cut(t, 200))); }
+          if (!skipText && n.parentElement) { var t = norm(n.data); if (WORDY.test(t)) emit(depth, 'text: ' + q(cut(t, 100)), n.parentElement, false); }
         } else if (n.nodeType === 1) {
           element(n, depth);
         }
@@ -349,10 +589,11 @@
       var doc = null;
       try { doc = el.contentDocument; } catch (e) { doc = null; }
       if (!doc || !doc.documentElement) {
-        emit(depth, 'iframe' + (title ? ' ' + q(title) : '') + ' (cross-origin, not accessible)');
+        // A ref, so a click on it reaches the frame approval (the page inside cannot be listed).
+        emit(depth, 'iframe' + (title ? ' ' + q(title) : '') + ' (cross-origin, not accessible) [ref=' + refFor(el) + ']', el, true);
         return;
       }
-      emit(depth, 'iframe' + (title ? ' ' + q(title) : ''));
+      emit(depth, 'iframe' + (title ? ' ' + q(title) : ''), el, true);
       children(doc.body || doc.documentElement, depth + 1, false);
     }
 
@@ -361,48 +602,172 @@
       if (el.localName === 'iframe' || el.localName === 'frame') return frame(el, depth);
       if (el.localName === 'option' && el.closest('select')) return;
       if (el.localName === 'slot') return children(el, depth, false); // no box of its own; walk assigned nodes
-      var role = roleOf(el);
+      if (container(el)) return children(el, depth, false);
+      var role = roleShown(el);
       var inner = el.shadowRoot || el;
       var field = isField(el) || el.localName === 'select';
+      if (!role && scrollBox(el) && visibleBox(el)) {
+        // A scrolling pane gets a line of its own, so scroll(ref) can reach it, and is never left out (W-m1).
+        emit(depth, 'generic [scrollable] [ref=' + refFor(el) + ']', el, true);
+        return children(inner, depth + 1, false);
+      }
       if (!role) {
         if (!textLeaf(el)) return children(inner, depth, false);
         var t = norm(el.innerText);
-        if (t && visibleBox(el)) emit(depth, 'text: ' + q(cut(t, 200)));
+        if (WORDY.test(t) && visibleBox(el)) emit(depth, 'text: ' + q(cut(t, 100)), el, false);
         return;
       }
       if (!visibleBox(el)) return field ? undefined : children(inner, depth, false);
       var name = nameOf(el, role);
       var line = describeLine(el, role, name);
+      var arrow = role === 'link' ? line.lastIndexOf(' -> ') : -1;
+      if (arrow > 0) {
+        // A link to a place listed before ("3 hours ago" and "45 comments" on HN): its address is not repeated.
+        if (hrefs.has(line.slice(arrow))) line = line.slice(0, arrow); else hrefs.add(line.slice(arrow));
+      }
+      var important = role === 'heading' || line.indexOf('[ref=') >= 0;
       if (!FROM_CONTENT[role] && !field && role !== 'img' && textLeaf(el)) {
         var lt = norm(el.innerText);
-        if (lt && lt !== name) line += ': ' + q(cut(lt, 200));
-        return emit(depth, line);
+        if (lt && lt !== name) line += ': ' + q(cut(lt, 100));
+        return emit(depth, line, el, important);
       }
-      emit(depth, line);
+      emit(depth, line, el, important);
       if (el.localName === 'select' || el.localName === 'textarea') return;
       children(inner, depth + 1, !!FROM_CONTENT[role]);
     }
 
     children(document.body || document.documentElement, 0, false);
-    if (truncated) {
-      out.push('[snapshot truncated at ' + count + ' nodes / ' + chars + ' chars: use page_text for content, ' +
-        'or scroll and snapshot again]');
+
+    var cand = items.map(function (it, i) { return i; });
+    var total = 0;
+    cand.forEach(function (i) { total += items[i].s.length + 1; });
+    var keep = new Set(cand);
+    if (total > budget) {
+      // What is on screen is listed whatever the budget (the model acts on what it sees; at the page's end no scroll
+      // brings a left-out element back), up to twice the budget; the budget is spent on what is off screen.
+      var used = 0, off = 0;
+      keep = new Set();
+      cand.forEach(function (i) {
+        var len = items[i].s.length + 1;
+        if (items[i].side === 0 && used + len <= 2 * budget) { keep.add(i); used += len; }
+      });
+      cand.filter(function (i) { return items[i].side !== 0; })
+        .sort(function (x, y) { return (items[x].pri - items[y].pri) || (items[x].dist - items[y].dist) || (x - y); })
+        .forEach(function (i) {
+          var len = items[i].s.length + 1;
+          if (off + len <= budget) { keep.add(i); off += len; }
+        });
     }
-    return { text: out.join('\n'), nodes: count, truncated: truncated };
+    var out = [], above = 0, below = 0, screenLeft = 0;
+    items.forEach(function (it, i) {
+      if (keep.has(i)) out.push(it.s);
+      else if (it.side === 0) screenLeft++;
+      else if (it.side < 0) above++; else below++;
+    });
+    return { text: out.join('\n'), listed: out.length, above: above, below: below, screenLeft: screenLeft, beyond: beyond };
   }
 
-  // ---------- page text
+  // ---------- main text (read)
 
-  function pageText(a) {
+  var BLOCK = {
+    p: 1, div: 1, section: 1, article: 1, main: 1, header: 1, footer: 1, aside: 1, nav: 1, ul: 1, ol: 1, li: 1, dl: 1,
+    dt: 1, dd: 1, table: 1, tr: 1, blockquote: 1, pre: 1, figure: 1, figcaption: 1, details: 1, summary: 1, form: 1,
+    fieldset: 1, address: 1, hr: 1, br: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, caption: 1
+  };
+  var CHROME = 'nav, footer, aside, [role=navigation], [role=banner], [role=contentinfo], [role=complementary]';
+
+  /**
+   * Text of the page's main part: open shadow roots, same-origin frames, closed <details> and hidden=until-found
+   * included; scripts, aria-hidden and display:none left out (and site chrome when the root is the body).
+   */
+  function readText() {
     var body = document.body || document.documentElement;
-    var root = document.querySelector('main, [role=main], article') || body;
-    var clean = function (s) { return (s || '').replace(/[ \t ]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(); };
-    var t = clean(root.innerText);
-    if (root !== body && t.length < 200) t = clean(body.innerText);
-    var size = a.size || 20000;
-    var pages = Math.max(1, Math.ceil(t.length / size));
-    var p = Math.min(Math.max(1, a.page || 1), pages);
-    return { title: norm(document.title), url: location.href, page: p, pages: pages, text: t.slice((p - 1) * size, p * size) };
+    var cands = document.querySelectorAll('main, [role=main]'), root = null;
+    for (var i = 0; i < cands.length && !root; i++) if (norm(cands[i].textContent).length >= 500) root = cands[i];
+    // One article is the page's text; several (posts, comments, a feed) are all read from the body (B-m11).
+    var arts = root ? [] : document.querySelectorAll('article');
+    if (arts.length === 1 && norm(arts[0].textContent).length >= 500) root = arts[0];
+    var text = textOf(root || body, !root);
+    if (root && text.length < 200) text = textOf(body, true);
+    // The first text block on screen carries a mark through the normalising; its place is where the screen is (W-m2).
+    var at = text.indexOf(MARK);
+    text = text.split(MARK).join('');
+    return { title: norm(document.title), url: location.href, text: text, flags: flags(text), screenAt: at >= 0 ? at : null };
+  }
+
+  var MARK = '\u0001';
+
+  /** A block with its own text, on screen and not in a fixed or sticky bar. */
+  function onScreenLeaf(n) {
+    var own = false;
+    for (var c = n.firstChild; c && !own; c = c.nextSibling) own = c.nodeType === 3 && /\S/.test(c.data);
+    if (!own) return false;
+    var r = rectInTop(n);
+    if (!(r.height > 0 && r.top < innerHeight && r.top + r.height > 0)) return false;
+    for (var p = n; p && p.nodeType === 1; p = p.parentElement) {
+      var pos = styleOf(p).position;
+      if (pos === 'fixed' || pos === 'sticky') return false;
+    }
+    return true;
+  }
+
+  function textOf(root, skipChrome) {
+    var lines = [], cur = '', prefix = '', marked = false;
+    function flush() {
+      var t = cur.replace(/\s+/g, ' ').trim();
+      if (t) lines.push(prefix + t);
+      cur = ''; prefix = '';
+    }
+    function kids(n) {
+      var list = n.localName === 'slot' ? n.assignedNodes({ flatten: true }) : n.childNodes;
+      if (n.localName === 'slot' && !list.length) list = n.childNodes;
+      for (var i = 0; i < list.length; i++) walk(list[i]);
+    }
+    function walk(n) {
+      if (n.nodeType === 3) { cur += n.data; return; }
+      if (n.nodeType !== 1) return;
+      var t = n.localName;
+      if (SKIP_TAGS[t] || n.getAttribute('aria-hidden') === 'true') return;
+      if (t === 'input' && (n.getAttribute('type') || '').toLowerCase() === 'hidden') return;
+      if (skipChrome && n.matches(CHROME)) return;
+      if (n.getAttribute('hidden') !== 'until-found' && styleOf(n).display === 'none') return;
+      if (t === 'iframe' || t === 'frame') {
+        var doc = null;
+        try { doc = n.contentDocument; } catch (e) { doc = null; }
+        if (doc && doc.body) { flush(); kids(doc.body); flush(); }
+        return;
+      }
+      if (t === 'br') { flush(); return; }
+      if (t === 'td' || t === 'th') {
+        if (norm(cur)) cur += ' | ';
+        kids(n.shadowRoot || n);
+        return;
+      }
+      if (!BLOCK[t]) { kids(n.shadowRoot || n); return; }
+      flush();
+      if (HEADINGS[t]) { lines.push(''); prefix = '## '; }
+      else if (t === 'li') prefix = '- ';
+      if (!marked && onScreenLeaf(n)) { cur += MARK; marked = true; }
+      kids(n.shadowRoot || n);
+      flush();
+      if (HEADINGS[t] || t === 'p' || t === 'table' || t === 'pre' || t === 'blockquote') lines.push('');
+    }
+    walk(root);
+    flush();
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  /**
+   * On a short page only (a long one is an article that may mention them, B-M3): "bot" = bot check or consent
+   * wording; "login" = a visible password field.
+   */
+  function flags(text) {
+    var f = [];
+    if (text.length >= 1500) return f;
+    if (botRe.test(text)) f.push('bot');
+    var pw = document.querySelector('input[type=password]');
+    if (pw && visible(pw)) f.push('login');
+    return f;
   }
 
   // ---------- actions
@@ -413,23 +778,38 @@
 
   function typeText(a) {
     var el = resolve(a.target);
-    if (isSensitive(el)) throw new Error('refused: password, OTP and card fields are filled by the user only (use request_handoff)');
-    if (!isEditable(el)) throw new Error('element is not a text field (' + el.localName + (roleOf(el) ? ', ' + roleOf(el) : '') + ')');
+    if (el.localName === 'select') return chooseOption(el, a.text);
+    if (!isEditable(el)) throw new Error('The element is not a text field (' + el.localName + (roleOf(el) ? ', ' + roleOf(el) : '') + ').');
     if (el.disabled || el.readOnly) throw new Error('text field is disabled or read-only');
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     el.focus();
-    var clear = a.clear !== false;
     if (el.isContentEditable) {
       var doc = el.ownerDocument;
-      if (clear) doc.execCommand('selectAll', false, null);
-      if (!doc.execCommand('insertText', false, a.text)) el.textContent = (clear ? '' : el.textContent) + a.text;
+      doc.execCommand('selectAll', false, null);
+      if (!doc.execCommand('insertText', false, a.text)) el.textContent = a.text;
       return { value: cut(norm(el.innerText), 200) };
     }
     var desc = el.localName === 'textarea' ? textareaValue : inputValue;
-    desc.set.call(el, clear ? a.text : el.value + a.text);
+    desc.set.call(el, a.text);
     el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: a.text }));
     events(el, ['change']);
-    return { value: cut(el.value, 200) };
+    var res = { value: cut(el.value, 200) };
+    var sub = el.form && el.form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
+    if (sub && visibleBox(sub)) res.submitRef = refFor(sub);
+    return res;
+  }
+
+  function chooseOption(el, text) {
+    var opts = Array.prototype.slice.call(el.options), want = norm(text).toLowerCase();
+    var o = opts.filter(function (x) { return norm(x.text).toLowerCase() === want; })[0] ||
+      opts.filter(function (x) { return x.value.toLowerCase() === want; })[0];
+    if (!o) {
+      throw new Error('No option matches ' + q(text) + '. Options: ' + opts.slice(0, 30).map(function (x) { return norm(x.text); }).join(', ') +
+        (opts.length > 30 ? ' …' : ''));
+    }
+    opts.forEach(function (x) { x.selected = x === o; });
+    events(el, ['input', 'change']);
+    return { value: norm(o.text), selected: norm(o.text) };
   }
 
   function click(a) {
@@ -439,87 +819,50 @@
     return {};
   }
 
+  // ---------- scroll (browser-layers 2-7, S16)
+
+  /** The scroll box with the most area on screen, for a page whose document does not scroll. */
+  function largestBox() {
+    var best = null, area = 0, all = document.body ? document.body.getElementsByTagName('*') : [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (!scrollBox(el)) continue;
+      var r = el.getBoundingClientRect();
+      var w = Math.min(r.right, innerWidth) - Math.max(r.left, 0), h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+      if (w > 0 && h > 0 && w * h > area) { area = w * h; best = el; }
+    }
+    return best;
+  }
+
+  function docScrolls(se) {
+    if (se.scrollHeight <= se.clientHeight + 1) return false;
+    var h = styleOf(document.documentElement).overflowY, b = document.body ? styleOf(document.body).overflowY : '';
+    return h !== 'hidden' && h !== 'clip' && b !== 'hidden' && b !== 'clip';
+  }
+
+  /**
+   * One screen (0.85 of it) down or up, at once (a page's smooth scrolling would delay reading the place): the element
+   * a.target, else the document, else the biggest pane on screen. "Reached the end" is the app's call (moved, docHeight
+   * and count staying the same after a wait).
+   */
   function scroll(a) {
-    var el = a.target ? resolve(a.target) : null;
-    var se = document.scrollingElement || document.documentElement;
-    if (el && !a.dx && !a.dy) el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    else (el || se).scrollBy({ left: a.dx || 0, top: a.dy || 0, behavior: 'instant' });
-    var res = { x: Math.round(scrollX), y: Math.round(scrollY), maxY: Math.max(0, Math.round(se.scrollHeight - innerHeight)) };
-    if (el) { res.elementY = Math.round(el.scrollTop); res.elementMaxY = Math.max(0, el.scrollHeight - el.clientHeight); }
-    return res;
+    var se = document.scrollingElement || document.documentElement, el, box = null;
+    if (a.target) { el = resolve(a.target); box = el; }
+    else if (docScrolls(se)) el = se;
+    else { el = largestBox() || se; if (el !== se) box = el; }
+    // dir 'none': where it is now, without moving (the position after the page loaded more).
+    var step = a.dir === 'none' ? 0 : (el === se ? innerHeight : el.clientHeight) * 0.85 * (a.dir === 'up' ? -1 : 1);
+    var before = el.scrollTop, maxBefore = Math.max(0, Math.round(el.scrollHeight - el.clientHeight));
+    if (step) el.scrollBy({ top: step, behavior: 'instant' });
+    var y = el.scrollTop;
+    return {
+      y: Math.round(y), max: Math.max(0, Math.round(el.scrollHeight - el.clientHeight)), maxBefore: maxBefore,
+      moved: Math.abs(y - before) >= 1,
+      docHeight: el.scrollHeight, count: document.getElementsByTagName('*').length, box: box ? refFor(box) : null
+    };
   }
 
-  function hover(a) {
-    var el = resolve(a.target);
-    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    var r = el.getBoundingClientRect();
-    var o = { bubbles: true, cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, view: el.ownerDocument.defaultView };
-    ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove'].forEach(function (t) {
-      el.dispatchEvent(t.indexOf('pointer') === 0 ? new PointerEvent(t, o) : new MouseEvent(t, o));
-    });
-    return {};
-  }
-
-  function selectOption(a) {
-    var el = resolve(a.target);
-    if (el.localName !== 'select') throw new Error('element is not a <select>; for custom dropdowns click the option instead');
-    var opts = Array.prototype.slice.call(el.options);
-    var want = a.values.map(function (w) { return norm(w).toLowerCase(); });
-    var picked = opts.filter(function (o) { return want.indexOf(o.value.toLowerCase()) >= 0 || want.indexOf(norm(o.text).toLowerCase()) >= 0; });
-    if (!picked.length) {
-      throw new Error('no option matches ' + q(a.values) + '. Options: ' + opts.slice(0, 30).map(function (o) { return norm(o.text); }).join(', '));
-    }
-    if (!el.multiple) picked = picked.slice(0, 1);
-    opts.forEach(function (o) { o.selected = picked.indexOf(o) >= 0; });
-    events(el, ['input', 'change']);
-    return { selected: picked.map(function (o) { return norm(o.text); }) };
-  }
-
-  function query(a) {
-    var el;
-    try { el = resolve(a.target); } catch (e) {
-      if (/^stale ref/.test(e.message)) return { attached: false, visible: false, stale: true };
-      if (/^no element/.test(e.message)) return { attached: false, visible: false };
-      throw e;
-    }
-    return { attached: true, visible: visible(el) };
-  }
-
-  function focusInfo() {
-    var el = document.activeElement, guard = 0;
-    while (el && guard++ < 20) {
-      if (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-      else if ((el.localName === 'iframe' || el.localName === 'frame') && el.contentDocument && el.contentDocument.activeElement) el = el.contentDocument.activeElement;
-      else break;
-    }
-    if (!el || el.localName === 'body' || el.localName === 'html') return { info: null };
-    return { info: info(el), sensitive: isSensitive(el) };
-  }
-
-  function state() {
-    return { url: location.href, title: norm(document.title), readyState: document.readyState };
-  }
-
-  // ---------- execute (architecture 7.4): sensitive value setter refused while user code runs
-
-  function execBegin() {
-    if (patched++ > 0) return {};
-    Object.defineProperty(HTMLInputElement.prototype, 'value', {
-      configurable: true, enumerable: inputValue.enumerable, get: inputValue.get,
-      set: function (v) {
-        if (isSensitive(this)) throw new Error('refused: execute may not set password, OTP or card fields');
-        return inputValue.set.call(this, v);
-      }
-    });
-    return {};
-  }
-
-  function execEnd(a) {
-    if (a && a.force) patched = 1;
-    if (patched === 0 || --patched > 0) return {};
-    Object.defineProperty(HTMLInputElement.prototype, 'value', inputValue);
-    return {};
-  }
+  // ---------- execute (architecture 7.4)
 
   function ser(v) {
     if (v === undefined) return 'undefined';
@@ -553,10 +896,9 @@
       Promise.resolve(r).then(
         function (v) { pend[id] = { ok: ser(v) }; },
         function (e) { pend[id] = { error: String((e && e.message) || e) }; }
-      ).then(function () { execEnd(); });
+      );
       return { pending: id };
     }
-    execEnd();
     return { ok: ser(r) };
   }
 
@@ -569,9 +911,8 @@
   }
 
   var FNS = {
-    snapshot: snapshot, pageText: pageText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
-    click: click, type: typeText, scroll: scroll, hover: hover, select: selectOption, query: query,
-    focusInfo: focusInfo, state: state, execBegin: execBegin, execEnd: execEnd, execResult: execResult, execPoll: execPoll
+    mark: mark, pageList: pageList, readText: readText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
+    click: click, armTap: armTap, tapCheck: tapCheck, disarmTap: disarmTap, press: press, type: typeText, suggestions: suggestions, scroll: scroll, execResult: execResult, execPoll: execPoll
   };
 
   var api = {
@@ -579,7 +920,11 @@
       var f = FNS[fn];
       if (!f) throw new Error('unknown page function ' + fn);
       return f(args || {});
-    }
+    },
+    /** The ref number after the last one this document handed out. */
+    next: function () { return nextNum; },
+    /** The tab's next number: a document restored from the back/forward cache numbers on from there (F7). */
+    floor: function (n) { if (n > nextNum) nextNum = n; }
   };
   Object.defineProperty(window, K, { value: api, enumerable: false, configurable: false, writable: false });
 })

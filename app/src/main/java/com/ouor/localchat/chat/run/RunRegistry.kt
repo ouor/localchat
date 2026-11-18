@@ -70,8 +70,7 @@ class RunRegistry @Inject constructor(@ApplicationScope private val scope: Corou
         val matches = when (pause) {
             is Pause.Approval -> resolution is Resolution.ApprovalAnswer && resolution.id == pause.id
             is Pause.StepLimit -> resolution is Resolution.StepLimitAnswer
-            is Pause.Handoff -> resolution is Resolution.HandoffReturned
-            is Pause.UserControl -> false
+            is Pause.UserStep -> resolution is Resolution.UserStepDone
         }
         if (matches) deferred.complete(resolution)
     }

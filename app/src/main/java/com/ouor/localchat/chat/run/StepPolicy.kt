@@ -62,5 +62,8 @@ internal data class StepPolicy(
     companion object {
         /** FB3 QA M1: steps in a row that called only turned-off tools before the request allows no call. */
         const val OFF_ONLY_STEPS = 2
+
+        /** Steps the run may take from [nextStep] before the step-limit question (0 = asked before it). */
+        fun stepsLeft(nextStep: Int, maxSteps: Int): Int = if (maxSteps <= 0) 0 else (maxSteps - nextStep % maxSteps) % maxSteps
     }
 }

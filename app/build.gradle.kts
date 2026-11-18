@@ -26,8 +26,8 @@ android {
         applicationId = "com.ouor.localchat"
         minSdk = 31
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.0.2-5"
+        versionCode = 9
+        versionName = "1.0.2-7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

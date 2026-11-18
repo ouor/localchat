@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="policy_money_title">Press the payment or order button?</string>
+    <string name="policy_account_title">Press the account deletion button?</string>
+</resources>

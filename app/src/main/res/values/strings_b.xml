@@ -12,23 +12,23 @@
     <string name="chat_err_model_unavailable_body">It was removed or its provider is turned off. Choose another model.</string>
     <string name="chat_err_config_title">Check the provider settings</string>
     <string name="chat_err_config_body">The base URL is invalid or uses http without permission.</string>
-    <plurals name="chat_step_nodes">
-        <item quantity="one">%d element</item>
-        <item quantity="other">%d elements</item>
-    </plurals>
-    <plurals name="chat_step_lines">
-        <item quantity="one">%d line</item>
-        <item quantity="other">%d lines</item>
-    </plurals>
-    <plurals name="chat_step_tabs">
-        <item quantity="one">%d tab</item>
-        <item quantity="other">%d tabs</item>
-    </plurals>
     <plurals name="chat_step_results">
         <item quantity="one">%d result</item>
         <item quantity="other">%d results</item>
     </plurals>
-    <string name="chat_step_fail_sensitive">Sensitive site blocked: not read</string>
+    <string name="chat_step_fail_blocked">Blocked by the app</string>
     <string name="chat_step_fail_interrupted">Interrupted before it finished</string>
     <string name="chat_step_fail_error">Failed with an error</string>
+    <string name="ui_protections">Protections</string>
+    <string name="ui_peek_activity">AI in tab %1$d: %2$s</string>
+    <string name="ui_user_step_here">AI is waiting for you: %1$s</string>
+    <string name="ui_user_step_other">AI is waiting in tab %1$d: %2$s</string>
+    <string name="ui_event_other_tab">The page in tab %1$d is asking you something</string>
+    <string name="ui_view">View</string>
+    <string name="ui_open">Open</string>
+    <string name="ui_reload_page">Reload this page</string>
+    <string name="ui_tab_asleep">Asleep</string>
+    <string name="ui_new_tab_failed">Could not open a new tab</string>
+    <string name="ui_external_title">Open in another app?</string>
+    <string name="ui_popup_title">The page wants to open a new tab</string>
 </resources>

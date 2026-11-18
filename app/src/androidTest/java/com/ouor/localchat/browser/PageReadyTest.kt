@@ -1,0 +1,271 @@
+package com.ouor.localchat.browser
+
+import android.os.SystemClock
+import android.util.Log
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.chat.run.Pause
+import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.core.model.ToolCallState
+import com.ouor.localchat.testing.Scenario
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import mockwebserver3.MockResponse
+import mockwebserver3.RecordedRequest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Page readiness, load errors and their retry, dialogs and downloads through the real tools (tools-redesign 2, 7;
+ * cases E2-E7 of tools-audit-browser.md). Wait times are logged under tag PageReady.
+ */
+@RunWith(AndroidJUnit4::class)
+class PageReadyTest : ToolFlowBase() {
+
+    private val flaky = AtomicInteger()
+
+    override fun respond(path: String, request: RecordedRequest): MockResponse? = when (path) {
+        "/a" -> html("""<!doctype html><title>A</title><a id="go" href="/slow">Slow page</a>""")
+        "/slow" -> { Thread.sleep(1_500); html("<!doctype html><title>Slow</title><p>Slow page body text</p>") } // TTFB 1.5 s (E2)
+        "/jsredir" -> html("""<!doctype html><title>Between</title><script>setTimeout(function () { location.replace('/final') }, 300)</script>""")
+        "/final" -> html("<!doctype html><title>Final</title><p>Final page body text</p>")
+        "/late" -> html("""<!doctype html><title>Late</title><div id="m"></div>
+            <script>setTimeout(function () { document.getElementById('m').textContent = 'LATE-TEXT ' + 'word '.repeat(60) }, 800)</script>""")
+        "/clock" -> html("""<!doctype html><title>Clock</title><p>Ticker page with a long enough introduction. ${"Lorem ipsum dolor sit amet. ".repeat(10)}</p>
+            <p id="t"></p><script>setInterval(function () { document.getElementById('t').textContent = Date.now() }, 100)</script>""")
+        "/static" -> html("<!doctype html><title>Static</title><p>${"Static text. ".repeat(40)}</p>")
+        "/flaky" -> if (flaky.incrementAndGet() == 1) html("busy", 503) else html("<!doctype html><title>Flaky</title><p>Flaky page body text</p>")
+        "/down" -> html("down", 503)
+        "/file.pdf" -> MockResponse.Builder().addHeader("Content-Type", "application/pdf")
+            .addHeader("Content-Disposition", "attachment; filename=\"file.pdf\"").body("%PDF-1.4 fake").build()
+        "/dialogs" -> html("""<!doctype html><title>Dialogs</title><p id="r"></p>
+            <button id="alert" onclick="alert('Saved!'); document.getElementById('r').textContent = 'after alert'">Save</button>
+            <button id="confirm" onclick="document.getElementById('r').textContent = 'confirm=' + confirm('Really leave?')">Leave</button>""")
+        "/post" -> html("""<!doctype html><title>Post</title><form method="post" action="/submit"><input id="m" name="message"><button>Send</button></form>""")
+        "/blocked" -> html("<!doctype html><title>Sorry</title><p>Our systems have detected unusual traffic from your computer network.</p>")
+        "/ddg" -> html("<!doctype html><title>DDG</title>" + (1..3).joinToString("") {
+            """<div class="result"><a class="result__a" href="https://example$it.test/page">Result $it title</a><a class="result__snippet">Snippet $it</a></div>"""
+        })
+        "/jump" -> html("""<!doctype html><title>Jump</title><a href="#end">Jump down</a> <a href="/file.pdf">Get the file</a>
+            <a href="/empty">No content</a> <button onclick="window.clicks = (window.clicks || 0) + 1; document.getElementById('c').textContent = 'count=' + window.clicks">Count</button>
+            <p id="c">count=0</p><div style="height:3000px"></div><p id="end">End</p>""")
+        "/empty" -> MockResponse.Builder().code(204).build()
+        "/hop" -> html("""<!doctype html><title>Hop</title>
+            <a href="/slow" onclick="setTimeout(function () { location.assign('/final') }, 300)">Slow then final</a>""")
+        else -> null
+    }
+
+    /** Runs one tool call to the end and returns its result text and state; [answer] handles each pause. */
+    private fun run(name: String, args: String, answer: (Pause, String) -> Unit = { _, _ -> error("unexpected pause") }): Pair<String, ToolCallState> {
+        llm.enqueue(Scenario.toolCall(name, args), Scenario.text("done"))
+        val sid = send("go")
+        while (true) {
+            val st = awaitRun(sid, "pause or end") { it == null || it.phase is com.ouor.localchat.chat.run.RunPhase.Paused }
+            if (st == null) break
+            answer((st.phase as com.ouor.localchat.chat.run.RunPhase.Paused).pause, sid)
+            awaitRun(sid, "resume") { it?.phase !is com.ouor.localchat.chat.run.RunPhase.Paused }
+        }
+        val reply = awaitEnd(sid)
+        return reply.results().single().modelText to reply.calls().single().state
+    }
+
+    /** One readiness wait on a parked tab, from the load call: (readiness, ms). */
+    private fun measure(path: String): Pair<Readiness, Long> = runBlocking {
+        val since = SystemClock.uptimeMillis()
+        val id = withContext(Dispatchers.Main) { browser.open(url(path)) }
+        try {
+            val tab = withContext(Dispatchers.Main) { browser.tab(id) }
+            val r = tab.awaitReady(since)
+            val ms = SystemClock.uptimeMillis() - since
+            val load = tab.evaluate("performance.timing.loadEventEnd - performance.timing.navigationStart", 5_000)
+            Log.i(TAG, "$path: $r in $ms ms (page load $load ms)")
+            r to ms
+        } finally {
+            withContext(Dispatchers.Main) { browser.close(id) }
+        }
+    }
+
+    @Test
+    fun e2_aClickToASlowFirstByteWaitsForTheNewPage() {
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/a")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Slow page\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("go"))
+        val click = reply.results()[1].modelText
+        assertTrue(click, "→ new page." in click && "/slow" in click && "Slow page body text" in click)
+    }
+
+    @Test
+    fun e3_anUnknownHostFailsAfterOneRetryWithoutTheErrorPage() {
+        val (text, state) = run("read", """{"url":"https://no-such-host.invalid/"}""")
+        assertEquals(text, ToolCallState.FAILED, state)
+        assertTrue(text, "the site's address was not found" in text && "Already retried once" in text)
+        assertFalse(text, "chromewebdata" in text || "웹페이지" in text)
+    }
+
+    @Test
+    fun e4_a503IsRetriedOnce() {
+        val (ok, _) = run("read", """{"url":"${url("/flaky")}"}""")
+        assertTrue(ok, "Flaky page body text" in ok)
+        assertEquals(2, pageHits.count { it == "/flaky" })
+    }
+
+    @Test
+    fun e4_a503ThatStaysIsReportedAfterOneRetry() {
+        val (down, state) = run("read", """{"url":"${url("/down")}"}""")
+        // QA B9: the error page's text was read, so the read did not fail; the mark says both.
+        assertTrue(down, "HTTP 503" in down && ", yet 4 characters of text were read)" in down)
+        assertEquals(down, ToolCallState.DONE, state)
+        assertEquals(2, pageHits.count { it == "/down" })
+    }
+
+    @Test
+    fun e5_aScriptRedirectRightAfterLoadIsFollowed() {
+        val (text, _) = run("open", """{"url":"${url("/jsredir")}"}""")
+        assertTrue(text, "Page: Final — ${url("/final")}" in text)
+    }
+
+    @Test
+    fun e7_textAddedAfterLoadIsRead() {
+        val (r, ms) = measure("/late")
+        assertEquals(Readiness.READY, r)
+        assertTrue("$ms ms", ms < 3_000)
+        val (text, _) = run("read", """{"url":"${url("/late")}"}""")
+        assertTrue(text, "LATE-TEXT" in text)
+    }
+
+    @Test
+    fun aPageThatNeverStopsChangingIsReadWithinTheCap() {
+        val (r, ms) = measure("/clock")
+        assertEquals(Readiness.CHANGING, r)
+        assertTrue("$ms ms", ms <= TabRules.SETTLE_CAP + 2_000)
+        val (text, _) = run("read", """{"url":"${url("/clock")}"}""")
+        assertTrue(text, "(page still changing; text may be incomplete)" in text && "Ticker page" in text)
+    }
+
+    @Test
+    fun aStaticPageAddsLittleWaitAfterItsLoad() {
+        measure("/static") // warm-up: the first WebView load pays process start-up
+        val times = (1..3).map { measure("/static").also { (r, _) -> assertEquals(Readiness.READY, r) }.second }
+        Log.i(TAG, "static: $times ms")
+        // Quiet window (500 ms) plus a local load and polling; the design's bound is 1 s after the load.
+        assertTrue("$times", times.all { it <= 1_500 })
+    }
+
+    @Test
+    fun dialogsAreReportedInTheResult() {
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/dialogs")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Save\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Leave\"")}"}"""),
+            Scenario.text("done"),
+        )
+        // A dialog during the AI's own action is part of the flow it chose (3-6): answered OK, never shown to the user.
+        val reply = awaitEnd(send("dialogs"))
+        val (alert, confirm) = reply.results().drop(1).map { it.modelText }
+        assertTrue(alert, "The page showed an alert: \"Saved!\"." in alert && "after alert" in alert)
+        assertTrue(confirm, "The page asked (confirm): \"Really leave?\" — it was answered OK." in confirm && "confirm=true" in confirm)
+        assertTrue(browser.prompts.value.isEmpty())
+    }
+
+    @Test
+    fun aDownloadLinkIsNotRead() {
+        val (text, state) = run("read", """{"url":"${url("/file.pdf")}"}""")
+        assertEquals(ToolCallState.FAILED, state)
+        assertTrue(text, "This is a file" in text && Regex("""as file( \(\d+\))?\.pdf\.""").containsMatchIn(text) && "cannot be read" in text)
+    }
+
+    @Test
+    fun enterInAPostFormSendsItWithoutAQuestion() {
+        // browser-layers 0: the user is asked only about money and account deletion; a plain form is the AI's to send.
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/post")}"}"""),
+            Scenario.toolCall("type", """{"ref":"${Scenario.ref("textbox")}","text":"hi\n"}"""),
+            Scenario.text("done"),
+        )
+        assertEquals(ToolCallState.DONE, awaitEnd(send("post")).calls()[1].state)
+        assertTrue(pageHits.toString(), pageHits.any { it == "/submit" })
+    }
+
+    @Test
+    fun searchPagesAreTold_blockedOrExtracted() = runBlocking<Unit> {
+        suspend fun page(path: String) = withContext(Dispatchers.Main) {
+            val since = SystemClock.uptimeMillis()
+            val id = browser.open(url(path))
+            val tab = browser.tab(id)
+            tab.awaitReady(since)
+            PageScript.search(tab, SearchEngine.DUCKDUCKGO).also { browser.close(id) }
+        }
+        assertTrue(page("/blocked").blocked)
+        val ok = page("/ddg")
+        assertFalse(ok.blocked)
+        assertEquals(listOf("https://example1.test/page", "https://example2.test/page", "https://example3.test/page"), ok.results.map { it.url })
+    }
+
+    @Test
+    fun clicksThatOpenNoNewDocumentEndSoon() {
+        // B-m3 and main-frame ERR_ABORTED: a same-page anchor, a download and a 204 commit no document; the wait ends
+        // when the request ends instead of running to the load cap, and an aborted load is no error.
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/jump")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Jump down\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Get the file\"")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"No content\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("jump"))
+        val calls = reply.calls().drop(1)
+        val results = reply.results().drop(1).map { it.modelText }
+        val ms = calls.map { it.endedAt!! - it.startedAt }
+        Log.i(TAG, "anchor/download/204 clicks: $ms ms")
+        assertEquals(results.joinToString(), List(3) { ToolCallState.DONE }, calls.map { it.state })
+        results.forEach { assertFalse(it, "ERR_ABORTED" in it || "failed" in it) }
+        assertTrue("$ms", ms.all { it < TabRules.LOAD_CAP / 3 })
+        assertTrue(browser.tabs.value.single().url.endsWith("/jump#end"))
+    }
+
+    @Test
+    fun aNavigationReplacedByAnotherIsNoError() {
+        // Main-frame ERR_ABORTED: the slow load is replaced by a script navigation 300 ms later; the click lands there.
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/hop")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Slow then final\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("hop"))
+        val click = reply.results()[1].modelText
+        assertEquals(click, ToolCallState.DONE, reply.calls()[1].state)
+        assertTrue(click, "Page: Final" in click && "ERR_ABORTED" !in click)
+    }
+
+    @Test
+    fun aClickActsOnceAndBrokenCodeIsNotRun() {
+        // B-m1/m2: no second activation of a click, no re-run of code whose answer was lost, and code that does not
+        // parse is reported without running.
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/jump")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Count\"")}"}"""),
+            Scenario.toolCall("execute", """{"code":"window.clicks = (window.clicks || 0) + 1; void 0"}"""),
+            Scenario.toolCall("execute", """{"code":"window.clicks = 100; ("}"""),
+            Scenario.toolCall("execute", """{"code":"window.clicks"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("count")) // no question for code (browser-layers 0)
+        val results = reply.results().map { it.modelText }
+        assertTrue(results[1], "count=1" in results[1])
+        assertEquals(results[3], ToolCallState.FAILED, reply.calls()[3].state)
+        assertTrue(results[3], "SyntaxError" in results[3])
+        assertTrue(results[4], "Result: 2\n" in results[4]) // the click once, the code once, the broken code not at all
+    }
+
+    private companion object {
+        const val TAG = "PageReady"
+    }
+}

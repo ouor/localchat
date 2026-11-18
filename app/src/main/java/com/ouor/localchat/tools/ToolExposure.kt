@@ -15,7 +15,7 @@ object ToolExposure {
             if (searchOn) add(ToolGroup.SEARCH)
             if (browserOn) add(ToolGroup.BROWSER)
         }
-        return ToolCatalog.ALL.filter { t -> t.groups.any(groups::contains) && (!t.requiresVision || caps.imageInput.value) }
+        return ToolCatalog.ALL.filter { t -> t.groups.any(groups::contains) }
     }
 
     /**

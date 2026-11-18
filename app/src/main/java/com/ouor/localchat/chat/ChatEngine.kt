@@ -1,7 +1,6 @@
 package com.ouor.localchat.chat
 
 import com.ouor.localchat.R
-import com.ouor.localchat.browser.safety.SensitiveUrls
 import com.ouor.localchat.chat.context.SystemPrompt
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
@@ -73,14 +72,12 @@ class ChatRejected(val reason: Reason) : Exception(reason.name) {
  * Starting calls suspend until the nodes are saved and the run is registered; the run itself
  * continues in the application scope, independent of the caller. One run per session.
  */
-/** Tool results whose summary is just a count; older rows carry the English unit too. */
-private val COUNT = Regex("""(\d+)(?: (?:nodes|lines|tabs))?""")
-private val COUNT_RES = mapOf(
-    "snapshot" to R.plurals.chat_step_nodes,
-    "console_logs" to R.plurals.chat_step_lines,
-    "get_tabs" to R.plurals.chat_step_tabs,
-    "web_search" to R.plurals.chat_step_results,
-)
+/** Tool results whose summary is just a count. */
+private val COUNT = Regex("""(\d+)""")
+private val COUNT_RES = mapOf("web_search" to R.plurals.chat_step_results)
+
+/** QA m2: steps on an element (argument: a ref) are named by the element the result found, not by the ref. */
+private val NAMED_BY_RESULT = setOf("click", "type")
 
 @Singleton
 class ChatEngine @Inject constructor(
@@ -202,7 +199,8 @@ class ChatEngine @Inject constructor(
         val countRes = COUNT_RES[block.name]?.takeIf { count != null }
         val failureRes = failure(block, result)
         return ToolStep(
-            tool.labelRes, args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
+            tool.labelRes,
+            result?.summary?.takeIf { block.name in NAMED_BY_RESULT } ?: args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
             countRes, count ?: 0, failureRes, turnedOff = failureRes == R.string.chat_step_turned_off,
         )
     }
@@ -210,13 +208,13 @@ class ChatEngine @Inject constructor(
     private fun failure(block: ToolCallBlock, result: ToolResultBlock?): Int? {
         if (block.state == ToolCallState.DENIED || block.state == ToolCallState.CANCELLED) return null
         if (result?.isError != true && block.state != ToolCallState.FAILED) return null
-        val content = result?.content.orEmpty()
+        val lead = result?.lead.orEmpty()
         return when {
-            // Ours after the call, or a browser/tools refusal before it (one shared phrase).
-            content.contains(ToolExecutor.SENSITIVE) || content.contains(SensitiveUrls.REFUSAL) -> R.string.chat_step_fail_sensitive
-            content == SystemPrompt.INTERRUPTED || content == SystemPrompt.ABORTED -> R.string.chat_step_fail_interrupted
+            // A policy refused or withheld it: one generic phrase, the screen never reads the policy's sentence.
+            result?.refused == true -> R.string.chat_step_fail_blocked
+            lead == SystemPrompt.INTERRUPTED || lead == SystemPrompt.ABORTED -> R.string.chat_step_fail_interrupted
             // FB3 QA m2: the user's own switch, not an error (ui shows it neutral).
-            content == ToolExecutor.TOOL_OFF -> R.string.chat_step_turned_off
+            lead == ToolExecutor.TOOL_OFF -> R.string.chat_step_turned_off
             else -> R.string.chat_step_fail_error
         }
     }

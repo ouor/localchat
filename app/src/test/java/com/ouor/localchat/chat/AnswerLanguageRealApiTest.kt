@@ -53,6 +53,7 @@ class AnswerLanguageRealApiTest {
             putJsonArray("required") { add(JsonPrimitive("url")) }
         }
         override val labelRes = 0
+        override val facts = com.ouor.localchat.tools.ToolFacts(com.ouor.localchat.tools.TargetRule.NONE, browser = false, changesPage = false)
         override fun argSummary(args: JsonObject) = ""
         override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome {
             // The user switches the browser off while the second page is read (QA: +4~5 s, after 2~3 steps).

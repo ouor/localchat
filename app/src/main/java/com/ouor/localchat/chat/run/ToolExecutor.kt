@@ -1,35 +1,57 @@
 package com.ouor.localchat.chat.run
 
 import android.util.Log
+import com.ouor.localchat.browser.Asleep
 import com.ouor.localchat.browser.BrowserEngine
+import com.ouor.localchat.browser.BrowserEvent
+import com.ouor.localchat.browser.BrowserRefusal
 import com.ouor.localchat.browser.BrowserTab
+import com.ouor.localchat.browser.Handled
 import com.ouor.localchat.browser.PageError
+import com.ouor.localchat.browser.TabClosed
+import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
+import com.ouor.localchat.browser.script.CssRect
+import com.ouor.localchat.browser.script.Located
+import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.chat.AttachmentPort
 import com.ouor.localchat.chat.BrowserPort
-import com.ouor.localchat.chat.context.SystemPrompt
-import com.ouor.localchat.chat.context.Untrusted
 import com.ouor.localchat.core.Ids
 import com.ouor.localchat.core.model.Source
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
-import com.ouor.localchat.chat.AttachmentPort
-import com.ouor.localchat.tools.ApprovalMode
-import com.ouor.localchat.tools.ApprovalRequest
-import com.ouor.localchat.tools.HandoffRequest
+import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.policy.CallFacts
+import com.ouor.localchat.policy.Policies
+import com.ouor.localchat.policy.PolicyCall
+import com.ouor.localchat.policy.Verdict
+import com.ouor.localchat.tools.ChatTabs
+import com.ouor.localchat.tools.ReadCursor
+import com.ouor.localchat.tools.Targets
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
+import com.ouor.localchat.tools.ToolOutcome
+import com.ouor.localchat.tools.ToolResultFormat
+import com.ouor.localchat.tools.UserStep
+import com.ouor.localchat.tools.browser.AskUser
+import com.ouor.localchat.tools.browser.Read
 import kotlinx.coroutines.CancellationException
-import javax.inject.Provider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import javax.inject.Provider
 
 /**
- * Runs one turn's tool calls (architecture 6.4) and is the tools' [ToolContext]. One instance per
- * turn so citation numbers stay stable within the message (S-04).
+ * Runs one turn's tool calls in the order of browser-layers 4-1 and is the tools' [ToolContext]: the hidden tools are
+ * unknown, the target tab is resolved ([Targets]), locked and woken, the policies' `before` may refuse or ask, a new tab
+ * is opened only after that, the tool runs, every outcome (an exception too) goes through `after`, and the result is
+ * stored as [ToolResultFormat] cuts it. One instance per turn so citation numbers stay stable within the message.
  */
 class ToolExecutor(
     override val sessionId: String,
@@ -37,16 +59,25 @@ class ToolExecutor(
     private val engine: Provider<BrowserEngine>,
     private val attachments: AttachmentPort,
     private val browserPort: BrowserPort,
+    private val policies: Policies,
     private val handle: RunRegistry.RunHandle,
     tools: List<Tool>,
     existingSources: List<Source>,
+    override val contextWindow: Int? = null,
+    override val vision: Boolean = false,
+    /** This chat's tabs memory; it outlives the turn. */
+    override val chat: ChatTabs,
+    /** The read tool link prefetch runs, exposed or not (the catalog's; JVM tests pass a fake). */
+    private val readTool: Tool = Read,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
     private val onState: (callKey: String, ToolCallState) -> Unit,
 ) : ToolContext {
 
-    data class Result(val block: ToolResultBlock, val state: ToolCallState, val handoff: HandoffRequest?)
+    data class Result(val block: ToolResultBlock, val state: ToolCallState, val userStep: UserStep?)
 
     override val browser: BrowserEngine get() = engine.get()
+
+    override val readCursors: MutableMap<Int, ReadCursor> get() = chat.readCursors
 
     /** Tools this turn may run; only ever narrowed ([narrow]). */
     var tools: List<Tool> = tools
@@ -64,111 +95,228 @@ class ToolExecutor(
     fun isOff(name: String) = name in turnedOff
 
     private val sources = existingSources.associateBy { it.url }.toMutableMap()
-    private var callKey: String? = null
 
-    /** Tab the current call acted on, for cookie masking and the sensitive-URL recheck. */
-    private var lastTabId: Int? = null
+    private var callId: String? = null
+    private var tabId: Int? = null
 
-    /** The current call's tool (B-09 ② label) and its tab's URL when acquired (SE 19: masked too). */
-    private var toolName: String? = null
-    private var startUrl: String? = null
-
-    /** Tab and URL an ALWAYS approval was given for; the tool must act on exactly that page. */
-    private var approvedPage: Pair<Int, String?>? = null
+    override val target: BrowserTab? get() = tabId?.let(browserPort::tab)
 
     suspend fun execute(call: ToolCallBlock): Result {
-        callKey = call.key
-        lastTabId = null
-        toolName = call.name
-        startUrl = null
-        val tool = tools.firstOrNull { it.name == call.name }
-            ?: return error(call, if (call.name in turnedOff) TOOL_OFF else "Unknown tool: ${call.name}")
+        callId = call.callId
+        tabId = null
+        val tool = tools.firstOrNull { it.name == call.name && it.name !in policies.hiddenTools() }
+            ?: return failed(call, if (call.name in turnedOff) TOOL_OFF else unknown(call.name))
         val args = try {
             Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }).jsonObject
         } catch (_: Exception) {
-            return error(call, "Invalid arguments: not a JSON object")
+            return failed(call, "Invalid arguments: not a JSON object")
         }
-        handle.update { it.copy(phase = RunPhase.RunningTool(call.callId, call.name, args.tabId())) }
-        return try {
-            if (tool.approval == ApprovalMode.ALWAYS) {
-                // SE 9: resolve the tab first so the sheet names where the code runs, then pin that page.
-                val tabId = browserPort.aiTabId(sessionId, args.tabId())
-                val url = browserPort.tabUrl(tabId)
-                val code = args["code"]?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
-                if (!ask(ApprovalInfo(tool.name, tabId, url, targetText = null, code = code))) {
-                    return done(call, ToolResultBlock(call.callId, call.step, SystemPrompt.DENIED, isError = true), ToolCallState.DENIED)
+        handle.update { it.copy(phase = RunPhase.RunningTool(call.callId, call.name, null)) }
+        return run(call, tool, args, call.key)
+    }
+
+    /** LinkPrefetcher (A-m10): a link in a question read through the same chain as a read call; null when it failed. */
+    suspend fun prefetchRead(url: String): ToolOutcome? {
+        val args = buildJsonObject { put("url", JsonPrimitive(url)) }
+        val call = ToolCallBlock(Ids.new(), readTool.name, args.toString(), 0, ToolCallState.RUNNING, 0)
+        callId = call.callId
+        tabId = null
+        val r = runChain(call, readTool, args, call.key)
+        return r.takeUnless { it.isError }
+    }
+
+    /** ask_user's result once the user tapped Done: the page as they left it, through the chain like look. */
+    suspend fun afterUserStep(call: ToolCallBlock, step: UserStep): ToolResultBlock {
+        callId = call.callId
+        tabId = null
+        val args = buildJsonObject { put("tab", JsonPrimitive(step.tabId.toString())) }
+        val done = object : Tool by AskUser {
+            override suspend fun run(args: JsonObject, ctx: ToolContext) = AskUser.done(ctx)
+        }
+        return block(call, runChain(call, done, args, call.key)).block
+    }
+
+    private suspend fun run(call: ToolCallBlock, tool: Tool, args: JsonObject, key: String): Result =
+        block(call, runChain(call, tool, args, key))
+
+    /** 4-1 steps 2–8 for one call. */
+    private suspend fun runChain(call: ToolCallBlock, tool: Tool, args: JsonObject, key: String): ToolOutcome {
+        val facts = tool.facts
+        val startedAt = now()
+        val target = if (!facts.browser) Targets.Target.None else Targets.resolve(facts.target, args, browserPort.tabs(), browserPort.front(), chat)
+        var tab: BrowserTab? = null
+        var held = false
+        var woke: Asleep? = null
+        var opened = false
+        val info: () -> TabInfo? = { tabId?.let { id -> browserPort.tabs().firstOrNull { it.id == id } } }
+        fun policyCall() = PolicyCall(sessionId, tool.name, facts, args, startedAt, info(), ::describe, ::captureElement)
+        if (target is Targets.Target.Error) return after(policyCall(), ToolOutcome(lead = target.message, isError = true), startedAt, opened)
+        try {
+            if (target is Targets.Target.Tab) {
+                tabId = target.id
+                tab = onMain { browserPort.tab(target.id) }
+                tab.lock.lock()
+                held = true
+                woke = tab.asleep
+                if (tab.wake()) tab.awaitReady(now())
+            }
+            // 4. before, in order; a confirmation waits without the lock so other chats are not held up (A-m9).
+            when (val v = policies.before(policyCall())) {
+                Verdict.Allow -> Unit
+                is Verdict.Refuse -> return ToolOutcome(lead = v.message, isError = true, refused = true)
+                is Verdict.Confirm -> {
+                    if (held) {
+                        tab?.lock?.unlock()
+                        held = false
+                    }
+                    val allowed = try {
+                        ask(key, v)
+                    } finally {
+                        tab?.let { it.lock.lock(); held = true }
+                    }
+                    if (!allowed) return ToolOutcome.DENIED
                 }
-                approvedPage = tabId to url
             }
-            val outcome = tool.run(args, this)
-            // SE 2: the tab may have redirected to a sensitive page after it was acquired.
-            val sensitive = lastTabId?.let(browserPort::tabUrl)?.let(browserPort::isSensitive) == true
-            val block = ToolResultBlock(
-                callId = call.callId,
-                step = call.step,
-                content = if (sensitive) SENSITIVE else seal(outcome.text, lastTabId, startUrl),
-                isError = outcome.isError || sensitive,
-                summary = outcome.summary.takeUnless { sensitive },
-                sources = outcome.sources,
-                artifactIds = if (sensitive) emptyList() else outcome.artifactIds,
-                imageForModelId = outcome.imageForModelId.takeUnless { sensitive },
-            )
-            val state = when {
-                outcome.denied -> ToolCallState.DENIED
-                outcome.isError -> ToolCallState.FAILED
-                else -> ToolCallState.DONE
+            // A new tab only once the call may go on: a refused call opens nothing.
+            if (target is Targets.Target.NewTab) {
+                val id = browserPort.open()
+                tabId = id
+                opened = true
+                chat.opened += id
+                tab = onMain { browserPort.tab(id) }
+                tab.lock.lock()
+                held = true
             }
-            done(call, block, state, outcome.handoff)
+            tab?.let { t ->
+                browserPort.setActivity(t.id, ToolActivity(sessionId, tool.name))
+                handle.update { s -> (s.phase as? RunPhase.RunningTool)?.takeIf { it.callId == callId }?.let { s.copy(phase = it.copy(tabId = t.id)) } ?: s }
+            }
+            val outcome = outcomeOf(call) { tool.run(args, this) }
+            return after(policyCall(), withFacts(outcome, tab, startedAt, opened, woke), startedAt, opened)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: ToolError) {
-            // App-written text: sent as is.
-            error(call, e.message ?: TOOL_FAILED)
-        } catch (e: PageError) {
-            // May carry page text (alert(), option labels, a thrown cookie): SE 4.
-            error(call, seal(e.message ?: TOOL_FAILED, lastTabId, startUrl))
         } catch (e: Exception) {
-            // FB3 eng m5: an unplanned exception's text (a path, an internal state, a class name R8 renames) is not
-            // for the model or the user; it goes to the log only.
-            runCatching { Log.w("localchat", "tool ${call.name} failed", e) } // JVM tests have no android.util.Log
-            error(call, TOOL_FAILED)
+            // TabClosed while locking or waking, and anything else before the tool ran.
+            return after(policyCall(), outcomeOfError(call, e), startedAt, opened)
         } finally {
-            approvedPage = null
-            if (lastTabId != null) browserPort.clearAiActivity(sessionId)
+            tab?.let { t ->
+                browserPort.setActivity(t.id, null)
+                if (held) t.lock.unlock()
+                chat.used(t.id, System.currentTimeMillis())
+            }
         }
+    }
+
+    /** 4-1 step 6: `after` folds over every outcome that ran, failures included. */
+    private fun after(call: PolicyCall, outcome: ToolOutcome, startedAt: Long, opened: Boolean): ToolOutcome {
+        val id = tabId
+        val tab = id?.let { runCatching { browserPort.tab(it) }.getOrNull() }
+        val events = tab?.eventsSince(startedAt).orEmpty()
+        val popups = events.mapNotNull { (it.event as? BrowserEvent.Popup)?.newTabId }
+        val facts = CallFacts(
+            tabAfter = id?.let { i -> browserPort.tabs().firstOrNull { it.id == i } },
+            opened = listOfNotNull(id.takeIf { opened }) + popups,
+            mainRequests = tab?.mainRequestsSince(startedAt).orEmpty(),
+            cookieHeader = browserPort::cookieHeader,
+            events = events,
+        )
+        return policies.after(call, facts, outcome)
+    }
+
+    /** 3-3: facts the app adds to the lead: a new tab, a woken tab, the user's hand in the same tab meanwhile. */
+    private fun withFacts(o: ToolOutcome, tab: BrowserTab?, startedAt: Long, opened: Boolean, woke: Asleep?): ToolOutcome {
+        tab ?: return o
+        val before = listOfNotNull(
+            "Opened tab ${tab.id}.".takeIf { opened },
+            woke?.let { "(tab ${tab.id} was asleep (${if (it == Asleep.CRASHED) "crash" else "memory"}) and was reloaded; its scroll position and typed input are gone)" },
+        )
+        val after = "(the user also used this tab meanwhile)".takeIf { tab.lastUserInputAt >= startedAt }
+        val lead = (before + o.lead + listOfNotNull(after)).filter { it.isNotEmpty() }.joinToString(" ")
+        return o.copy(lead = lead)
+    }
+
+    private suspend fun outcomeOf(call: ToolCallBlock, run: suspend () -> ToolOutcome): ToolOutcome = try {
+        run()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        outcomeOfError(call, e)
+    }
+
+    /** S1: an exception is a failed outcome with a factual lead, so it goes through the chain too. */
+    private fun outcomeOfError(call: ToolCallBlock, e: Exception): ToolOutcome = when (e) {
+        is ToolError -> e.page ?: ToolOutcome(lead = e.message ?: TOOL_FAILED, isError = true)
+        is BrowserRefusal -> ToolOutcome(lead = e.message ?: TOOL_FAILED, isError = true)
+        // May carry page text (alert(), option labels, a thrown cookie): inside the boundary.
+        is PageError -> ToolOutcome(
+            page = e.message ?: TOOL_FAILED, isError = true,
+            note = if (e.message == PageScript.NOT_RUN_AGAIN) "Call look() to see where it is now." else "",
+        )
+        is TabClosed -> ToolOutcome(lead = TAB_CLOSED, isError = true)
+        else -> {
+            // FB3 eng m5: an unplanned exception's text is not for the model or the user; it goes to the log only.
+            runCatching { Log.w("localchat", "tool ${call.name} failed", e) } // JVM tests have no android.util.Log
+            ToolOutcome(lead = TOOL_FAILED, isError = true)
+        }
+    }
+
+    private fun block(call: ToolCallBlock, o: ToolOutcome): Result {
+        val b = ToolResultBlock(
+            callId = call.callId,
+            step = call.step,
+            page = ToolResultFormat.cap(o.page),
+            isError = o.isError,
+            summary = o.summary,
+            sources = o.sources,
+            artifactIds = o.artifactIds,
+            imageForModelId = o.imageForModelId,
+            lead = o.lead,
+            note = o.note,
+            refused = o.refused,
+        )
+        val state = when {
+            o.denied -> ToolCallState.DENIED
+            o.isError -> ToolCallState.FAILED
+            else -> ToolCallState.DONE
+        }
+        return Result(b, state, o.userStep)
+    }
+
+    private fun failed(call: ToolCallBlock, lead: String) =
+        Result(ToolResultBlock(call.callId, call.step, page = "", isError = true, lead = lead), ToolCallState.FAILED, null)
+
+    private fun unknown(name: String): String {
+        val now = tools.map { it.name }.filter { it !in policies.hiddenTools() }
+        return "Unknown tool: $name. " + if (now.isEmpty()) "No tools can be called now." else "Tools you can call now: ${now.joinToString(", ")}."
+    }
+
+    private suspend fun ask(key: String, v: Verdict.Confirm): Boolean {
+        onState(key, ToolCallState.AWAITING_APPROVAL)
+        val answer = handle.pause(Pause.Approval(key, v.request)) as Resolution.ApprovalAnswer
+        onState(key, ToolCallState.RUNNING)
+        return answer.allow
+    }
+
+    /** PolicyCall.describe: the ref on the call's tab, without scrolling; null when gone. */
+    private suspend fun describe(ref: String): Located? {
+        val id = tabId ?: return null
+        return runCatching {
+            onMain { PageScript.call<Located>(browserPort.tab(id), "locate", buildJsonObject { put("target", JsonPrimitive(ref)); put("scroll", JsonPrimitive(false)) }) }
+        }.getOrNull()
+    }
+
+    private suspend fun captureElement(ref: String) = describe(ref)?.let { at ->
+        // QA B6: the form around it (or a band of the screen), so the sheet shows what is ordered, not only the button.
+        val area = at.formRect ?: CssRect(0f, at.rect.top - PREVIEW_BAND, at.innerWidth, at.rect.height + 2 * PREVIEW_BAND)
+        tabId?.let { id -> onMain { browserPort.tab(id).captureElement(area, at.innerWidth) } }
     }
 
     // ToolContext
 
-    override suspend fun aiTab(tabIdArg: Int?): BrowserTab {
-        // F-02: the engine checks, waits while the user holds the tab (B-09 ③) and marks AI activity (B-09 ②).
-        var before: RunPhase? = null
-        val id = browserPort.acquireAiTab(
-            sessionId, tabIdArg, toolName.orEmpty(),
-            onUserControl = { tab ->
-                before = handle.state.phase
-                handle.update { it.copy(phase = RunPhase.Paused(Pause.UserControl(tab))) }
-            },
-            onResumed = { before?.let { phase -> handle.update { it.copy(phase = phase) } } },
-        )
-        if (startUrl == null) startUrl = browserPort.tabUrl(id)
-        approvedPage?.let { (tabId, url) ->
-            if (tabId != id || browserPort.tabUrl(id) != url) throw ToolError("The page changed after approval; ask again.")
+    override fun status(s: ToolStatus?, engine: String?) {
+        handle.update { st ->
+            (st.phase as? RunPhase.RunningTool)?.takeIf { it.callId == callId }?.let { st.copy(phase = it.copy(status = s, engine = engine)) } ?: st
         }
-        lastTabId = id
-        return browserPort.tab(id)
-    }
-
-    override suspend fun requireApproval(request: ApprovalRequest): Boolean = ask(
-        ApprovalInfo(request.toolName, lastTabId, request.url, request.targetText, request.code, request.screenshotId, request.reason),
-    )
-
-    private suspend fun ask(info: ApprovalInfo): Boolean {
-        val id = callKey ?: Ids.new()
-        onState(id, ToolCallState.AWAITING_APPROVAL)
-        val answer = handle.pause(Pause.Approval(id, info)) as Resolution.ApprovalAnswer
-        onState(id, ToolCallState.RUNNING)
-        return answer.allow
     }
 
     override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String =
@@ -177,31 +325,15 @@ class ToolExecutor(
     override fun numberSource(url: String, title: String, snippet: String?): Int =
         sources.getOrPut(url) { Source(sources.size + 1, url, title, snippet) }.n
 
-    /**
-     * Architecture 6.4 post-processing, in this order: cookie mask by [tabId]'s URL, 50 KB cap, boundary.
-     * Every tool returns page-derived text (B-S5); LinkPrefetcher goes through here too (AN 12).
-     */
-    fun seal(text: String, tabId: Int?, startUrl: String? = null): String {
-        // SE 19: a navigating tool ends on another site; mask the cookies of where it started and where it ended.
-        val urls = listOfNotNull(startUrl, tabId?.let(browserPort::tabUrl)).distinct()
-        val masked = urls.fold(text) { t, url -> browserPort.maskCookies(t, url) }
-        val capped = if (masked.length > MAX_RESULT) masked.take(MAX_RESULT) + "\n…[truncated]" else masked
-        return Untrusted.wrap(capped)
-    }
+    private suspend fun <T> onMain(block: suspend () -> T): T = withContext(Dispatchers.Main.immediate) { block() }
 
-    private fun error(call: ToolCallBlock, message: String) =
-        done(call, ToolResultBlock(call.callId, call.step, message, isError = true), ToolCallState.FAILED)
-
-    private fun done(call: ToolCallBlock, block: ToolResultBlock, state: ToolCallState, handoff: HandoffRequest? = null) =
-        Result(block, state, handoff)
-
-    private fun JsonObject.tabId(): Int? = this["tabId"]?.let { runCatching { it.jsonPrimitive.intOrNull }.getOrNull() }
+    private fun now() = browserPort.now()
 
     companion object {
-        /** 50 KB result cap (architecture 6.4). */
-        private const val MAX_RESULT = 50_000
-        const val SENSITIVE = "The tab is now on a sensitive page (banking, mail, accounts); its content was withheld."
         const val TOOL_OFF = "The user turned this tool off."
-        const val TOOL_FAILED = "Tool failed"
+        /** CSS px above and below the element when it has no form (QA B6). */
+        private const val PREVIEW_BAND = 160f
+        const val TOOL_FAILED = "Tool failed unexpectedly (an app error). Do not repeat the same call; continue another way."
+        const val TAB_CLOSED = "The tab closed during the call (the page crashed or the user closed it)."
     }
 }

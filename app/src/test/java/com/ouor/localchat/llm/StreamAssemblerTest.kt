@@ -45,7 +45,7 @@ class StreamAssemblerTest {
     @Test
     fun `DeepSeek tool-call markup written as text never reaches the answer, even split across chunks`() {
         // FB3 QA M1: a request without tools after tool-calling steps made DeepSeek write its calls as DSML text.
-        val dsml = "<｜｜DSML｜｜calls>\n<｜｜DSML｜｜invoke name=\"page_text\">1</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜calls>"
+        val dsml = "<｜｜DSML｜｜calls>\n<｜｜DSML｜｜invoke name=\"read\">1</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜calls>"
         val asm = StreamAssembler()
         val events = asm.feed("I'll visit each page.\n\n<", "｜｜DS", dsml.drop(5))
         assertEquals("I'll visit each page.", events.text().trimEnd()) // whitespace sent before the markup stays

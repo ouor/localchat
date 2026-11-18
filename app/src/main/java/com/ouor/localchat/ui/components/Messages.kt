@@ -144,7 +144,7 @@ fun AssistantMessage(modifier: Modifier = Modifier, content: @Composable ColumnS
 enum class StepState { Running, Done, Failed, AwaitingApproval, Denied, Skipped, Stopped }
 enum class StepListState { Running, Done, FailedSome, Paused, Stopped }
 
-/** One tool step in human words. [thumbnail] = Coil model of a screenshot (expanded view). */
+/** One tool step in human words. [thumbnail] = Coil model of the step's page picture (expanded view). */
 data class StepItemData(
     val icon: ImageVector,
     val label: String,

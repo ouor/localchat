@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.AdsClick
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Code
@@ -185,7 +186,7 @@ private fun LazyListScope.basics() {
         Banner("백업을 저장했어요", BannerVariant.Success)
     }
     cell("Snackbar · Tooltip(비활성 사유 탭) · Progress · Spinner") {
-        LcSnackbar("직접 조작으로 전환할까요? AI는 이 탭에서 기다려요.", icon = Icons.Outlined.AdsClick, actionLabel = "전환", onAction = noop)
+        LcSnackbar("PDF로 저장했어요", icon = Icons.Outlined.AdsClick, actionLabel = "열기", onAction = noop)
         LcTooltip("이 모델은 도구 호출을 지원하지 않아요.", "모델 설정", noop) { show -> LcButton("사유 보기", show, variant = ButtonVariant.Tonal, size = ButtonSize.Sm) }
         LcLinearProgress(0.42f)
         LcLinearProgress(null)
@@ -328,7 +329,7 @@ private fun LazyListScope.chat() {
             StepList(StepListState.Running, "브라우저 작업 중", demoSteps(done = false), true, noop, caption = "4단계 · 25 중")
             ThinkingBlock(ThinkingState.Thinking, "3.4s", false, noop, "")
         }
-        BrowserStatusStrip("인사 규정 - 사내 위키", "wiki.corp.example", noop, noop)
+        BrowserStatusStrip("AI가 탭 3에서 클릭", "wiki.corp.example", noop)
         Column { ComposerPanel("", {}, noop, noop, noop, noop, mode = ComposerMode.Running) { Toggles(b = true) }; Rail("OpenAI", "gpt-5.1", 71) }
     }
     cell("C. 펼친 단계(실패 포함)·요약 구분선·오류 카드·맨 아래로") {
@@ -336,8 +337,8 @@ private fun LazyListScope.chat() {
         DividerLabel("이전 대화 요약됨")
         StepList(StepListState.FailedSome, "3단계 · 1개 실패", listOf(
             StepItemData(toolVisual("web_search").icon, "검색 중:", StepState.Done, "2026 소비자물가 전망", "8개 웹페이지 찾음"),
-            StepItemData(toolVisual("page_text").icon, "페이지 읽기", StepState.Failed, "news.example.com", "민감 URL 차단: 읽지 않음"),
-            StepItemData(toolVisual("page_text").icon, "페이지 읽기", StepState.Done, "kostat.go.kr", thumbnail = DEMO_IMG),
+            StepItemData(toolVisual("read").icon, "페이지 읽기", StepState.Failed, "news.example.com", "민감 URL 차단: 읽지 않음"),
+            StepItemData(toolVisual("read").icon, "페이지 읽기", StepState.Done, "kostat.go.kr", thumbnail = DEMO_IMG),
         ), true, noop)
         ThinkingBlock(ThinkingState.Done, "8초", true, noop, "통계청 자료와 민간 전망을 비교해야 한다. 차단된 페이지는 제외하고…")
         Box {
@@ -363,9 +364,9 @@ private fun LazyListScope.chat() {
 private fun demoSteps(done: Boolean): List<StepItemData> {
     fun v(n: String) = toolVisual(n)
     return listOf(
-        StepItemData(v("open_tab").icon, "탭 열기", StepState.Done, "wiki.corp.example/hr", agent = true),
-        StepItemData(v("request_handoff").icon, "로그인 넘겨받기", StepState.Done, result = "사용자가 로그인 후 돌려줌", agent = true),
-        StepItemData(v("snapshot").icon, "페이지 구조 읽기", StepState.Done, "snapshot · 142개 요소", agent = true),
+        StepItemData(v("open").icon, "페이지 열기", StepState.Done, "wiki.corp.example/hr", agent = true),
+        StepItemData(v("ask_user").icon, "로그인 요청", StepState.Done, result = "사용자가 완료함", agent = true),
+        StepItemData(v("click").icon, "클릭", StepState.Done, "e12", agent = true),
         StepItemData(v("click").icon, "클릭", if (done) StepState.Done else StepState.Running, "\"연차·휴가 규정\" 링크", if (done) null else "브라우저에서 보기 ›", agent = true),
     )
 }
@@ -466,53 +467,47 @@ private fun FakePage(mini: Boolean = false, highlight: Boolean = false) {
 }
 
 private fun LazyListScope.browser() {
-    cell("OwnershipBar · AI / 나 / 넘겨받음(대기)", horizontalPadding = false) {
-        OwnershipBar(BrowserOwner.Ai, toolName = "click")
-        OwnershipBar(BrowserOwner.Ai, idle = true)
-        OwnershipBar(BrowserOwner.Me)
-        OwnershipBar(BrowserOwner.Waiting)
+    cell("ActivityBar · 이 대화 / 다른 대화 / 쉼", horizontalPadding = false) {
+        ActivityBar("클릭")
+        ActivityBar("페이지 읽기", chat = "다른 대화")
+        ActivityBar(null)
     }
     cell("BrowserStatusStrip (FB-1c, 패널 Peek) · 긴 제목") {
-        BrowserStatusStrip("인사 규정", "wiki.corp.example", noop, noop)
-        BrowserStatusStrip("아주 긴 페이지 제목이 들어와도 한 줄로 말줄임되고 버튼은 항상 보여요", "a-very-long-host-name.corp.example.com", noop, noop)
+        BrowserStatusStrip("AI가 탭 3에서 클릭", "wiki.corp.example", noop)
+        BrowserStatusStrip("AI가 탭 12에서 아주 긴 도구 이름이 들어와도 한 줄로 말줄임", "a-very-long-host-name.corp.example.com", noop)
     }
-    cell("B. 절반 — 툴바 · 소유 바 · 요소 강조(B-09, 1초 후 페이드 반복)", horizontalPadding = false) {
+    cell("B. 절반 — 툴바 · 활동 바 · 요소 강조(B-09, 1초 후 페이드 반복)", horizontalPadding = false) {
         BrowserPanelFrame(
-            toolbar = { BrowserToolbar("wiki.corp.example/hr", 2, noop, noop, noop, noop, null, "https://wiki.corp.example/hr", noop, progress = 0.6f) },
-            ownership = { OwnershipBar(BrowserOwner.Ai, toolName = "click") },
+            toolbar = { BrowserToolbar("wiki.corp.example/hr", 2, noop, noop, noop, noop, {}, "https://wiki.corp.example/hr", noop, progress = 0.6f) },
+            activity = { ActivityBar("클릭") },
             modifier = Modifier.height(380.dp),
         ) { FakePage(highlight = true) }
     }
-    cell("C. 넘겨받기(B-05) — 배너 + 하단 '나' 바 · http 경고", horizontalPadding = false) {
+    cell("C. ask_user 기다림(6-4) — 배너 + 완료 · http 경고", horizontalPadding = false) {
         BrowserPanelFrame(
             toolbar = { BrowserToolbar("sso.corp.example/login", 2, noop, noop, noop, noop, {}, "http://sso.corp.example/login", noop, secure = false) },
-            ownership = { OwnershipBar(BrowserOwner.Waiting) },
-            banner = { HandoffBanner("로그인이 필요합니다", "AI가 기다리는 중이에요. 로그인을 마치면 돌려주세요. 비밀번호는 AI가 볼 수 없어요.", noop, noop) },
+            activity = { ActivityBar(null) },
+            banner = { Banner("AI가 기다립니다: 로그인해 주세요", BannerVariant.Agent, Modifier.padding(10.dp), actions = listOf(BannerAction("완료", noop))) },
             modifier = Modifier.height(330.dp),
         ) { FakePage() }
     }
-    cell("D. 사용자 터치 → 직접 조작 제안 스낵바") {
-        LcSnackbar("직접 조작으로 전환할까요? AI는 이 탭에서 기다려요.", icon = toolVisual("request_handoff").icon, actionLabel = "전환", onAction = noop)
+    cell("D. 다른 탭의 페이지 질문 배너") {
+        Banner("탭 4의 페이지가 묻습니다", BannerVariant.Info, actions = listOf(BannerAction("보기", noop)))
     }
-    cell("E. 탭 카드 — AI / 나 / 다른 대화") {
+    cell("E. 탭 카드 — AI 작업 중 / 쉼 / 잠듦 · 정책 배지") {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TabCard("연차·휴가 규정", "wiki.corp.example/hr/leave", TabOwner.Ai, noop, Modifier.weight(1f), onClose = noop) { FakePage(mini = true) }
-            TabCard("검색 결과", "duckduckgo.com", TabOwner.Me, noop, Modifier.weight(1f), onClose = noop) { FakePage(mini = true) }
+            TabCard("연차·휴가 규정", "wiki.corp.example/hr/leave", noop, Modifier.weight(1f), onClose = noop, activity = "클릭") { FakePage(mini = true) }
+            TabCard("검색 결과", "duckduckgo.com", noop, Modifier.weight(1f), onClose = noop) { FakePage(mini = true) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TabCard("다른 대화의 탭", "news.example.com", TabOwner.OtherChat, noop, Modifier.weight(1f)) { FakePage(mini = true) }
-            Box(Modifier.weight(1f))
+            TabCard("뉴스", "news.example.com", noop, Modifier.weight(1f), onClose = noop, asleep = true) { FakePage(mini = true) }
+            TabCard("은행", "bank.example.com", noop, Modifier.weight(1f), onClose = noop, badges = listOf("민감")) { FakePage(mini = true) }
         }
     }
-    cell("ApprovalSheet(SC-13) — click 제출 / execute 코드 전문") {
+    cell("ApprovalSheet(SC-13) — 정책이 쓴 제목 · 대상 · 페이지") {
         Column(Modifier.background(LcTheme.colors.surfaceRaised, com.ouor.localchat.ui.theme.LcRadius.dialog)) {
             LcSheetHeader(null, null)
-            ApprovalContent(toolVisual("click").icon, "'제출' 버튼을 눌러도 될까요?", "되돌릴 수 없는 동작일 수 있어요. 폼이 서버로 전송됩니다.", "forms.corp.example/leave", noop, noop)
-        }
-        Column(Modifier.background(LcTheme.colors.surfaceRaised, com.ouor.localchat.ui.theme.LcRadius.dialog)) {
-            LcSheetHeader(null, null)
-            ApprovalContent(toolVisual("execute").icon, "스크립트를 실행할까요?", "AI가 이 페이지에서 아래 코드를 실행하려고 해요.", "wiki.corp.example/hr", noop, noop,
-                code = "document.querySelectorAll('table tr')\n  .forEach(r => console.log(r.innerText))", allowLabel = "실행")
+            ApprovalContent(Icons.Outlined.WarningAmber, "결제할까요?", "button \"결제하기\"", "https://shop.example.com/checkout", noop, noop)
         }
     }
 }

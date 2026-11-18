@@ -6,6 +6,6 @@
     </plurals>
     <string name="fb2_s_builtin_off">Off · AI can access these sites</string>
     <string name="fb2_s_off_title">Turn off the built-in block list?</string>
-    <string name="fb2_s_off_body">AI will be able to read and operate pages on bank, payment and government sites too. It still can\'t type passwords or card details, and still asks before submitting or paying.</string>
+    <string name="fb2_s_off_body">AI will be able to read and operate pages on bank, payment and government sites too. It still asks before paying or deleting an account.</string>
     <string name="fb2_s_off_confirm">Turn off</string>
 </resources>

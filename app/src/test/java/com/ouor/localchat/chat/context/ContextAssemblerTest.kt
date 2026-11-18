@@ -49,7 +49,7 @@ class ContextAssemblerTest {
 
     @Test
     fun `the same step and call id in two replies keeps each reply's own result (AN 4)`() {
-        fun call() = com.ouor.localchat.core.model.ToolCallBlock("call_0", "page_text", "{}", 0, com.ouor.localchat.core.model.ToolCallState.DONE, 0)
+        fun call() = com.ouor.localchat.core.model.ToolCallBlock("call_0", "read", "{}", 0, com.ouor.localchat.core.model.ToolCallState.DONE, 0)
         fun result(text: String) = com.ouor.localchat.core.model.ToolResultBlock("call_0", 0, text, isError = false)
         val path = listOf(
             user("u1", "q1"), reply("a1", call(), result("PAGE A"), TextBlock("A", 1)),
@@ -57,7 +57,7 @@ class ContextAssemblerTest {
             user("u3", "q3"),
         )
         val tools = ContextAssembler.build(input(path)).messages.filter { it.role == "tool" }.map { it.content!!.jsonPrimitive.content }
-        assertEquals(listOf("PAGE A", "PAGE B"), tools)
+        assertEquals(listOf(result("PAGE A").modelText, result("PAGE B").modelText), tools)
     }
 
     @Test
@@ -70,13 +70,13 @@ class ContextAssemblerTest {
         )
         val msgs = ContextAssembler.build(input(path)).messages
         assertEquals(listOf("system", "user", "assistant", "tool", "user"), msgs.map { it.role })
-        assertEquals("ordered", msgs[3].content!!.jsonPrimitive.content)
+        assertEquals(done.modelText, msgs[3].content!!.jsonPrimitive.content)
     }
 
     @Test
     fun `only the newest screenshot is resent as an image and every one is estimated (SE 13)`() {
         fun shot(n: Int) = listOf(
-            com.ouor.localchat.core.model.ToolCallBlock("c$n", "screenshot", "{}", n, com.ouor.localchat.core.model.ToolCallState.DONE, 0),
+            com.ouor.localchat.core.model.ToolCallBlock("c$n", "look", "{}", n, com.ouor.localchat.core.model.ToolCallState.DONE, 0),
             com.ouor.localchat.core.model.ToolResultBlock("c$n", n, "shot $n", isError = false, imageForModelId = "img$n"),
         )
         val att = (1..3).associate { n ->
@@ -115,9 +115,9 @@ class ContextAssemblerTest {
 
     @Test
     fun `reasoning goes back only for the current turn's tool steps`() {
-        val old = reply("a1", ThinkingBlock("old think", 0, 0, 1), ToolCallBlock("c0", "page_text", "{}", 0, ToolCallState.DONE, 0),
+        val old = reply("a1", ThinkingBlock("old think", 0, 0, 1), ToolCallBlock("c0", "read", "{}", 0, ToolCallState.DONE, 0),
             ToolResultBlock("c0", 0, "r0", false), TextBlock("answer", 1))
-        val current = empty().copy(blocks = listOf(ThinkingBlock("now think", 0, 0, 1), ToolCallBlock("c1", "page_text", "{}", 0, ToolCallState.DONE, 0)))
+        val current = empty().copy(blocks = listOf(ThinkingBlock("now think", 0, 0, 1), ToolCallBlock("c1", "read", "{}", 0, ToolCallState.DONE, 0)))
         val msgs = ContextAssembler.build(input(listOf(user("u1", "q"), old, user("u2", "q2")), current)).messages
         val assistants = msgs.filter { it.role == "assistant" }
         assertNull(assistants[0].reasoningContent)
@@ -129,7 +129,7 @@ class ContextAssemblerTest {
     }
 
     private fun afterCall(): Pair<List<MessageNode>, MessageBody.Assistant> {
-        val call = ToolCallBlock("c1", "page_text", "{}", 0, ToolCallState.DONE, 0)
+        val call = ToolCallBlock("c1", "read", "{}", 0, ToolCallState.DONE, 0)
         val result = ToolResultBlock("c1", 0, "PAGE", isError = false)
         return listOf(user("u1", "q1"), reply("a1", TextBlock("x", 0)), user("u2", "q2")) to empty().copy(blocks = listOf(call, result))
     }
@@ -232,11 +232,35 @@ class ContextAssemblerTest {
     @Test
     fun `only older bulky results are trimmed`() {
         val big = "x".repeat(3000)
-        val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "snapshot", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
+        val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "execute", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
         val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
         val sent = msgs.map { it.content!!.jsonPrimitive.content }
-        assertTrue(sent[0].contains("…[1000 characters omitted]…"))
-        assertEquals(big, sent[1])
-        assertEquals(big, sent[2])
+        val whole = ToolResultBlock("c", 0, big, false).modelText
+        assertTrue(sent[0].contains("characters omitted]…"))
+        assertEquals(whole, sent[1])
+        assertEquals(whole, sent[2])
+    }
+
+    @Test
+    fun `older element lists are sent as their head`() {
+        val page = "Page: A — https://a.test/ (tab 1)\n\n- link \"x\" [ref=1e1]"
+        val result = { i: Int -> ToolResultBlock("c$i", i, page, false, lead = "Clicked 1e1 → new page.", note = "(3 more elements: 0 above and 3 below.)") }
+        val blocks = (0..1).flatMap { listOf(ToolCallBlock("c$it", "click", "{}", it, ToolCallState.DONE, 0), result(it)) }
+        val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
+        val sent = msgs.map { it.content!!.jsonPrimitive.content }
+        assertEquals(com.ouor.localchat.core.Untrusted.result("Clicked 1e1 → new page.", "Page: A — https://a.test/ (tab 1)\n" + ToolResultTrimmer.STALE, ""), sent[0])
+        assertEquals(result(1).modelText, sent[1])
+    }
+
+    @Test
+    fun `the steps-left note goes on the newest result of this request only (G-m8)`() {
+        val blocks = (0..1).flatMap { listOf(ToolCallBlock("c$it", "read", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, "r$it", false)) }
+        val body = empty().copy(blocks = blocks)
+        fun sent(left: Int) = ContextAssembler.build(input(listOf(user("u", "q")), body).copy(stepsLeft = left)).messages
+            .filter { it.role == "tool" }.map { it.content!!.jsonPrimitive.content }
+        val (r0, r1) = blocks.filterIsInstance<ToolResultBlock>().map { it.modelText }
+        assertEquals(listOf(r0, r1 + "\n\n" + SystemPrompt.stepsLeft(2)), sent(2))
+        assertEquals(listOf(r0, r1), sent(0))
+        assertEquals(listOf(r0, r1), sent(5))
     }
 }
