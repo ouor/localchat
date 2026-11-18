@@ -58,7 +58,8 @@ object StreamCollector {
                 blocks += ToolResultBlock(
                     callId = block.callId,
                     step = block.step,
-                    content = if (dispatched) SystemPrompt.INTERRUPTED else SystemPrompt.ABORTED,
+                    page = "",
+                    lead = if (dispatched) SystemPrompt.INTERRUPTED else SystemPrompt.ABORTED,
                     isError = true,
                 )
             } else {

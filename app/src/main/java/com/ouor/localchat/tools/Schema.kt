@@ -23,8 +23,12 @@ class ParamsBuilder {
     private val props = mutableMapOf<String, JsonObject>()
     private val required = mutableListOf<String>()
 
-    fun string(name: String, description: String, required: Boolean = false) {
-        props[name] = buildJsonObject { put("type", "string"); put("description", description) }
+    fun string(name: String, description: String, required: Boolean = false, enum: List<String>? = null) {
+        props[name] = buildJsonObject {
+            put("type", "string")
+            enum?.let { put("enum", buildJsonArray { it.forEach { v -> add(JsonPrimitive(v)) } }) }
+            put("description", description)
+        }
         if (required) this.required += name
     }
 

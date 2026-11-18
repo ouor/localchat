@@ -3,7 +3,9 @@ package com.ouor.localchat.chat
 import androidx.datastore.core.DataStore
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
-import com.ouor.localchat.browser.Control
+import com.ouor.localchat.browser.Front
+import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.chat.run.RunRegistry
 import com.ouor.localchat.chat.run.StartupRecovery
 import com.ouor.localchat.chat.run.TurnRunner
@@ -27,9 +29,11 @@ import com.ouor.localchat.llm.LlmResult
 import com.ouor.localchat.llm.LlmTarget
 import com.ouor.localchat.llm.wire.ChatRequest
 import com.ouor.localchat.storage.SettingsStore
-import com.ouor.localchat.tools.ApprovalMode
+import com.ouor.localchat.policy.Policies
+import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
+import com.ouor.localchat.tools.ToolFacts
 import com.ouor.localchat.tools.ToolGroup
 import com.ouor.localchat.tools.ToolOutcome
 import kotlinx.coroutines.CoroutineScope
@@ -162,65 +166,34 @@ class FakeToolPort(val tools: List<Tool>) : ToolPort {
     override fun byName(name: String) = tools.firstOrNull { it.name == name }
 }
 
+/** The engine's narrow port without WebViews: tabs are rows; [tab] has no BrowserTab on the JVM. */
 class FakeBrowserPort : BrowserPort {
-    val controls = MutableStateFlow<Map<Int, Control>>(emptyMap())
-    val setCalls = mutableListOf<Pair<Int, Control>>()
-    /** The chat's work tab; null = none yet (only a navigating call creates one, as tab 1). */
-    var workTab: Int? = 1
-    /** Each acquireAiTab check: (tab id, navigating). */
-    val aiTabCalls = mutableListOf<Pair<Int, Boolean>>()
-    override suspend fun workTabId(sessionId: String): Int? = workTab
-    override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
-    /** B-09 ② marks set by acquireAiTab: tab id to tool name. */
-    val activity = mutableListOf<Pair<Int, String>>()
-    /** Same contract as BrowserEngine.acquireAiTab: only navigating creates the tab; wait while USER, then check again. */
-    override suspend fun acquireAiTab(sessionId: String, toolName: String, navigating: Boolean, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int {
-        while (true) {
-            val id = workTab ?: if (navigating) 1.also { workTab = it } else throw com.ouor.localchat.browser.BrowserRefusal(com.ouor.localchat.browser.BrowserEngine.NO_TAB)
-            aiTabCalls += id to navigating
-            if (controls.value[id] != Control.USER) return id.also { activity += it to toolName }
-            onUserControl(id)
-            try {
-                controls.first { it[id] != Control.USER }
-            } finally {
-                onResumed()
-            }
-        }
-    }
-    /** Stands in for CookieMasker: the tab's cookie value is SECRETCOOKIE. */
-    val cookies = HashMap<String, String>()
-    override fun maskCookies(text: String, url: String) = text.replace("SECRETCOOKIE", "***").let { t -> cookies[url]?.let { t.replace(it, "***") } ?: t }
-    val cleared = mutableListOf<String>()
-    val closedAiTabsOf = mutableListOf<String?>()
-    override fun closeAiTabs(sessionId: String?) { closedAiTabsOf += sessionId }
-    override fun clearAiActivity(sessionId: String) { cleared += sessionId }
-    val opened = mutableListOf<String>()
+    val tabs = MutableStateFlow<List<TabInfo>>(emptyList())
+    var front: Front? = null
+    var shown: Int? = null
+    val activity = mutableListOf<Pair<Int, ToolActivity?>>()
     val closed = mutableListOf<Int>()
-    var openError: Exception? = null
-    /** Runs while the tab is being opened (after it exists): e.g. stops the run to test a cancel mid-open. */
-    var whileOpening: suspend (sessionId: String) -> Unit = {}
-    override suspend fun openHiddenTab(sessionId: String, url: String, opened: (Int) -> Unit) {
-        openError?.let { throw it }
-        this.opened += url
-        opened(40 + this.opened.size)
-        whileOpening(sessionId)
+    val cookies = HashMap<String, String>()
+    private var next = 40
+    override fun tabs(): List<TabInfo> = tabs.value
+    override fun front(): Front? = front
+    override fun shown(): Int? = shown
+    override suspend fun open(): Int = (++next).also { id -> tabs.value = tabs.value + TabInfo(id, "", "") }
+    override suspend fun close(tabId: Int) {
+        closed += tabId
+        tabs.value = tabs.value.filter { it.id != tabId }
     }
-    override suspend fun close(tabId: Int) { closed += tabId }
-    override fun isSensitive(url: String) = "bank" in url
-    val urls = HashMap<Int, String>()
-    override fun tabUrl(tabId: Int): String? = urls[tabId] ?: "https://tab$tabId.test/"
-    override fun setControl(tabId: Int, control: Control) {
-        setCalls += tabId to control
-        controls.value = controls.value + (tabId to control)
-    }
+    override fun setActivity(tabId: Int, activity: ToolActivity?) { this.activity += tabId to activity }
+    override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
+    override fun cookieHeader(url: String): String? = cookies[url]
 }
 
 /** A tool whose behaviour is a lambda. */
 class FakeTool(
     override val name: String,
-    override val approval: ApprovalMode = ApprovalMode.NONE,
+    override val facts: ToolFacts = ToolFacts(TargetRule.NONE, browser = false, changesPage = false),
     override val groups: Set<ToolGroup> = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER),
-    val body: suspend (JsonObject, ToolContext) -> ToolOutcome = { args, _ -> ToolOutcome("ok ${args["q"]?.jsonPrimitive?.content}") },
+    val body: suspend (JsonObject, ToolContext) -> ToolOutcome = { args, _ -> ToolOutcome(page = "ok ${args["q"]?.jsonPrimitive?.content}") },
 ) : Tool {
     var calls = 0
     override val description = "fake $name"
@@ -256,12 +229,13 @@ fun wireEngine(
     settings: SettingsStore,
     clock: Clock,
     browserEngine: Provider<BrowserEngine> = Provider { throw AssertionError("browser used") },
+    policies: Policies = Policies(emptyList(), emptyList()),
 ): Wired {
     val registry = RunRegistry(scope)
     val compactor = Compactor(store, llm, attachments, clock)
     val runner = TurnRunner(
-        store, llm, models, tools, attachments, browser, browserEngine, settings, compactor,
-        TitleGenerator(store, llm, settings), LinkPrefetcher(tools, browser, attachments), clock, scope,
+        store, llm, models, tools, attachments, browser, browserEngine, policies, settings, compactor,
+        TitleGenerator(store, llm, settings), LinkPrefetcher(attachments), clock, scope,
     )
     val recovery = StartupRecovery(store, clock)
     return Wired(ChatEngine(store, registry, runner, recovery, models, tools, compactor, settings, clock), registry, recovery)
@@ -273,6 +247,7 @@ class Harness(
     maxSteps: Int = 25,
     val models: FakeModelPort = FakeModelPort(),
     recovered: Boolean = true,
+    policies: Policies = Policies(emptyList(), emptyList()),
 ) {
     val store = FakeChatStore()
     val llm = FakeLlm()
@@ -281,7 +256,7 @@ class Harness(
     val settings = SettingsStore(MemoryDataStore(AppSettings(maxSteps = maxSteps)))
     val attachments = FakeAttachments()
     private val tools = FakeToolPort(tools)
-    private val wired = wireEngine(scope, store, llm, models, this.tools, attachments, browser, settings, clock)
+    private val wired = wireEngine(scope, store, llm, models, this.tools, attachments, browser, settings, clock, policies = policies)
     val registry = wired.registry
     val recovery = wired.recovery
     val engine = wired.engine

@@ -131,9 +131,9 @@ class BrowserEngine @Inject constructor(
 
     // ---------- tabs
 
-    /** A new tab at [url]; [front] stays (the user picks tabs, nothing else does). Popups open in [popup]. */
+    /** A new tab at [url] (null: nothing loaded yet, the caller loads it); [front] stays (the user picks tabs). Popups open in [popup]. */
     @MainThread
-    fun open(url: String): Int = newTab().also { it.load(url) }.id
+    fun open(url: String? = null): Int = newTab().also { t -> url?.let(t::load) }.id
 
     private fun newTab(): BrowserTab {
         val tab = BrowserTab(ids.next(), context, this)

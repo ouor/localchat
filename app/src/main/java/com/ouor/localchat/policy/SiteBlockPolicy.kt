@@ -60,6 +60,8 @@ class SiteBlockPolicy(
         return ToolOutcome(
             lead = "Tab ${tab.id} is now on ${SensitiveUrls.hostOf(tab.url)}, which $REFUSAL; its content was withheld. ask_user can let the user do this part.",
             page = "",
+            isError = true,
+            refused = true,
         )
     }
 

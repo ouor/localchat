@@ -1,7 +1,9 @@
 package com.ouor.localchat.chat
 
 import com.ouor.localchat.browser.BrowserTab
-import com.ouor.localchat.browser.Control
+import com.ouor.localchat.browser.Front
+import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.ReasoningWire
@@ -62,39 +64,23 @@ interface AttachmentPort {
     suspend fun saveText(name: String, text: String): String
 }
 
-/** BrowserEngine (track C) checks behind ToolContext.workTab (architecture 6.4). */
+/**
+ * The engine as ToolExecutor uses it (browser-layers 8): the same API the drawer uses, narrowed so the loop runs in
+ * JVM tests with a fake. [tab] is only reached by browser tools.
+ */
 interface BrowserPort {
-    /** The chat's work tab id, null when it has none. */
-    suspend fun workTabId(sessionId: String): Int?
+    fun tabs(): List<TabInfo>
+    fun front(): Front?
+
+    /** The tab the drawer shows now, null when none. */
+    fun shown(): Int?
+
+    /** A new tab with nothing loaded yet; the front stays. Returns its id. */
+    suspend fun open(): Int
+    suspend fun close(tabId: Int)
+    fun setActivity(tabId: Int, activity: ToolActivity?)
 
     /** Main thread. Throws TabClosed for a closed tab. */
     fun tab(tabId: Int): BrowserTab
-
-    /**
-     * F-02: the engine's single AI-tab path (checks, user-control wait, B-09 ② activity for [toolName]); only a
-     * [navigating] call creates the work tab. Returns the tab id; [onUserControl] / [onResumed] bracket the wait.
-     */
-    suspend fun acquireAiTab(sessionId: String, toolName: String, navigating: Boolean, onUserControl: suspend (Int) -> Unit, onResumed: suspend () -> Unit): Int
-
-    /** Current URL of the tab, null once closed. */
-    fun tabUrl(tabId: Int): String?
-    fun setControl(tabId: Int, control: Control)
-
-    /** B-S4: masks the tab's cookie values in [text]. */
-    fun maskCookies(text: String, url: String): String
-
-    /** End of a tool call: clears the B-09 ② "AI is operating" state. */
-    fun clearAiActivity(sessionId: String)
-
-    /**
-     * A hidden tab at [url] for one tool call (never in the panel or tab list). The caller owns the id, handed to
-     * [opened] the moment the tab exists, so a cancel on the way back cannot lose it. Waiting for a free slot is
-     * cancellable.
-     */
-    suspend fun openHiddenTab(sessionId: String, url: String, opened: (Int) -> Unit)
-    suspend fun close(tabId: Int)
-
-    /** BUG-13: closes the AI tabs of [sessionId] (a deleted chat), or of every chat when null. */
-    fun closeAiTabs(sessionId: String?)
-    fun isSensitive(url: String): Boolean
+    fun cookieHeader(url: String): String?
 }

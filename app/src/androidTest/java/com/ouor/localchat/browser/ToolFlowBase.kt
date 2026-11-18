@@ -31,6 +31,7 @@ import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolResultBlock
 import com.ouor.localchat.llm.ChatCompletionsClient
 import com.ouor.localchat.llm.LlmTarget
+import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.testing.FakeOpenAiServer
 import com.ouor.localchat.testing.ScreenOnRule
@@ -53,8 +54,8 @@ import java.util.Collections
 
 /**
  * Whole tool flow on a device: FakeOpenAiServer scripts the model's tool calls, the real ChatEngine/TurnRunner/
- * ToolExecutor run them against the real BrowserEngine attached to MainActivity, on pages from a local MockWebServer
- * (plain http, so `type` always needs approval).
+ * ToolExecutor run them against the real BrowserEngine attached to MainActivity, on pages from a local MockWebServer.
+ * The policy chain is empty unless a subclass overrides [policies] (S21: the tools work without any policy).
  */
 abstract class ToolFlowBase {
 
@@ -70,6 +71,9 @@ abstract class ToolFlowBase {
     protected lateinit var attachments: FakeAttachments
     protected lateinit var engine: ChatEngine
     protected var caps = caps(tools = true)
+
+    /** The policy lists the executor runs (browser-layers 4-1); empty by default. */
+    protected open fun policies(): Policies = Policies(emptyList(), emptyList())
 
     /** The response for [request] at [path]; null serves a default page that says "Page <path> body text". */
     protected abstract fun respond(path: String, request: RecordedRequest): MockResponse?
@@ -97,7 +101,7 @@ abstract class ToolFlowBase {
             override suspend fun markUsed(ref: ModelRef) = Unit
         }
         val settings = SettingsStore(MemoryDataStore(AppSettings()))
-        val wired = wireEngine(scope, store, client, models, CatalogToolPort(), attachments, EngineBrowserPort(browser), settings, Clock.System) { browser }
+        val wired = wireEngine(scope, store, client, models, CatalogToolPort(), attachments, EngineBrowserPort(browser), settings, Clock.System, { browser }, policies())
         runBlocking { wired.recovery.run() }
         engine = wired.engine
     }
@@ -153,10 +157,6 @@ abstract class ToolFlowBase {
     protected fun awaitEnd(sid: String, timeoutMs: Long = 30_000): MessageBody.Assistant {
         awaitRun(sid, "end of run", timeoutMs) { it == null }
         return store.messages.values.last { it.sessionId == sid && it.body is MessageBody.Assistant }.body as MessageBody.Assistant
-    }
-
-    protected fun awaitControl(tabId: Int, control: Control) = runBlocking {
-        withTimeout(5_000) { browser.tabs.first { l -> l.any { it.id == tabId && it.control == control } } }
     }
 
     protected fun MessageBody.Assistant.calls() = blocks.filterIsInstance<ToolCallBlock>()

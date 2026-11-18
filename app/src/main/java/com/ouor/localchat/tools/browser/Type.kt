@@ -3,15 +3,15 @@ package com.ouor.localchat.tools.browser
 import android.view.KeyEvent
 import com.ouor.localchat.R
 import com.ouor.localchat.browser.PageError
-import com.ouor.localchat.browser.safety.ElementInfo
-import com.ouor.localchat.browser.safety.IrreversibleAction
+import com.ouor.localchat.browser.script.ElementInfo
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.Suggestions
 import com.ouor.localchat.browser.script.TypeResult
-import com.ouor.localchat.tools.ApprovalMode
+import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
 import com.ouor.localchat.tools.ToolError
+import com.ouor.localchat.tools.ToolFacts
 import com.ouor.localchat.tools.ToolGroup
 import com.ouor.localchat.tools.ToolOutcome
 import com.ouor.localchat.tools.optString
@@ -23,20 +23,18 @@ import kotlinx.serialization.json.put
 
 /**
  * Sets a field's value through the native setter + input/change events (React-compatible, architecture 7.4), or
- * chooses a select's option (tools-redesign 3-5). Search boxes get Enter by themselves unless suggestions open;
- * elsewhere a trailing newline in a one-line field is Enter. Never into password/OTP/card fields (B-S1); Enter in a
- * POST form and any input on a plain-http page ask first.
+ * chooses a select's option (browser-layers 3-5). Search boxes get Enter by themselves unless suggestions open;
+ * elsewhere a trailing newline in a one-line field is Enter. Any field takes text, a [secret] one too.
  */
 object Type : Tool {
     override val name = "type"
     override val groups = setOf(ToolGroup.BROWSER)
-    override val approval = ApprovalMode.CONDITIONAL
+    override val facts = ToolFacts(TargetRule.REF, browser = true, changesPage = true)
     override val labelRes = R.string.tool_type
     override val description =
-        "Fill a text field, or choose an option of a select, by its ref from the latest element list. Replaces the field's " +
-            "value; empty text clears it. Fields listed as searchbox are submitted automatically, unless suggestions open. " +
-            "To press Enter in another one-line field, end text with a newline (in a multi-line field the newline stays as " +
-            "text). Password, one-time-code and card fields are refused: use request_handoff. Returns the page after typing."
+        "Fill a text field, or choose an option of a select, by its ref. Replaces the field's value; empty text clears it. " +
+            "Fields listed as searchbox are submitted by themselves unless suggestions open. To press Enter in another one-line " +
+            "field, end text with a newline (in a multi-line field the newline stays as text). Returns the page after typing."
     override val parameters = params {
         refParam()
         string("text", "Text to enter, or the visible text or value of the option to choose.", required = true)
@@ -48,19 +46,12 @@ object Type : Tool {
         val ref = args.string("ref")
         val text = args.optString("text") ?: throw ToolError("Missing required argument 'text'.")
         return onMain {
-            val tab = ctx.workTab()
+            val tab = ctx.tab()
             val at = ctx.locate(tab, ref)
-            guardInput(ref, at.info, at.sensitive)
             val label = at.info.label()
             val select = at.info.tag == "select"
             if (!select && !at.editable) throw ToolError("$ref is not a text field or select; use click.")
             val plan = if (select) TypeRules.Plan(text, enter = false) else TypeRules.plan(at.info, text)
-            val reason = when {
-                plan.enter && IrreversibleAction.reasonForEnter(at.info) != null -> IrreversibleAction.Reason.POST_FORM
-                tab.url.startsWith("http://", ignoreCase = true) -> IrreversibleAction.Reason.INSECURE_INPUT
-                else -> null
-            }
-            if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED.copy(summary = label)
             ctx.highlight(tab, at, if (select) R.string.browser_highlight_select else R.string.browser_highlight_type)
             var typed: TypeResult? = null
             var before: Suggestions? = null
@@ -82,7 +73,7 @@ object Type : Tool {
             // A search box whose typing already opened a new page gets no Enter there.
             val enter = plan.auto && !suggested && typing.change != Change.NEW_PAGE
             val acted = if (!enter) typing else ctx.act(tab) { tab.key(KeyEvent.KEYCODE_ENTER, 0) }
-                .let { Acted(it.change, it.readiness, it.since, typing.dialogs + it.dialogs) }
+                .let { Acted(it.change, it.readiness, it.since, (typing.events + it.events).distinct(), (typing.downloads + it.downloads).distinct()) }
             val pressed = if (plan.auto) enter else plan.enter
             val r = typed
             // The model's own text, escaped so a newline in it cannot break the line (G-m12).

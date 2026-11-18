@@ -57,8 +57,12 @@ enum class ToolCallState { RUNNING, AWAITING_APPROVAL, DONE, FAILED, DENIED, CAN
 data class ToolResultBlock(
     val callId: String,
     override val step: Int,
-    /** Original text sent to the model. A-05 trimming happens only when building a request. */
-    val content: String,
+    /**
+     * Page-derived text as the tool returned it, capped (browser-layers 3-3); the boundary is added when it is sent
+     * ([modelText]). Stored as "content": a record from before keeps its whole text here and is wrapped once more.
+     * A-05 trimming happens only when building a request.
+     */
+    @SerialName("content") val page: String,
     val isError: Boolean,
     /** A-04 short summary shown when expanded. */
     val summary: String? = null,
@@ -68,6 +72,15 @@ data class ToolResultBlock(
     val artifactIds: List<String> = emptyList(),
     /** A page picture (vision models): attached as an image to the next request. */
     val imageForModelId: String? = null,
+    /** App-written line before the page text. */
+    val lead: String = "",
+    /** App-written guidance after the page text. */
+    val note: String = "",
+    /** A policy refused or withheld the call: shown as blocked by the app. */
+    val refused: Boolean = false,
 ) : Block {
+    /** What the model reads: [lead], [page] inside the boundary, [note]. */
+    val modelText: String get() = com.ouor.localchat.core.Untrusted.result(lead, page, note)
+
     val key: String get() = toolKey(step, callId)
 }

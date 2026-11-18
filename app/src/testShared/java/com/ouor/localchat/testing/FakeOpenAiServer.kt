@@ -198,7 +198,7 @@ class Scenario private constructor(
             val messages = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject["messages"]?.jsonArray.orEmpty()
             val results = messages.map { it.jsonObject }.filter { it["role"]?.jsonPrimitive?.content == "tool" }
                 .mapNotNull { it["content"]?.jsonPrimitive?.content }
-            val ref = Regex("\\[ref=(e\\d+)]")
+            val ref = Regex("\\[ref=(\\d*e\\d+)]")
             return results.asReversed().firstNotNullOfOrNull { r ->
                 r.lineSequence().filter { line in it }.firstNotNullOfOrNull { ref.find(it)?.groupValues?.get(1) }
             }

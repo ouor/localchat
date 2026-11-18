@@ -66,10 +66,7 @@ class RunService : androidx.lifecycle.LifecycleService() {
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(registry.runs.value), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
 
     private fun notification(runs: Map<String, RunState>): Notification {
-        val attention = runs.values.firstOrNull {
-            val pause = (it.phase as? RunPhase.Paused)?.pause
-            pause != null && pause !is Pause.UserControl
-        }
+        val attention = runs.values.firstOrNull { it.phase is RunPhase.Paused }
         val open = packageManager.getLaunchIntentForPackage(packageName)!!.apply {
             (attention ?: runs.values.firstOrNull())?.let { putExtra(EXTRA_SESSION_ID, it.sessionId) }
         }

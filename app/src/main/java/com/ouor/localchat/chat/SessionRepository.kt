@@ -34,7 +34,6 @@ class SessionRepository @Inject constructor(
     private val attachments: AttachmentDao,
     private val files: AttachmentFiles,
     private val clock: Clock,
-    private val browser: BrowserPort,
 ) : ChatStore {
 
     private val queue = WriteQueue()
@@ -72,14 +71,12 @@ class SessionRepository @Inject constructor(
     /** C-04: deletes the session and its unreferenced attachments. */
     suspend fun delete(sessionId: String) {
         dao.deleteSession(sessionId)
-        browser.closeAiTabs(sessionId) // BUG-13: its AI tabs would pile up otherwise
         collectAttachmentGarbage(clock.now() - INGEST_GRACE_MS)
     }
 
     /** K-09: every session, draft and chat attachment. Providers, keys and settings stay. */
     suspend fun deleteAll() {
         dao.deleteEverything()
-        browser.closeAiTabs(null)
         collectAttachmentGarbage(Long.MAX_VALUE)
     }
 

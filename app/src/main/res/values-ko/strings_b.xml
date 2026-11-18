@@ -14,7 +14,7 @@
     <plurals name="chat_step_results">
         <item quantity="other">결과 %d개</item>
     </plurals>
-    <string name="chat_step_fail_sensitive">민감 URL 차단: 읽지 않음</string>
+    <string name="chat_step_fail_blocked">앱이 막음</string>
     <string name="chat_step_fail_interrupted">끝나기 전에 중단됨</string>
     <string name="chat_step_fail_error">오류로 실패함</string>
 </resources>

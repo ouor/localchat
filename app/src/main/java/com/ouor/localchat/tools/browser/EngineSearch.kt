@@ -38,8 +38,8 @@ internal class EngineSearch(
         "${SearchEngines.displayName(e)} $why"
     }).joinToString("; ")
 
-    /** Why there are no results, the same for web_search and browse (A-M3); null when it found some. */
-    fun problem(ctx: ToolContext, query: String): String? = when (next) {
+    /** Why there are no results, the same for web_search and open (A-M3); null when it found some. */
+    fun problem(query: String): String? = when (next) {
         Next.DONE, Next.RETRY, Next.NEXT_ENGINE -> null
         Next.NO_RESULTS -> {
             val names = tries.filter { it.second == Outcome.EMPTY }.map { SearchEngines.displayName(it.first) }.distinct()
@@ -47,8 +47,8 @@ internal class EngineSearch(
         }
         Next.ALL_BLOCKED -> {
             val names = tries.map { SearchEngines.displayName(it.first) }.distinct().joinToString(", ")
-            "Every search engine showed a bot check or consent page ($names). Answer from what you know and say it is unchecked" +
-                ctx.hint("request_handoff", ", or browse a search page and use request_handoff so the user can pass the check") + "."
+            "Every search engine showed a bot check or consent page ($names). Answer from what you know and say it is unchecked, " +
+                "or open a search page and use ask_user so the user can pass the check."
         }
         Next.NET_FAILED -> {
             val desc = lastNet?.desc.orEmpty()
@@ -67,17 +67,17 @@ internal class EngineSearch(
 /**
  * The engines in order on [tab] for [query] (tools-redesign 6): a blocked, empty or unreachable result page moves on
  * to the next engine ([SearchEngines.next]), within [SearchEngines.BUDGET_MS] checked before every load. Results are
- * cleaned of tracking parameters and of the engines' own links. web_search runs it in a hidden tab, browse in the work
- * tab. [loadingSince]: the first page is already loading (a hidden tab opened at it). Main thread.
+ * cleaned of tracking parameters and of the engines' own links. web_search and open (search words) run it in the
+ * call's tab. Main thread.
  */
-internal suspend fun ToolContext.searchEngines(tab: BrowserTab, query: String, loadingSince: Long? = null): EngineSearch {
+internal suspend fun ToolContext.searchEngines(tab: BrowserTab, query: String): EngineSearch {
     val b = browser
     val plan = SearchEngines.order(b.searchEngine, query)
     fun load(e: SearchEngine): Long = now().also { tab.load(SearchEngines.url(e, query, b.searchLanguage, b.region)) }
-    val start = loadingSince ?: now()
+    val start = now()
     val tries = ArrayList<Pair<SearchEngine, Outcome>>()
     var engine = plan[0]
-    var since = loadingSince ?: load(engine)
+    var since = load(engine)
     var lastNet: NavError? = null
     while (true) {
         // The first wait shows its phase; later ones keep the "other engine" line.

@@ -16,7 +16,7 @@
         <item quantity="one">%d result</item>
         <item quantity="other">%d results</item>
     </plurals>
-    <string name="chat_step_fail_sensitive">Sensitive site blocked: not read</string>
+    <string name="chat_step_fail_blocked">Blocked by the app</string>
     <string name="chat_step_fail_interrupted">Interrupted before it finished</string>
     <string name="chat_step_fail_error">Failed with an error</string>
 </resources>
