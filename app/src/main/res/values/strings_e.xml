@@ -293,7 +293,7 @@
     <string name="ui_sensitive_sites">Sensitive sites</string>
     <string name="ui_sensitive_builtin">Built-in list</string>
     <string name="ui_add_domain">Add domain</string>
-    <string name="ui_safety_summary">The AI cannot type passwords, and asks every time before submitting, paying, deleting or running code.</string>
+    <string name="ui_safety_summary">The AI does not read sensitive sites, hides password and card values, and asks before paying or deleting an account.</string>
     <string name="ui_cookies">Cookies</string>
     <string name="ui_cache">Cache</string>
     <string name="ui_site_storage">Site storage</string>

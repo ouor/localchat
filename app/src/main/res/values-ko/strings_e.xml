@@ -293,7 +293,7 @@
     <string name="ui_sensitive_sites">민감 사이트 차단</string>
     <string name="ui_sensitive_builtin">기본 목록</string>
     <string name="ui_add_domain">도메인 추가</string>
-    <string name="ui_safety_summary">AI는 비밀번호를 입력하지 못하고, 제출·결제·삭제와 코드 실행은 매번 확인을 받아요.</string>
+    <string name="ui_safety_summary">AI는 민감 사이트를 읽지 않고, 비밀번호·카드 값은 가려 보며, 결제와 계정 삭제 전에는 확인을 받아요.</string>
     <string name="ui_cookies">쿠키</string>
     <string name="ui_cache">캐시</string>
     <string name="ui_site_storage">사이트 저장소</string>

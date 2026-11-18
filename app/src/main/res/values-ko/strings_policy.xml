@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="policy_money_title">결제·주문 버튼을 누를까요?</string>
+    <string name="policy_account_title">계정 삭제 버튼을 누를까요?</string>
+</resources>
