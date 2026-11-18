@@ -196,7 +196,8 @@ class BrowserTab internal constructor(
         var shown: ToolStatus? = null
         fun show(s: ToolStatus) { if (s != shown) { shown = s; status(s) } }
         show(ToolStatus.OPENING)
-        while (true) {
+        var done: Readiness? = null
+        while (done == null) {
             if (_dialog.value != null) {
                 show(ToolStatus.PAGE_DIALOG)
                 _dialog.first { it == null }
@@ -218,7 +219,7 @@ class BrowserTab internal constructor(
                 committedAt, lastRequestAt.get(), navErrors.lastOrNull { !it.http }?.at, lastDownload?.at,
             )
             when (val step = TabRules.readyStep(input)) {
-                is TabRules.ReadyStep.Done -> return@withContext step.readiness
+                is TabRules.ReadyStep.Done -> done = step.readiness
                 TabRules.ReadyStep.Settle -> { settleStart = now; settleN = mark?.n }
                 TabRules.ReadyStep.Restart -> { docStart = mainRequestAt.get(); settleStart = null; settleN = null; show(ToolStatus.OPENING) }
                 is TabRules.ReadyStep.Wait -> {
@@ -227,8 +228,7 @@ class BrowserTab internal constructor(
                 }
             }
         }
-        @Suppress("UNREACHABLE_CODE")
-        Readiness.READY
+        done
     }
 
     // ---------- script
@@ -441,8 +441,7 @@ class BrowserTab internal constructor(
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            // ERR_ABORTED: the navigation was replaced by a newer one (or became a download), not a failure.
-            if (request.isForMainFrame && "ERR_ABORTED" !in error.description.toString()) addError(NavError(SystemClock.uptimeMillis(), request.url.toString(), false, error.errorCode, error.description.toString()))
+            if (request.isForMainFrame) addError(NavError(SystemClock.uptimeMillis(), request.url.toString(), false, error.errorCode, error.description.toString()))
         }
 
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {

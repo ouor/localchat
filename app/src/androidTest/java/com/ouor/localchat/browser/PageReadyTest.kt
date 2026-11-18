@@ -58,6 +58,8 @@ class PageReadyTest : ToolFlowBase() {
             <a href="/empty">No content</a> <button onclick="window.clicks = (window.clicks || 0) + 1; document.getElementById('c').textContent = 'count=' + window.clicks">Count</button>
             <p id="c">count=0</p><div style="height:3000px"></div><p id="end">End</p>""")
         "/empty" -> MockResponse.Builder().code(204).build()
+        "/hop" -> html("""<!doctype html><title>Hop</title>
+            <a href="/slow" onclick="setTimeout(function () { location.assign('/final') }, 300)">Slow then final</a>""")
         else -> null
     }
 
@@ -235,6 +237,20 @@ class PageReadyTest : ToolFlowBase() {
         results.forEach { assertFalse(it, "ERR_ABORTED" in it || "failed" in it) }
         assertTrue("$ms", ms.all { it < TabRules.LOAD_CAP / 3 })
         assertTrue(browser.tabs.value.single().url.endsWith("/jump#end"))
+    }
+
+    @Test
+    fun aNavigationReplacedByAnotherIsNoError() {
+        // Main-frame ERR_ABORTED: the slow load is replaced by a script navigation 300 ms later; the click lands there.
+        llm.enqueue(
+            Scenario.toolCall("browse", """{"url":"${url("/hop")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Slow then final\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("hop"))
+        val click = reply.results()[1].content
+        assertEquals(click, ToolCallState.DONE, reply.calls()[1].state)
+        assertTrue(click, "Page: Final" in click && "ERR_ABORTED" !in click)
     }
 
     @Test
