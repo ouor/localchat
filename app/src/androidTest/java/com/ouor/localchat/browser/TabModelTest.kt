@@ -97,11 +97,16 @@ class TabModelTest {
         tab.awaitReady(since)
     }
 
-    /** Injected (AI) tap on the centre of element [id]. */
+    /** Injected (AI) tap on the centre of element [id], with the tab in use by a tool as the click tool has it. */
     private fun tapOn(tab: BrowserTab, id: String) = main {
-        val box = tab.evaluate("(function(){var r=document.getElementById('$id').getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2,innerWidth].join(',')})()", 5_000)
-            .trim('"').split(',').map { it.toFloat() }
-        assertEquals(BrowserTab.Tap.DONE, tab.tap(box[0], box[1], box[2]))
+        engine.setActivity(tab.id, ToolActivity("s", "click"))
+        try {
+            val box = tab.evaluate("(function(){var r=document.getElementById('$id').getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2,innerWidth].join(',')})()", 5_000)
+                .trim('"').split(',').map { it.toFloat() }
+            assertEquals(BrowserTab.Tap.DONE, tab.tap(box[0], box[1], box[2]))
+        } finally {
+            engine.setActivity(tab.id, null)
+        }
     }
 
     private fun <T> eventually(what: String, timeoutMs: Long = 10_000, get: () -> T?): T {

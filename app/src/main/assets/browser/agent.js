@@ -382,6 +382,51 @@
     return '<' + el.localName + (el.id ? '#' + el.id : '') + (cls ? '.' + cls : '') + '>' + (t ? ' "' + t + '"' : '');
   }
 
+  // ---------- the AI's tap presses its element or nothing (QA R-B1b)
+
+  /**
+   * Armed around one injected tap only (removed by disarmTap, or 3 s later): the first pointerdown/touchstart says what
+   * the tap reached. Anything other than the element (or its label) is stopped before the page sees it, so nothing
+   * else is pressed.
+   */
+  var tapGuard = null;
+
+  function armTap(a) {
+    disarmTap();
+    var el = resolve(a.target);
+    var g = { seen: false, hit: false, at: null };
+    var docs = [document];
+    if (el.ownerDocument !== document) docs.push(el.ownerDocument);
+    function ok(t) {
+      return within(el, t) || (el.labels ? Array.prototype.some.call(el.labels, function (l) { return within(l, t); }) : false);
+    }
+    function start(e) {
+      if (!g.seen) { g.seen = true; g.hit = ok(e.target); g.at = g.hit ? null : brief(e.target); }
+      if (!g.hit) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }
+    function block(e) { if (g.seen && !g.hit) { e.preventDefault(); e.stopImmediatePropagation(); } }
+    var on = { pointerdown: start, touchstart: start, touchend: block, pointerup: block, mousedown: block, mouseup: block, click: block };
+    g.off = function () {
+      docs.forEach(function (d) { Object.keys(on).forEach(function (t) { d.removeEventListener(t, on[t], true); }); });
+    };
+    docs.forEach(function (d) { Object.keys(on).forEach(function (t) { d.addEventListener(t, on[t], { capture: true, passive: false }); }); });
+    var timer = setTimeout(function () { if (tapGuard === g) disarmTap(); }, 3000);
+    g.timer = timer;
+    tapGuard = g;
+    return {};
+  }
+
+  /** What the armed tap reached; armed false on a new document (the old one went, so the tap did something). */
+  function tapCheck() {
+    var g = tapGuard;
+    return g ? { armed: true, seen: g.seen, hit: g.hit, at: g.at } : { armed: false, seen: false, hit: false, at: null };
+  }
+
+  function disarmTap() {
+    if (tapGuard) { clearTimeout(tapGuard.timer); tapGuard.off(); tapGuard = null; }
+    return {};
+  }
+
   function locate(el, scroll) {
     if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     var r = rectInTop(el);
@@ -843,7 +888,7 @@
 
   var FNS = {
     mark: mark, pageList: pageList, readText: readText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
-    click: click, type: typeText, suggestions: suggestions, scroll: scroll, execResult: execResult, execPoll: execPoll
+    click: click, armTap: armTap, tapCheck: tapCheck, disarmTap: disarmTap, type: typeText, suggestions: suggestions, scroll: scroll, execResult: execResult, execPoll: execPoll
   };
 
   var api = {

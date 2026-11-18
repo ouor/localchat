@@ -182,7 +182,11 @@ class BrowserEngine @Inject constructor(
 
     fun setActivity(tabId: Int, a: ToolActivity?) {
         _activity.value = if (a == null) _activity.value - tabId else _activity.value + (tabId to a)
-        if (a != null) onMain { byId[tabId]?.lastUsedAt = clock.now(); publish() }
+        onMain {
+            val t = byId[tabId] ?: return@onMain
+            if (a != null) { t.lastUsedAt = clock.now(); publish() }
+            t.webView.value?.let { exposure(tabId, it) }
+        }
     }
 
     /** The tab's own listener, asked first (newest first). */
@@ -279,7 +283,18 @@ class BrowserEngine @Inject constructor(
     override fun park(tab: BrowserTab, view: WebView) {
         hostActivity?.let { tab.contextWrapper.baseContext = it }
         parkInHost(view)
-        if ((shownBy[tab.id] ?: 0) > 0) view.visibility = View.VISIBLE
+        exposure(tab.id, view)
+    }
+
+    /**
+     * Shown: VISIBLE on top. A tool working in a hidden tab: VISIBLE but under every other tab (and under the opaque
+     * app UI), so it draws frames: an INVISIBLE WebView keeps the compositor's old layout and a tap after a scroll
+     * lands where the element was (QA B1). Otherwise parked INVISIBLE.
+     */
+    private fun exposure(tabId: Int, w: WebView) {
+        val shownHere = (shownBy[tabId] ?: 0) > 0
+        w.visibility = if (shownHere || tabId in _activity.value) View.VISIBLE else View.INVISIBLE
+        w.translationZ = if (shownHere) 0f else -1f
     }
 
     // ---------- host container (Activity root, below the Compose content)
@@ -295,7 +310,7 @@ class BrowserEngine @Inject constructor(
         hostActivity = activity
         byId.values.forEach { tab ->
             tab.contextWrapper.baseContext = activity
-            tab.webView.value?.let { if (it.parent == null) parkInHost(it) }
+            tab.webView.value?.let { if (it.parent == null) { parkInHost(it); exposure(tab.id, it) } }
         }
     }
 
@@ -325,7 +340,7 @@ class BrowserEngine @Inject constructor(
         shownBy[tabId] = (shownBy[tabId] ?: 0) + 1
         _shown.value = tabId
         val w = t.webView.value ?: return
-        w.visibility = View.VISIBLE
+        exposure(tabId, w)
         // TalkBack reads the page after the app's UI, not before it (the host comes first in the view tree; FB5 M3).
         host?.let { w.accessibilityTraversalAfter = it.accessibilityTraversalAfter }
     }
@@ -338,7 +353,7 @@ class BrowserEngine @Inject constructor(
             if (_shown.value == tabId) _shown.value = null
             val t = byId[tabId] ?: return@onMain
             if (t.refreshThumbnail()) publish() // last frame the user saw
-            t.webView.value?.let(::parkInHost)
+            t.webView.value?.let { parkInHost(it); exposure(tabId, it) }
         }
     }
 

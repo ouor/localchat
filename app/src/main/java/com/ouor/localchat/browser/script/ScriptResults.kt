@@ -30,6 +30,10 @@ data class Located(
     val formRect: CssRect? = null,
 )
 
+/** `tapCheck`: what the armed tap reached ([at] = the element there when not the target). */
+@Serializable
+data class TapCheck(val armed: Boolean, val seen: Boolean, val hit: Boolean, val at: String? = null)
+
 /**
  * `mark`: one look at the document for the readiness wait. [doc] is random per document, [n] counts DOM changes since
  * the agent was installed, [quietMs] is the time since the last DOM change or finished resource.

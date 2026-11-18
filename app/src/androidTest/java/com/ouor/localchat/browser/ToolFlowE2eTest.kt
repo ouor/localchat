@@ -99,6 +99,62 @@ class ToolFlowE2eTest : ToolFlowBase() {
         assertEquals("the page's tab stays", ToolCallState.DONE, reply.calls()[3].state)
     }
 
+    /** QA R-B1b on the real site (liveWeb=true): a link in the middle of a long article in a hidden tab, five times. */
+    @Test
+    fun liveWikipediaJavaToGosling() {
+        org.junit.Assume.assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
+        repeat(5) { n ->
+            llm.enqueue(
+                Scenario.toolCall("open", """{"url":"https://en.wikipedia.org/wiki/Java_(programming_language)"}"""),
+                Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"James Gosling\"")}"}"""),
+                Scenario.text("done"),
+            )
+            val reply = awaitEnd(send("gosling $n"), 90_000)
+            awaitTitleRequest()
+            val t = reply.results().map { it.modelText }
+            android.util.Log.i("RB1", "live wiki $n: ${t[1].lineSequence().first()} | ${browser.tabs.value.maxBy { it.id }.url}")
+            assertTrue(t[1], "Oracle" !in browser.tabs.value.maxBy { it.id }.url)
+            assertTrue(t[1], "James_Gosling" in browser.tabs.value.maxBy { it.id }.url || "nothing was pressed" in t[1])
+        }
+    }
+
+    /**
+     * QA R-B1 / R-B1b: 20 clicks each on a hidden tab's bottom link and on a link in the middle of a long article. The
+     * tap may be refused (it says so), but never presses another element.
+     */
+    @Test
+    fun hiddenTabClicksNeverPressAnotherElement() {
+        for ((path, line, target) in listOf(
+            Triple("/list", "link \"More\"", "/more"),
+            Triple("/article", "link \"James Gosling\"", "/wiki/James_Gosling"),
+        )) {
+            var ok = 0; var refused = 0; var wrong = 0; var nothing = 0
+            repeat(4) {
+                llm.enqueue(
+                    *(0 until 5).flatMap {
+                        listOf(Scenario.toolCall("open", """{"url":"${url(path)}"}"""), Scenario.toolCall("click", """{"ref":"${Scenario.ref(line)}"}"""))
+                    }.toTypedArray(),
+                    Scenario.text("done"),
+                )
+                val reply = awaitEnd(send("click"), 120_000)
+                awaitTitleRequest()
+                reply.results().filterIndexed { i, _ -> i % 2 == 1 }.map { it.modelText }.forEach { t ->
+                    when {
+                        "did not reach" in t || "would have landed" in t -> refused++
+                        "→ new page" in t && target in t -> ok++
+                        "→ new page" in t -> { wrong++; android.util.Log.e("RB1", t.take(400)) }
+                        else -> { nothing++; android.util.Log.e("RB1", t.take(400)) }
+                    }
+                }
+                runBlocking(Dispatchers.Main) { browser.tabs.value.forEach { browser.close(it.id) } }
+            }
+            android.util.Log.i("RB1", "$path: ok=$ok refused=$refused wrong=$wrong nothing=$nothing")
+            assertEquals("$path: another element pressed", 0, wrong)
+            assertEquals("$path: pressed with no effect", 0, nothing)
+            assertEquals("$path: 20 clicks", 20, ok + refused)
+        }
+    }
+
     /** QA B1 (2): a point another element covers is not pressed; the result names what is there. */
     @Test
     fun aCoveredClickIsNotPressedAndSaysWhatIsThere() {
@@ -326,6 +382,14 @@ class ToolFlowE2eTest : ToolFlowBase() {
                 <button onclick="this.textContent='more'">Show more</button>""",
             "/order" to """<!doctype html><meta name="viewport" content="width=device-width"><title>Order</title>
                 <form action="/ordered"><p style="height:120px">Large pizza, 1</p><button>Submit order</button></form>""",
+            // QA R-B1: More at the bottom of a list, and a link in the middle of a long article among other links.
+            "/list" to "<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>List</title>" +
+                (0 until 80).joinToString("") { "<a href=\"/row$it\" style=\"display:block;height:40px\">Row $it</a>" } + "<a href=\"/more\">More</a>",
+            "/article" to "<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Article</title>" +
+                (0 until 60).joinToString("") { i ->
+                    if (i == 30) "<p>Designed by <a href=\"/wiki/James_Gosling\">James Gosling</a> at <a href=\"/wiki/Oracle\">Oracle Corporation</a>.</p>"
+                    else "<p>Paragraph $i with <a href=\"/wiki/Topic_$i\">topic $i</a> and <a href=\"/wiki/Other_$i\">other $i</a>, then more words to fill the line.</p>"
+                },
             "/covered" to """<!doctype html><title>Covered</title><button onclick="this.textContent='pressed'">Press</button>
                 <div id="cover" style="position:fixed;inset:0;background:#fff">Cookie wall</div>""",
         )

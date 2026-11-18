@@ -3,6 +3,7 @@ package com.ouor.localchat.tools.browser
 import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.script.PageScript
+import com.ouor.localchat.browser.script.TapCheck
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
@@ -13,11 +14,13 @@ import com.ouor.localchat.tools.ToolOutcome
 import com.ouor.localchat.tools.optString
 import com.ouor.localchat.tools.params
 import com.ouor.localchat.tools.string
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 
 /**
  * browser-layers 3-5: a native tap at the element centre when elementFromPoint lands on it (after the user's finger is
- * up and a fling has stopped). Otherwise nothing is pressed and the result says what is at that point (QA B1). The ref is the DOM element itself, so the same ref is the
+ * up, a fling has stopped and the current layout is drawn). Otherwise nothing is pressed and the result says what is
+ * at that point (QA B1); a tap the page receives on another element is stopped (QA R-B1b). The ref is the DOM element itself, so the same ref is the
  * same element. The result is the page after the click.
  */
 object Click : Tool {
@@ -32,6 +35,31 @@ object Click : Tool {
 
     override fun argSummary(args: JsonObject) = args.optString("ref").orEmpty()
 
+    /**
+     * What the armed tap reached (QA R-B1b): the page's own first touch target. Another element was stopped before the
+     * page saw it, so nothing was pressed. A new document means the tap acted.
+     */
+    private suspend fun reached(tab: BrowserTab, ref: String) {
+        val end = now() + CHECK_MS
+        while (true) {
+            val c = runCatching { PageScript.call<TapCheck>(tab, "tapCheck", retry = false) }.getOrNull() ?: return
+            if (!c.armed) return
+            if (c.seen || now() > end) {
+                disarm(tab)
+                if (!c.seen) throw ToolError("click did not reach $ref: the page got no touch; nothing was pressed.")
+                if (!c.hit) throw ToolError("the tap would have landed on ${c.at} instead of $ref; nothing was pressed.")
+                return
+            }
+            delay(50)
+        }
+    }
+
+    private suspend fun disarm(tab: BrowserTab) {
+        runCatching { PageScript.callJson(tab, "disarmTap", retry = false) }
+    }
+
+    private const val CHECK_MS = 1_000L
+
     override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome {
         val ref = args.string("ref")
         return onMain {
@@ -45,10 +73,16 @@ object Click : Tool {
                 repeat(2) { attempt ->
                     val at = ctx.locate(tab, ref, scroll = false)
                     if (!at.hit) throw ToolError("click did not reach $ref: at that point is ${at.atPoint}.")
-                    when (tab.tap(at.cx, at.cy, at.innerWidth)) {
-                        BrowserTab.Tap.DONE -> return@act
-                        BrowserTab.Tap.FAILED -> throw ToolError("click did not reach $ref: the tab's view did not take the tap (not attached or not laid out).")
-                        BrowserTab.Tap.MOVING -> if (attempt == 1) throw ToolError("click did not reach $ref: the page kept scrolling.")
+                    val tap = try {
+                        tab.tap(at.cx, at.cy, at.innerWidth) { PageScript.callJson(tab, "armTap", refArgs(ref), retry = false) }
+                    } catch (e: Exception) {
+                        disarm(tab); throw e
+                    }
+                    when (tap) {
+                        BrowserTab.Tap.DONE -> return@act reached(tab, ref)
+                        BrowserTab.Tap.FAILED -> { disarm(tab); throw ToolError("click did not reach $ref: the tab's view did not take the tap (not attached or not laid out).") }
+                        BrowserTab.Tap.NOT_DRAWN -> { disarm(tab); throw ToolError("click did not reach $ref: the page did not draw its current layout within 1 s, so nothing was pressed.") }
+                        BrowserTab.Tap.MOVING -> { disarm(tab); if (attempt == 1) throw ToolError("click did not reach $ref: the page kept scrolling.") }
                     }
                 }
             }

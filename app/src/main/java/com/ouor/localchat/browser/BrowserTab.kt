@@ -417,10 +417,10 @@ class BrowserTab internal constructor(
     /**
      * Native tap at CSS px ([innerWidth] = window.innerWidth). Waits first while the user's finger is down or they
      * touched within [USER_GAP_MS] (up to [USER_WAIT_MS]), so their gesture is not cut (2-6). Does not tap a page
-     * that is still scrolling (a fling: the down would only stop it) and answers [Tap.MOVING]; the caller clicks by
-     * script instead.
+     * that is still scrolling (a fling: the down would only stop it) and answers [Tap.MOVING], nor one whose current
+     * layout is not drawn yet ([Tap.NOT_DRAWN]). [beforeTouch] runs right before the touch goes in.
      */
-    suspend fun tap(cssX: Float, cssY: Float, innerWidth: Float): Tap = withContext(Dispatchers.Main.immediate) {
+    suspend fun tap(cssX: Float, cssY: Float, innerWidth: Float, beforeTouch: suspend () -> Unit = {}): Tap = withContext(Dispatchers.Main.immediate) {
         val start = SystemClock.uptimeMillis()
         while ((pointerDown || SystemClock.uptimeMillis() - lastUserInputAt < USER_GAP_MS) && SystemClock.uptimeMillis() - start < USER_WAIT_MS) {
             delay(FRAME_MS)
@@ -430,6 +430,14 @@ class BrowserTab internal constructor(
         val y0 = w.scrollY
         delay(FRAME_MS * 2)
         if (w.scrollY != y0) return@withContext Tap.MOVING
+        // Touches are hit-tested on the last drawn frame: wait until the current DOM state (after the scroll into view)
+        // has been drawn, or a tap lands where the element was before (QA R-B1, devphone02).
+        val drawn = CompletableDeferred<Unit>()
+        w.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
+            override fun onComplete(requestId: Long) { drawn.complete(Unit) }
+        })
+        if (withTimeoutOrNull(DRAW_MS) { drawn.await() } == null) return@withContext Tap.NOT_DRAWN
+        beforeTouch() // after the waits, so a user's touch meanwhile is never taken for this one
         val scale = w.width / innerWidth
         val x = cssX * scale
         val y = cssY * scale
@@ -457,7 +465,7 @@ class BrowserTab internal constructor(
         }
     }
 
-    enum class Tap { DONE, FAILED, MOVING }
+    enum class Tap { DONE, FAILED, MOVING, NOT_DRAWN }
 
     /** Native key press, e.g. KEYCODE_ENTER with META_CTRL_ON. */
     fun key(keyCode: Int, meta: Int): Boolean {
@@ -633,6 +641,7 @@ class BrowserTab internal constructor(
         val resolver = contextWrapper.applicationContext.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
+            // A generic type makes Downloads put " (1)" after the extension of a taken name (QA R-B11): use the name's type.
             put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
@@ -797,6 +806,7 @@ class BrowserTab internal constructor(
         private const val THUMB_DELAY_MS = 800L
         private const val TAP_MS = 50L
         private const val FOCUS_HOLD_MS = 300L
+        private const val DRAW_MS = 1_000L
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript")
         private val eventIds = AtomicLong()
         private val http by lazy { OkHttpClient() }
