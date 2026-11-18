@@ -1,6 +1,5 @@
 package com.ouor.localchat.ui.browser
 
-import android.net.Uri
 import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
@@ -32,9 +31,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ouor.localchat.R
-import com.ouor.localchat.browser.BrowserPrompt
-import com.ouor.localchat.browser.Control
-import com.ouor.localchat.browser.Owner
+import com.ouor.localchat.browser.Answer
+import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.testing.ScreenOnRule
@@ -71,18 +69,13 @@ class BrowserImeTest {
         override fun back() {}
         override fun forward() {}
         override fun reload() {}
-        override fun takeOver(id: Int) {}
-        override fun dismissTouch() {}
-        override fun giveBack(id: Int) {}
-        override fun handToAi(id: Int) {}
-        override fun takeTab(id: Int) {}
-        override fun stopRun() {}
-        override fun answerDialog(p: BrowserPrompt.Dialog, accept: Boolean, text: String?) {}
-        override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
-        override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
-        override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
+        override fun reload(id: Int) {}
+        override fun dismissOpenFailed() {}
+        override fun stopRun(sessionId: String?) {}
+        override fun userStepDone() {}
+        override fun answer(e: BrowserEvent, answer: Answer) {}
         override fun savePdf(id: Int, uri: android.net.Uri, done: (Boolean) -> Unit) {}
-        override fun webView(id: Int): WebView? = web
+        override fun webView(id: Int): kotlinx.coroutines.flow.StateFlow<WebView?>? = web?.let { kotlinx.coroutines.flow.MutableStateFlow(it) }
         override fun show(id: Int) {}
         override fun park(id: Int) {}
     }
@@ -97,20 +90,20 @@ class BrowserImeTest {
         ViewCompat.getRootWindowInsets(rule.activity.window.decorView)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
     }
 
-    private fun giveBack(): Rect = rule.onAllNodesWithText(rule.activity.getString(R.string.ui_give_back_to_ai))
-        .fetchSemanticsNodes().map { it.boundsInRoot }.maxBy { it.bottom } // the handoff banner's, at the panel bottom
+    /** The ask_user banner's Done, at the panel bottom. */
+    private fun done(): Rect = rule.onAllNodesWithText(rule.activity.getString(R.string.ui_done))
+        .fetchSemanticsNodes().map { it.boundsInRoot }.maxBy { it.bottom }
 
     private fun pageBounds(): Rect = rule.onNodeWithTag(PAGE_TAG).fetchSemanticsNode().boundsInRoot
 
-    /** Handoff on a user-controlled AI tab, panel at [panel], showing [html]. */
-    /** A handoff on a user-controlled AI tab. */
-    private fun handoff(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(1, "Login", "https://login.example/", Owner.Ai("A"), Control.USER, loading = false)),
-        sessionId = "A", running = true, handoff = Pause.Handoff(1, "로그인이 필요합니다"))
+    /** The run waits for the user in tab 1 (ask_user). */
+    private fun userStep(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(1, "Login", "https://login.example/", loading = false)),
+        front = 1, sessionId = "A", running = true, userStep = Pause.UserStep(1, "로그인"))
 
-    /** The user's own tab ("나"), as in the s25 feedback (FB5 B1). */
-    private fun mine(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(1, "Google", "https://www.google.com/", Owner.User, Control.USER, loading = false)), sessionId = "A")
+    /** A tab with no run waiting, as in the s25 feedback (FB5 B1). */
+    private fun mine(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(1, "Google", "https://www.google.com/", loading = false)), front = 1, sessionId = "A")
 
-    private fun open(panel: PanelState, html: String, state: BrowserUiState = handoff(panel), outside: @Composable () -> Unit = {}) {
+    private fun open(panel: PanelState, html: String, state: BrowserUiState = userStep(panel), outside: @Composable () -> Unit = {}) {
         rule.runOnUiThread {
             rule.activity.enableEdgeToEdge()
             @Suppress("DEPRECATION") rule.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -147,7 +140,7 @@ class BrowserImeTest {
 
     @Test fun keyboardKeepsTheFieldAndControlsAboveIt() {
         open(PanelState.Half, page)
-        val before = giveBack()
+        val before = done()
         val pageBefore = pageBounds()
         Shots.save("fb4-u2-1-half")
 
@@ -158,7 +151,7 @@ class BrowserImeTest {
         rule.waitForIdle()
         Shots.save("fb4-u2-2-keyboard")
         val imeTop = rule.runOnUiThread<Int> { rule.activity.window.decorView.height } - imeBottom()
-        assertTrue("controls above the keyboard: ${giveBack().bottom} <= $imeTop", giveBack().bottom <= imeTop + 0.5f)
+        assertTrue("controls above the keyboard: ${done().bottom} <= $imeTop", done().bottom <= imeTop + 0.5f)
         assertTrue("page (and the field at its bottom) above the keyboard: ${pageBounds().bottom} <= $imeTop", pageBounds().bottom <= imeTop + 0.5f)
         assertTrue("page still usable", pageBounds().height > 100f)
 
@@ -181,11 +174,11 @@ class BrowserImeTest {
         // Keyboard closed: everything is back where it was.
         closeKeyboard()
         Shots.save("fb4-u2-3-closed")
-        assertEquals(before, giveBack())
+        assertEquals(before, done())
         assertEquals(pageBefore, pageBounds())
     }
 
-    @Test fun pageKeyboardMakesThePanelFullAndBack() { // FB5 B1: the user's own tab ("나"), as in the s25 feedback
+    @Test fun pageKeyboardMakesThePanelFullAndBack() { // FB5 B1, as in the s25 feedback
         open(PanelState.Half, page, mine(PanelState.Half))
         rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, bottom - 20f)) }
         rule.waitUntil(10_000) { imeBottom() > 0 }
@@ -246,12 +239,12 @@ class BrowserImeTest {
         assertEquals(PanelState.Half, s.panel)
     }
 
-    @Test fun aHandoffWhileTypingKeepsTheFullPanel() { // FB5 review ui M2 / arch M1: the run's height wins over the return height
+    @Test fun aUserStepWhileTypingKeepsTheFullPanel() { // FB5 review ui M2 / arch M1: the run's height wins over the return height
         open(PanelState.Half, page, mine(PanelState.Half))
         rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, bottom - 20f)) }
         rule.waitUntil(10_000) { imeBottom() > 0 }
         rule.waitUntil(5_000) { s.panel == PanelState.Full }
-        rule.runOnIdle { s = s.copy(handoff = Pause.Handoff(1, "로그인이 필요합니다")).withPanel(PanelState.Full) } // what the ViewModel does on a handoff
+        rule.runOnIdle { s = s.copy(userStep = Pause.UserStep(1, "로그인")).withPanel(PanelState.Full) } // what the ViewModel does on a user step
         closeKeyboard()
         Thread.sleep(500)
         rule.waitForIdle()

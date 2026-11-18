@@ -2,14 +2,19 @@
 <!-- Track C: browser tool step labels (A-04) and highlight labels (B-09). -->
 <resources>
     <string name="tool_web_search">Web search</string>
-    <string name="tool_request_handoff">Hand over to you</string>
+    <string name="tool_open">Open page</string>
+    <string name="tool_navigate">Go back or reload</string>
+    <string name="tool_read">Read page</string>
+    <string name="tool_look">Look at page</string>
     <string name="tool_click">Click</string>
     <string name="tool_type">Type</string>
+    <string name="tool_scroll">Scroll</string>
     <string name="tool_execute">Run script</string>
+    <string name="tool_tabs">List tabs</string>
+    <string name="tool_close_tab">Close tab</string>
+    <string name="tool_ask_user">Ask you</string>
 
     <string name="browser_highlight_click">Clicking</string>
     <string name="browser_highlight_type">Typing</string>
     <string name="browser_highlight_select">Selecting</string>
-    <string name="tool_read">Read page</string>
-    <string name="tool_browse">Open in browser</string>
 </resources>

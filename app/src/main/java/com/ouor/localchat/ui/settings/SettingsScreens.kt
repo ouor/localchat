@@ -92,7 +92,10 @@ class SettingsViewModel @Inject constructor(
     providers: ProviderRepository,
     private val readAloud: ReadAloud,
     private val browser: BrowserEngine,
+    policies: com.ouor.localchat.policy.Policies,
 ) : ViewModel() {
+    /** browser-layers 4-1: the policies' rows, drawn by shape only. */
+    val policySettings: List<com.ouor.localchat.policy.SettingItem> = policies.settings()
     val settings: StateFlow<AppSettings?> = store.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val models: StateFlow<List<ModelInfo>> = providers.allVisibleModels.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val endpointCount = providers.endpoints.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -105,7 +108,6 @@ class SettingsViewModel @Inject constructor(
     fun voice(name: String?, rate: Float) { update { copy(ttsVoice = name, ttsRate = rate) }; readAloud.setVoice(name, rate) }
     fun preview(name: String?, rate: Float) = readAloud.preview(name, rate)
     fun clearBrowserData(cookies: Boolean, cache: Boolean, storage: Boolean) = browser.clearData(cookies, cache, storage)
-    val builtInSensitiveCount: Int get() = browser.builtInSensitiveCount
 }
 
 @Composable
@@ -202,18 +204,36 @@ fun SettingsHomeRoute(vm: SettingsViewModel, onBack: () -> Unit, onProviders: ()
     }
 }
 
-/** FB2-2: built-in list switch. Turning it off asks once; turning it on does not. */
+/** A policy's switch (browser-layers 4-1). Turning it off asks first when the item says so; turning it on does not. */
 @Composable
-internal fun BuiltInSensitiveRow(enabled: Boolean, count: Int, onChange: (Boolean) -> Unit) {
+internal fun SwitchSettingRow(title: String, description: String, enabled: Boolean, offConfirm: com.ouor.localchat.policy.SettingItem.Confirm?, onChange: (Boolean) -> Unit) {
     var confirming by remember { mutableStateOf(false) }
-    SettingsRow(
-        stringResource(R.string.ui_sensitive_builtin), leadingIcon = Icons.Outlined.Lock,
-        subtitle = if (enabled) pluralStringResource(R.plurals.fb2_s_builtin_on, count, count) else stringResource(R.string.fb2_s_builtin_off),
-    ) { LcSwitch(enabled, { on -> if (on) onChange(true) else confirming = true }) }
-    if (confirming) LcDialog(
-        stringResource(R.string.fb2_s_off_title), { confirming = false }, stringResource(R.string.fb2_s_off_confirm),
-        { onChange(false); confirming = false }, text = stringResource(R.string.fb2_s_off_body), kind = DialogKind.Destructive,
+    SettingsRow(title, leadingIcon = Icons.Outlined.Lock, subtitle = description.ifEmpty { null }) {
+        LcSwitch(enabled, { on -> if (on || offConfirm == null) onChange(on) else confirming = true })
+    }
+    if (confirming && offConfirm != null) LcDialog(
+        offConfirm.title, { confirming = false }, offConfirm.action,
+        { onChange(false); confirming = false }, text = offConfirm.body, kind = DialogKind.Destructive,
     )
+}
+
+/** A policy's list: its rows, an add row and the add dialog ([SettingItem.TextList.normalize] null = not valid). */
+@Composable
+private fun TextListSetting(item: com.ouor.localchat.policy.SettingItem.TextList) {
+    val values by item.values.collectAsStateWithLifecycle()
+    var adding by remember { mutableStateOf(false) }
+    SectionLabel(item.title)
+    SettingsGroup {
+        TextListRows(values, item.set)
+        SettingsRow(item.addLabel, divider = true, leadingIcon = Icons.Rounded.Add, onClick = { adding = true })
+    }
+    if (adding) {
+        var d by remember { mutableStateOf("") }
+        val entry = item.normalize(d)
+        LcDialog(item.addLabel, { adding = false }, stringResource(R.string.ui_save), {
+            entry?.let { item.set((values + it).distinct()) }; adding = false
+        }, confirmEnabled = entry != null) { LcTextField(d, { d = it }, placeholder = item.placeholder, kind = TextFieldKind.Url) }
+    }
 }
 
 /** SC-16. */
@@ -221,7 +241,6 @@ internal fun BuiltInSensitiveRow(enabled: Boolean, count: Int, onChange: (Boolea
 fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val set = s ?: return
-    var adding by remember { mutableStateOf(false) }
     var clearing by remember { mutableStateOf(false) }
     Page(stringResource(R.string.ui_agent_browser), onBack) {
         SectionLabel(stringResource(R.string.ui_agent))
@@ -246,21 +265,20 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
             }
             SettingsRow(stringResource(R.string.ui_clear_browser_data), divider = true, danger = true, onClick = { clearing = true })
         }
-        SectionLabel(stringResource(R.string.ui_sensitive_sites))
-        SettingsGroup {
-            BuiltInSensitiveRow(set.builtInSensitiveEnabled, vm.builtInSensitiveCount) { on -> vm.update { copy(builtInSensitiveEnabled = on) } }
-            SensitiveDomainRows(set.userSensitiveDomains) { list -> vm.update { copy(userSensitiveDomains = list) } }
-            SettingsRow(stringResource(R.string.ui_add_domain), divider = true, leadingIcon = Icons.Rounded.Add, onClick = { adding = true })
+        val switches = vm.policySettings.filterIsInstance<com.ouor.localchat.policy.SettingItem.Switch>()
+        if (switches.isNotEmpty()) {
+            SectionLabel(stringResource(R.string.ui_protections))
+            SettingsGroup {
+                switches.forEach { item ->
+                    val on by item.value.collectAsStateWithLifecycle()
+                    val text by item.description.collectAsStateWithLifecycle()
+                    SwitchSettingRow(item.title, text, on, item.offConfirm, item.set)
+                }
+            }
         }
+        vm.policySettings.filterIsInstance<com.ouor.localchat.policy.SettingItem.TextList>().forEach { TextListSetting(it) }
         Spacer(Modifier.height(16.dp))
         Banner(stringResource(R.string.ui_safety_summary), BannerVariant.Agent, Modifier.padding(horizontal = 16.dp))
-    }
-    if (adding) {
-        var d by remember { mutableStateOf("") }
-        val domain = d.trim().removePrefix("https://").removePrefix("http://").substringBefore('/').lowercase()
-        LcDialog(stringResource(R.string.ui_add_domain), { adding = false }, stringResource(R.string.ui_save), {
-            vm.update { copy(userSensitiveDomains = (userSensitiveDomains + domain).distinct()) }; adding = false
-        }, confirmEnabled = '.' in domain && ' ' !in domain) { LcTextField(d, { d = it }, placeholder = "bank.example.com", kind = TextFieldKind.Url) }
     }
     if (clearing) {
         var cookies by remember { mutableStateOf(true) }
@@ -284,11 +302,11 @@ fun AgentSettingsRoute(vm: SettingsViewModel, onBack: () -> Unit) {
 }
 
 /**
- * User sensitive domains. P-STABLE L8: a deleted domain keeps its row, greyed with [되돌리기], until the screen
+ * A policy's list entries (e.g. sensitive domains). P-STABLE L8: a deleted domain keeps its row, greyed with [되돌리기], until the screen
  * closes, so the next row's X never slides under the finger after a tap.
  */
 @Composable
-internal fun SensitiveDomainRows(domains: List<String>, onChange: (List<String>) -> Unit) {
+internal fun TextListRows(domains: List<String>, onChange: (List<String>) -> Unit) {
     // Deleted domain -> its index among the rows shown when it was deleted (ascending inserts rebuild the order).
     val removed = remember { mutableStateMapOf<String, Int>() }
     // An undone domain leaves [removed] once the saved list has it again (not before: see the undo below). Only undone

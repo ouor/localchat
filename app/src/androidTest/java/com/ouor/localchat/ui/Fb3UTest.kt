@@ -40,7 +40,7 @@ import com.ouor.localchat.ui.format.CONTEXT_PRESETS
 import com.ouor.localchat.ui.markdown.MarkdownMessage
 import com.ouor.localchat.ui.providers.CONTEXT_RANGE
 import com.ouor.localchat.ui.providers.LimitRow
-import com.ouor.localchat.ui.settings.SensitiveDomainRows
+import com.ouor.localchat.ui.settings.TextListRows
 import com.ouor.localchat.ui.theme.LcTheme
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Assert.assertEquals
@@ -64,7 +64,7 @@ class Fb3UTest {
             LocalchatTheme(false) {
                 Column(Modifier.height(400.dp).verticalScroll(rememberScrollState()).background(LcTheme.colors.surface)) {
                     Spacer(Modifier.height(800.dp))
-                    SettingsGroup { SensitiveDomainRows(domains) { pending = it } }
+                    SettingsGroup { TextListRows(domains) { pending = it } }
                     Box(Modifier.size(10.dp).testTag("end"))
                 }
             }
@@ -160,7 +160,7 @@ class Fb3UTest {
         var s by mutableStateOf(
             com.ouor.localchat.ui.browser.BrowserUiState(
                 com.ouor.localchat.ui.browser.PanelState.Half,
-                listOf(com.ouor.localchat.browser.TabInfo(1, "t", "https://example.com", com.ouor.localchat.browser.Owner.Ai("A"), com.ouor.localchat.browser.Control.AI, loading = false)),
+                listOf(com.ouor.localchat.browser.TabInfo(1, "t", "https://example.com")),
                 sessionId = "A",
             ),
         )
@@ -196,7 +196,7 @@ class Fb3UTest {
 
     @Test fun r6_undoneDomainIsForgottenOnceSaved() { // review 6
         var domains by mutableStateOf(listOf("a.example.com", "b.example.com"))
-        rule.setContent { LocalchatTheme(false) { SettingsGroup { SensitiveDomainRows(domains) { domains = it } } } }
+        rule.setContent { LocalchatTheme(false) { SettingsGroup { TextListRows(domains) { domains = it } } } }
         rule.onAllNodesWithContentDescription(ctx.getString(R.string.ui_delete))[0].performClick()
         rule.onNodeWithText(ctx.getString(R.string.fb3_c_undo)).performClick()
         rule.waitForIdle()

@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="tool_web_search">웹 검색</string>
-    <string name="tool_request_handoff">사용자에게 넘기기</string>
+    <string name="tool_open">페이지 열기</string>
+    <string name="tool_navigate">뒤로 가기·새로고침</string>
+    <string name="tool_read">페이지 읽기</string>
+    <string name="tool_look">페이지 보기</string>
     <string name="tool_click">클릭</string>
     <string name="tool_type">입력</string>
+    <string name="tool_scroll">스크롤</string>
     <string name="tool_execute">스크립트 실행</string>
+    <string name="tool_tabs">탭 목록</string>
+    <string name="tool_close_tab">탭 닫기</string>
+    <string name="tool_ask_user">사용자에게 요청</string>
 
     <string name="browser_highlight_click">클릭</string>
     <string name="browser_highlight_type">입력 중</string>
     <string name="browser_highlight_select">선택 중</string>
-    <string name="tool_read">페이지 읽기</string>
-    <string name="tool_browse">브라우저에서 보기</string>
 </resources>

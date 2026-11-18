@@ -129,7 +129,7 @@ class LayoutStressTest {
                 start = { ModelChip(provider40, model80, Color.Red, {}, Modifier.weight(1f, fill = false)) },
                 end = { ContextGauge(null, {}, tokensText = ctx.getString(R.string.ui_tokens, "31.6k")) },
             )
-            BrowserStatusStrip("S-$title100", "www.example.com", {}, {})
+            BrowserStatusStrip("S-$title100", "www.example.com", {})
         }
         // Top bar: title and subtitle end in an ellipsis on one line (not clipped); the action stays visible.
         listOf(title100, provider40).forEach {

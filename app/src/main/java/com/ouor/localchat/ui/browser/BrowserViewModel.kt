@@ -3,30 +3,29 @@ package com.ouor.localchat.ui.browser
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ouor.localchat.browser.Answer
 import com.ouor.localchat.browser.BrowserEngine
-import com.ouor.localchat.browser.BrowserPrompt
-import com.ouor.localchat.browser.Control
+import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.browser.Highlight
-import com.ouor.localchat.browser.Owner
-import com.ouor.localchat.browser.PageError
+import com.ouor.localchat.browser.SearchEngines
 import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
+import com.ouor.localchat.policy.Notice
+import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.storage.SettingsStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -34,50 +33,45 @@ import kotlinx.coroutines.launch
 /** SC-11 compact states. Expanded width shows the panel beside the chat instead (always Half-like). */
 enum class PanelState { Hidden, Peek, Half, Full }
 
+/** Layer 1's state for the drawer (browser-layers 6). Every tab shows; no tab belongs to a chat. */
 data class BrowserUiState(
     val panel: PanelState = PanelState.Hidden,
     val tabs: List<TabInfo> = emptyList(),
-    val currentId: Int? = null,
+    /** The tab the user picked last ([BrowserEngine.front]); only the user's input changes it (P-STABLE). */
+    val front: Int? = null,
     val sessionId: String? = null,
-    /** Tool the AI runs on each tab right now (B-09 ②). */
-    val aiActivity: Map<Int, String> = emptyMap(),
+    /** The tool an AI runs on each tab right now, and for which chat (6-2). */
+    val activity: Map<Int, ToolActivity> = emptyMap(),
     val highlight: Highlight? = null,
-    /** Prompts the user answers: this chat's tabs and user tabs (another chat's AI-tab dialogs are not shown). */
-    val prompt: BrowserPrompt? = null,
-    /** Set while the run waits for the user in this tab (B-05). */
-    val handoff: Pause.Handoff? = null,
+    /** Events waiting for the user ([BrowserEngine.prompts]). */
+    val prompts: List<BrowserEvent> = emptyList(),
+    /** This chat's run waits for the user in a tab (ask_user, 6-4). */
+    val userStep: Pause.UserStep? = null,
+    /** The policies' badges and banners. */
+    val notices: List<Notice> = emptyList(),
     val showTabs: Boolean = false,
-    /** B-09 ③: the user touched an AI tab; ask to switch to manual control. */
-    val touchedAiTab: Int? = null,
-    /** Tabs on a sensitive site: the AI may not read or operate them (B-S3, SE 28). */
-    val sensitive: Set<Int> = emptySet(),
     /** This chat's run is going (B-09 ②). */
     val running: Boolean = false,
     /** FB5 B1: the height a keyboard for the panel lifted it from to Full; it goes back there when the keyboard closes. */
     val keyboardFrom: PanelState? = null,
+    /** A new tab could not be opened: a snackbar says so (6-1). */
+    val openFailed: Boolean = false,
 ) {
-    /** BUG-04: by default the panel and peek show only user tabs and this chat's AI tabs. */
-    val visible: List<TabInfo> get() = tabs.filter { it.owner !is Owner.Ai || isMine(it) }
-    /** A picked tab (even another chat's, chosen in the tab list); a closed one falls back to [visible]. */
-    val current: TabInfo? get() = tabs.firstOrNull { it.id == currentId } ?: visible.lastOrNull()
-    fun isMine(t: TabInfo) = t.owner is Owner.Ai && (t.owner as Owner.Ai).sessionId == sessionId
-}
-
-/** Engine state into the panel state. [tabs] are BrowserEngine.visibleTabs; a prompt of any other tab is not shown. */
-internal fun BrowserUiState.merge(tabs: List<TabInfo>, ai: Map<Int, String>, h: Highlight?, prompts: List<BrowserPrompt>): BrowserUiState {
-    return copy(
-        tabs = tabs, aiActivity = ai, highlight = h,
-        prompt = prompts.firstOrNull { p ->
-            val owner = tabs.firstOrNull { it.id == p.tabId }?.owner ?: return@firstOrNull false
-            // tools-redesign 2-4: a confirm/prompt on this chat's AI tab is answered by the user here; another chat's waits there.
-            !(p is BrowserPrompt.Dialog && owner is Owner.Ai && owner.sessionId != sessionId)
-        },
-    )
+    /** The tab the drawer shows: the front, else the tab used last (6-1). */
+    val current: TabInfo? get() = tabs.firstOrNull { it.id == front } ?: tabs.maxByOrNull { it.lastUsedAt }
+    /** The shown tab's event is asked in place. */
+    val prompt: BrowserEvent? get() = prompts.firstOrNull { it.tabId == current?.id }
+    /** Another tab's event (a policy handed it to the user): a banner over the drawer. */
+    val otherPrompt: BrowserEvent? get() = prompts.firstOrNull { it.tabId != current?.id }
+    /** A policy's banner over [tabId] when it shows (one at a time; null tabId = about the whole browser). */
+    fun banner(tabId: Int): Notice? = notices.firstOrNull { it.style == Notice.Style.BANNER && (it.tabId == tabId || it.tabId == null) }
+    /** The policies' badges on [tabId]'s card. */
+    fun badges(tabId: Int): List<String> = notices.filter { it.style == Notice.Style.BADGE && it.tabId == tabId }.map { it.text }
 }
 
 /**
  * FB5 B1: a keyboard for the panel opens ([up]) → Full, remembering the user's height; it closes → back to that height,
- * but only while the panel is still Full. Any height set meanwhile ([withPanel]: a drag, Back, a handoff, a tab picked)
+ * but only while the panel is still Full. Any height set meanwhile ([withPanel]: a drag, Back, a user step, a tab picked)
  * drops the memory, so that height wins.
  */
 internal fun BrowserUiState.keyboard(up: Boolean): BrowserUiState = when {
@@ -88,12 +82,25 @@ internal fun BrowserUiState.keyboard(up: Boolean): BrowserUiState = when {
 /** A height the user or the run chose: it replaces the keyboard's return height (FB5 B1). */
 internal fun BrowserUiState.withPanel(p: PanelState): BrowserUiState = copy(panel = p, keyboardFrom = null)
 
-/** The handoff ended with "AI에게 돌려주기": the panel keeps the height the user has it at (FB4 U-3, P-STABLE). */
-internal fun BrowserUiState.handedBack(): BrowserUiState = copy(handoff = null)
-
-/** Re-marks sensitive tabs when the tabs or the rule change (a settings change alone must update the banner). */
-internal fun Flow<BrowserUiState>.withSensitive(isSensitive: Flow<(url: String) -> Boolean>): Flow<BrowserUiState> =
-    combine(isSensitive) { s, sensitive -> s.copy(sensitive = s.tabs.filter { sensitive(it.url) }.mapTo(HashSet()) { it.id }) }
+/**
+ * The run's phase into the drawer (6-2, 6-4). The tab shown never changes here (P-STABLE): a running tool only brings
+ * the Peek strip when the drawer is hidden; an ask_user wait opens its tab Full only when the drawer is hidden,
+ * otherwise it is a banner ([select] is then the drawer's job).
+ */
+internal fun BrowserUiState.onPhase(phase: RunPhase?, select: (Int) -> Unit): BrowserUiState {
+    val base = copy(running = phase != null, panel = if (phase == null && panel == PanelState.Peek) PanelState.Hidden else panel)
+    return when (phase) {
+        is RunPhase.RunningTool -> base.copy(userStep = null).let { if (phase.tabId != null && it.panel == PanelState.Hidden) it.withPanel(PanelState.Peek) else it }
+        is RunPhase.Paused -> when (val p = phase.pause) {
+            is Pause.UserStep -> if (base.userStep == p) base else if (base.panel <= PanelState.Peek) {
+                select(p.tabId)
+                base.copy(userStep = p, front = p.tabId).withPanel(PanelState.Full)
+            } else base.copy(userStep = p)
+            else -> base.copy(userStep = null)
+        }
+        else -> base.copy(userStep = null)
+    }
+}
 
 @HiltViewModel(assistedFactory = BrowserViewModel.Factory::class)
 class BrowserViewModel @AssistedInject constructor(
@@ -101,6 +108,7 @@ class BrowserViewModel @AssistedInject constructor(
     private val engine: BrowserEngine,
     private val chat: ChatEngine,
     private val settings: SettingsStore,
+    policies: Policies,
 ) : ViewModel(), BrowserActions {
 
     @AssistedFactory
@@ -108,59 +116,52 @@ class BrowserViewModel @AssistedInject constructor(
 
     private val local = MutableStateFlow(BrowserUiState(sessionId = sessionId))
 
-    // B-09 ②: only this chat's AI activity drives its "AI is operating" bar.
-    private val activity = sessionId?.let(engine::sessionActivity) ?: flowOf(emptyMap())
-
-    val state: StateFlow<BrowserUiState> = combine(local, engine.visibleTabs, activity, engine.highlight, engine.prompts) { l, tabs, ai, h, prompts ->
-        l.merge(tabs, ai, h, prompts)
-    }.withSensitive(engine.sensitive.map { it::isSensitive }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
-
-    init {
-        viewModelScope.launch {
-            engine.userTouches.collect { id -> local.update { it.copy(touchedAiTab = id) } }
-        }
+    private val facts = combine(engine.tabs, engine.front, engine.activity, engine.highlight, engine.prompts) { tabs, front, activity, h, prompts ->
+        { s: BrowserUiState -> s.copy(tabs = tabs, front = front?.tabId, activity = activity, highlight = h, prompts = prompts) }
     }
 
-    /** Called with the chat's run phase: auto-peek when the AI browses, full screen on handoff (B-02, B-05). */
-    fun onRunPhase(phase: RunPhase?) {
-        // The auto-peek belongs to the run; it goes away with it (an opened panel stays).
-        local.update { it.copy(running = phase != null, panel = if (phase == null && it.panel == PanelState.Peek) PanelState.Hidden else it.panel) }
-        when (phase) {
-            is RunPhase.RunningTool -> phase.tabId?.let { id ->
-                local.update { if (it.panel == PanelState.Hidden) it.copy(currentId = id).withPanel(PanelState.Peek) else it.copy(currentId = id) }
-            }
-            is RunPhase.Paused -> (phase.pause as? Pause.Handoff)?.let { h ->
-                local.update { it.copy(handoff = h, currentId = h.tabId).withPanel(PanelState.Full) }
-            } ?: local.update { it.copy(handoff = null) }
-            else -> local.update { it.copy(handoff = null) }
-        }
-    }
+    val state: StateFlow<BrowserUiState> = combine(local, facts, policies.notices) { l, f, notices -> f(l).copy(notices = notices) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
+
+    /** Called with the chat's run phase. */
+    fun onRunPhase(phase: RunPhase?) = local.update { it.onPhase(phase, engine::select) }
 
     override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {
         viewModelScope.launch { done(engine.savePdf(id, uri)) }
     }
 
-    override fun setPanel(p: PanelState) = local.update { it.withPanel(p) }
+    override fun setPanel(p: PanelState) {
+        if (p >= PanelState.Half) pickShown()
+        local.update { it.withPanel(p) }
+    }
+
     override fun keyboard(up: Boolean) = local.update { it.keyboard(up) }
 
-    /** Top-bar browser button / link tap: show the current tab, or open a user tab. */
+    /** Opening the drawer with no front is picking the tab it shows (6-1). */
+    private fun pickShown() {
+        val s = state.value
+        if (s.front == null || s.tabs.none { it.id == s.front }) s.current?.let { engine.select(it.id) }
+    }
+
+    /** Top-bar browser button / link tap: a link opens a tab; otherwise the drawer shows the current tab, or a new one. */
     override fun open(url: String?) {
-        if (url != null || state.value.visible.isEmpty()) newTab(url)
-        else local.update { it.withPanel(maxOf(it.panel, PanelState.Half)) }
+        if (url != null || state.value.tabs.isEmpty()) newTab(url) else setPanel(maxOf(local.value.panel, PanelState.Half))
     }
 
-    /** At the tab limit the tab list opens instead, so the user can close one (api-spec: UI checks tabs.size). */
+    /** No limit check (6-1); a failure is said in a snackbar. */
     override fun newTab(url: String?) {
-        if (state.value.tabs.size >= BrowserEngine.MAX_TABS) { local.update { it.copy(showTabs = true) }; return }
-        viewModelScope.launch {
-            val home = searchUrl(settings.settings.first().searchEngine, null)
-            // The AI may have filled the last slot since the check: show the tab list so the user can close one.
-            val id = try { engine.openUserTab(url ?: home) } catch (_: PageError) { local.update { it.copy(showTabs = true) }; return@launch }
-            local.update { it.copy(currentId = id, showTabs = false).withPanel(maxOf(it.panel, PanelState.Half)) }
-        }
+        val id = try { engine.open(url) } catch (_: Exception) { local.update { it.copy(openFailed = true) }; return }
+        engine.select(id)
+        local.update { it.copy(showTabs = false).withPanel(maxOf(it.panel, PanelState.Half)) }
     }
 
-    override fun select(id: Int) = local.update { it.copy(currentId = id, showTabs = false).withPanel(maxOf(it.panel, PanelState.Half)) }
+    override fun dismissOpenFailed() = local.update { it.copy(openFailed = false) }
+
+    override fun select(id: Int) {
+        engine.select(id)
+        local.update { it.copy(showTabs = false).withPanel(maxOf(it.panel, PanelState.Half)) }
+    }
+
     override fun showTabs(v: Boolean) = local.update { it.copy(showTabs = v) }
     override fun close(id: Int) = engine.close(id)
 
@@ -172,7 +173,7 @@ class BrowserViewModel @AssistedInject constructor(
             val url = when {
                 Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(text) -> text
                 ' ' !in text && '.' in text -> "https://$text"
-                else -> searchUrl(settings.settings.first().searchEngine, text)
+                else -> SearchEngines.url(settings.settings.first().searchEngine, text)
             }
             engine.navigate(t.id, url)
         }
@@ -181,39 +182,19 @@ class BrowserViewModel @AssistedInject constructor(
     override fun back() { state.value.current?.let { engine.goBack(it.id) } }
     override fun forward() { state.value.current?.let { engine.goForward(it.id) } }
     override fun reload() { state.value.current?.let { engine.reload(it.id) } }
+    override fun reload(id: Int) = engine.reload(id)
 
-    /** B-09 ②: AI tab → manual control; the AI's tools wait on this tab. */
-    override fun takeOver(id: Int) { engine.setControl(id, Control.USER); local.update { it.copy(touchedAiTab = null) } }
-    override fun dismissTouch() = local.update { it.copy(touchedAiTab = null) }
-    /** Give manual control back; during a handoff this also resumes the run (B-05). */
-    override fun giveBack(id: Int) {
-        engine.setControl(id, Control.AI)
-        val h = local.value.handoff
-        if (h != null && h.tabId == id) { sessionId?.let { chat.resolve(it, Resolution.HandoffReturned) }; local.update { it.handedBack() } }
+    /** Stops the run of the chat working on a tab (the activity bar), or this chat's. */
+    override fun stopRun(sessionId: String?) { (sessionId ?: this.sessionId)?.let(chat::stop) }
+
+    /** The user did what ask_user asked: the run goes on (6-4). */
+    override fun userStepDone() {
+        sessionId?.let { chat.resolve(it, Resolution.UserStepDone) }
+        local.update { it.copy(userStep = null) }
     }
-    /** B-04: hand a user tab to this chat's AI, or take an AI tab as a user tab. */
-    override fun handToAi(id: Int) { sessionId?.let { engine.setOwner(id, Owner.Ai(it)) } }
-    override fun takeTab(id: Int) = engine.setOwner(id, Owner.User)
-    override fun stopRun() { sessionId?.let(chat::stop); local.update { it.copy(handoff = null) } }
 
-    override fun answerDialog(p: BrowserPrompt.Dialog, accept: Boolean, text: String?) { engine.answerDialog(p.id, accept, text) }
-    override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) { engine.answerFileChooser(p.id, uris) }
-    override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) { engine.answerPermission(p.id, grant) }
-    override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) { engine.answerDownload(p.id, allow) }
-    override fun webView(id: Int) = runCatching { engine.webView(id) }.getOrNull()
+    override fun answer(e: BrowserEvent, answer: Answer) = engine.answer(e.id, answer)
+    override fun webView(id: Int): StateFlow<android.webkit.WebView?>? = runCatching { engine.webView(id) }.getOrNull()
     override fun show(id: Int) = engine.show(id)
     override fun park(id: Int) = engine.park(id)
-
-    private companion object {
-        // shortcut: mirrors browser.SearchEngines (not in the ui surface); use it once it is part of 10.2.
-        fun searchUrl(engine: com.ouor.localchat.core.model.SearchEngine, query: String?): String {
-            val q = query?.let { java.net.URLEncoder.encode(it, "UTF-8") }
-            return when (engine) {
-                com.ouor.localchat.core.model.SearchEngine.DUCKDUCKGO -> if (q == null) "https://duckduckgo.com" else "https://duckduckgo.com/?q=$q"
-                com.ouor.localchat.core.model.SearchEngine.GOOGLE -> if (q == null) "https://www.google.com" else "https://www.google.com/search?q=$q"
-                com.ouor.localchat.core.model.SearchEngine.BING -> if (q == null) "https://www.bing.com" else "https://www.bing.com/search?q=$q"
-                com.ouor.localchat.core.model.SearchEngine.NAVER -> if (q == null) "https://www.naver.com" else "https://search.naver.com/search.naver?query=$q"
-            }
-        }
-    }
 }

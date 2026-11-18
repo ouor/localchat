@@ -69,6 +69,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,27 +89,26 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInRoot
 import com.ouor.localchat.R
-import com.ouor.localchat.browser.BrowserPrompt
-import com.ouor.localchat.browser.Control
+import com.ouor.localchat.browser.Answer
+import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.browser.DialogKind
 import com.ouor.localchat.browser.Highlight
-import com.ouor.localchat.browser.Owner
 import com.ouor.localchat.browser.TabInfo
-import com.ouor.localchat.ui.components.BrowserOwner
+import com.ouor.localchat.ui.components.ActivityBar
+import com.ouor.localchat.ui.components.Banner
+import com.ouor.localchat.ui.components.BannerAction
+import com.ouor.localchat.ui.components.BannerVariant
 import com.ouor.localchat.ui.components.BrowserPanelFrame
 import com.ouor.localchat.ui.components.BrowserStatusStrip
 import com.ouor.localchat.ui.components.BrowserToolbar
 import com.ouor.localchat.ui.components.ElementHighlightLayer
-import com.ouor.localchat.ui.components.HandoffBanner
 import com.ouor.localchat.ui.components.LcBottomSheet
 import com.ouor.localchat.ui.components.LcDialog
 import com.ouor.localchat.ui.components.LcIconButton
 import com.ouor.localchat.ui.components.LcSnackbar
 import com.ouor.localchat.ui.components.LcTextField
-import com.ouor.localchat.ui.components.OwnershipBar
 import com.ouor.localchat.ui.components.TabCard
 import com.ouor.localchat.ui.components.TabGrid
-import com.ouor.localchat.ui.components.TabOwner
 import com.ouor.localchat.ui.theme.LcTheme
 
 /** Callbacks of the browser panel; [BrowserViewModel] implements all of them (pure-state screen, architecture 11). */
@@ -116,62 +116,50 @@ interface BrowserActions {
     fun setPanel(p: PanelState)
     /** FB5 B1: the keyboard opened ([up]) for the panel, or closed (see [BrowserUiState.keyboard]). */
     fun keyboard(up: Boolean)
+    /** The user picked a tab: [com.ouor.localchat.browser.BrowserEngine.select] (6-1). */
     fun select(id: Int)
     fun showTabs(v: Boolean)
     fun close(id: Int)
     fun open(url: String?)
     fun newTab(url: String?)
+    fun dismissOpenFailed()
     fun navigate(input: String)
     fun back()
     fun forward()
     fun reload()
-    fun takeOver(id: Int)
-    fun dismissTouch()
-    fun giveBack(id: Int)
-    fun handToAi(id: Int)
-    fun takeTab(id: Int)
-    fun stopRun()
-    fun answerDialog(p: BrowserPrompt.Dialog, accept: Boolean, text: String?)
-    fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<android.net.Uri>?)
-    fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean)
-    fun answerDownload(p: BrowserPrompt.Download, allow: Boolean)
+    /** A sleeping tab's "reload this page": it wakes. */
+    fun reload(id: Int)
+    /** Stops [sessionId]'s run (null = this chat's). */
+    fun stopRun(sessionId: String?)
+    fun userStepDone()
+    fun answer(e: BrowserEvent, answer: Answer)
     /** Panel ⋮ "Save as PDF": the tab's page into [uri]; [done] gets whether it worked (main thread). */
     fun savePdf(id: Int, uri: android.net.Uri, done: (Boolean) -> Unit)
-    /** Engine-owned WebView for [BrowserSurface]; null in tests (a blank page is drawn). */
-    fun webView(id: Int): android.webkit.WebView?
+    /** The tab's engine-owned WebView, which a wake replaces (S5); null in tests (a blank page is drawn). */
+    fun webView(id: Int): kotlinx.coroutines.flow.StateFlow<WebView?>?
     /** [BrowserSurface] shows / is done with the tab's WebView (paired; the engine counts holders). */
     fun show(id: Int)
     fun park(id: Int)
-}
-
-private fun TabInfo.ownerUi(s: BrowserUiState) = when {
-    owner is Owner.User -> BrowserOwner.Me
-    control == Control.USER -> BrowserOwner.Waiting
-    else -> BrowserOwner.Ai
-}
-
-private fun TabInfo.tabOwner(s: BrowserUiState) = when {
-    owner is Owner.User -> TabOwner.Me
-    s.isMine(this) -> TabOwner.Ai
-    else -> TabOwner.OtherChat
 }
 
 private fun TabInfo.shortUrl() = url.substringAfter("://").removePrefix("www.")
 
 private fun TabInfo.host() = url.substringAfter("://").substringBefore('/').removePrefix("www.")
 
-/** FB-1c: the tab the Peek strip shows — only while this chat's run operates it (user-tab Peek shows nothing, lead decision). */
+/** FB-1c: the tab the Peek strip shows: the one this chat's run works on now (6-2). */
 internal val BrowserUiState.stripTab: TabInfo?
-    get() = current?.takeIf { panel == PanelState.Peek && running && isMine(it) && it.control == Control.AI }
+    get() {
+        if (panel != PanelState.Peek || !running) return null
+        val id = activity.entries.firstOrNull { it.value.sessionId == sessionId }?.key ?: return null
+        return tabs.firstOrNull { it.id == id }
+    }
 
-/** The panel's Peek state above the composer (FB-1c): a one-line AI status strip. */
+/** The panel's Peek state above the composer (FB-1c): "AI in tab N: tool"; a tap shows that tab (the user's pick). */
 @Composable
 fun BrowserPeek(s: BrowserUiState, actions: BrowserActions, modifier: Modifier = Modifier) {
     val t = s.stripTab ?: return
-    BrowserStatusStrip(
-        t.title.ifEmpty { t.host() }, t.host(), onOpen = { actions.setPanel(PanelState.Half) },
-        onTakeOver = { actions.takeOver(t.id); actions.setPanel(PanelState.Half) }, modifier = modifier,
-    )
+    val tool = s.activity[t.id]?.tool?.let { com.ouor.localchat.ui.chat.toolLabel(it) }.orEmpty()
+    BrowserStatusStrip(stringResource(R.string.ui_peek_activity, t.id, tool), t.host(), onOpen = { actions.select(t.id) }, modifier = modifier)
 }
 
 @Composable
@@ -189,7 +177,7 @@ internal fun PanelState.down() = if (this == PanelState.Full) PanelState.Half el
 private fun panelAnchors(h: Float) = DraggableAnchors { PanelState.Full at 0f; PanelState.Half at h * 0.45f; PanelState.Peek at h }
 
 /**
- * Half / full panel overlay plus the tab list, prompts and the B-09 ③ snackbar. Place in a full-size Box.
+ * Half / full panel overlay plus the tab list and prompts. Place in a full-size Box.
  * FB-5: the handle + toolbar drag the panel between Peek (gone), Half (55%) and Full. [onCoverHeight] gets the px of the
  * screen bottom the panel covers once it settles at Peek (0) or Half; Full is not reported (the chat is hidden anyway).
  */
@@ -290,7 +278,7 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                             BrowserToolbar(
                                 t.shortUrl(), s.tabs.size, onCollapse = null,
                                 onBack = actions::back, onForward = actions::forward, onReload = actions::reload,
-                                onNavigate = if (t.owner is Owner.User || t.control == Control.USER) actions::navigate else null, fullUrl = t.url,
+                                onNavigate = actions::navigate, fullUrl = t.url,
                                 onTabs = { actions.showTabs(true) },
                                 secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
                                 progress = if (t.loading) 0.5f else null,
@@ -298,25 +286,28 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                             )
                         }
                     },
-                    ownership = {
-                        OwnershipBar(
-                            t.ownerUi(s), toolName = s.aiActivity[t.id], idle = !(s.running && s.isMine(t)),
-                            onTakeOver = { actions.takeOver(t.id) },
-                            onGiveBack = { if (t.owner is Owner.User) actions.handToAi(t.id) else actions.giveBack(t.id) },
+                    activity = {
+                        val a = s.activity[t.id]
+                        ActivityBar(
+                            a?.tool?.let { com.ouor.localchat.ui.chat.toolLabel(it) },
+                            chat = a?.takeIf { it.sessionId != s.sessionId }?.let { stringResource(R.string.ui_other_chat) },
+                            onStop = { actions.stopRun(a?.sessionId) },
                         )
                     },
-                    banner = s.handoff?.takeIf { it.tabId == t.id }?.let { h ->
-                        { HandoffBanner(h.reason, stringResource(R.string.ui_handoff_body), actions::stopRun, { actions.giveBack(t.id) }) }
-                    },
+                    banner = drawerBanner(s, t, actions),
                 ) {
-                    // P-STABLE M6: the sensitive notice floats over the page top (closable) instead of pushing the page down.
+                    // P-STABLE M6: a policy's banner floats over the page top (closable) instead of pushing the page down.
                     Box(Modifier.fillMaxSize()) {
                         BrowserSurface(t.id, s.highlight, actions)
-                        // FB3 ui m2: closed per (tab, site); moving between pages of the same bank keeps it closed.
-                        var closed by remember(t.id, t.host()) { mutableStateOf(false) }
-                        if (t.id in s.sensitive && !closed) com.ouor.localchat.ui.components.Banner(
-                            stringResource(R.string.ui_sensitive_site), com.ouor.localchat.ui.components.BannerVariant.Info, Modifier.padding(8.dp),
-                            actions = listOf(com.ouor.localchat.ui.components.BannerAction(stringResource(R.string.ui_close)) { closed = true }),
+                        if (t.asleep != null) Box(Modifier.fillMaxSize().background(LcTheme.colors.surfaceRaised), contentAlignment = Alignment.Center) {
+                            com.ouor.localchat.ui.components.LcButton(stringResource(R.string.ui_reload_page), { actions.reload(t.id) })
+                        }
+                        // FB3 ui m2: closed per (tab, site); moving between pages of the same site keeps it closed.
+                        val banner = s.banner(t.id)
+                        var closed by remember(t.id, t.host(), banner?.key) { mutableStateOf(false) }
+                        if (banner != null && !closed) Banner(
+                            banner.text, BannerVariant.Info, Modifier.padding(8.dp),
+                            actions = listOf(BannerAction(stringResource(R.string.ui_close)) { closed = true }),
                         )
                     }
                 }
@@ -325,16 +316,54 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                 LaunchedEffect(res, notice) { kotlinx.coroutines.delay(NOTICE_MS); notice = null }
                 LcSnackbar(stringResource(res), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)))
             }
-            // QA F2: only while the AI controls the tab; in a handoff (the user already controls it) it never covers the banner.
-            if (s.touchedAiTab == t.id && t.control == Control.AI) LcSnackbar(
-                stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
-                icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
-            )
+        }
+    }
+    if (s.openFailed) {
+        LaunchedEffect(Unit) { kotlinx.coroutines.delay(NOTICE_MS); actions.dismissOpenFailed() }
+        Box(Modifier.fillMaxSize()) {
+            LcSnackbar(stringResource(R.string.ui_new_tab_failed), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)))
         }
     }
     if (s.showTabs) TabsSheet(s, actions)
-    s.prompt?.let { PromptDialog(it, actions) }
+    // The shown tab's event is asked in place; with the drawer closed nothing is shown, so nothing is asked behind it.
+    if (t != null && s.panel >= PanelState.Half) s.prompt?.let { PromptDialog(it, actions) }
 }
+
+/**
+ * Under the page (6-4, 6-1): the ask_user wait (here: [Done]; another tab: [View] [Done]), else another tab's event
+ * waiting for the user ([View]). The user step comes first: the run waits on it.
+ */
+private fun drawerBanner(s: BrowserUiState, t: TabInfo, actions: BrowserActions): (@Composable () -> Unit)? {
+    val step = s.userStep
+    val other = s.otherPrompt
+    return when {
+        step != null -> {
+            {
+                val here = step.tabId == t.id
+                Banner(
+                    if (here) stringResource(R.string.ui_user_step_here, step.task) else stringResource(R.string.ui_user_step_other, step.tabId, step.task),
+                    BannerVariant.Agent, Modifier.padding(horizontal = 10.dp, vertical = 8.dp).testTag(USER_STEP_TAG), icon = Icons.Outlined.FrontHand,
+                    actions = listOfNotNull(
+                        BannerAction(stringResource(R.string.ui_view)) { actions.select(step.tabId) }.takeIf { !here },
+                        BannerAction(stringResource(R.string.ui_done), actions::userStepDone),
+                    ),
+                )
+            }
+        }
+        other != null -> {
+            {
+                Banner(
+                    stringResource(R.string.ui_event_other_tab, other.tabId), BannerVariant.Info, Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    actions = listOf(BannerAction(stringResource(R.string.ui_view)) { actions.select(other.tabId) }),
+                )
+            }
+        }
+        else -> null
+    }
+}
+
+/** The ask_user banner (tests). */
+internal const val USER_STEP_TAG = "user-step"
 
 private const val NOTICE_MS = 3_000L
 
@@ -415,8 +444,9 @@ private const val SCROLL_FOCUSED_INTO_VIEW =
 fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
         androidx.compose.runtime.key(tabId) {
-            val view = remember(tabId) { actions.webView(tabId) }
-            if (view != null) {
+            val flow = remember(tabId) { actions.webView(tabId) }
+            val view = flow?.collectAsState()?.value
+            if (view != null) androidx.compose.runtime.key(view) {
                 val holes = LocalWebViewHoles.current
                 Box(
                     Modifier.fillMaxSize()
@@ -434,7 +464,7 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
                     onDispose { holes.intValue--; actions.park(tabId) }
                 }
             }
-            else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
+            if (view == null) Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
             // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
             // page shrinks; the panel may shrink first. Once the page has its keyboard-time height, bring the focused
             // field (if any) back into view. Scrolling only; nothing is read from the page.
@@ -515,9 +545,13 @@ private fun TabsSheet(s: BrowserUiState, actions: BrowserActions) {
         val live = s.tabs.associateBy { it.id }
         TabGrid(slots, Modifier.fillMaxWidth().height(600.dp)) { slot ->
             val t = live[slot.id]
-            if (t != null) TabCard(t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), t.tabOwner(s), { actions.select(t.id) }, onClose = { actions.close(t.id) }) { Thumbnail(t) }
-            // OtherChat = a disabled card, so the invisible slot takes no tap or key focus (same size: fixed grid cell, one badge line).
-            else Box(Modifier.reserved()) { TabCard(slot.title, slot.shortUrl(), TabOwner.OtherChat, {}) }
+            if (t != null) TabCard(
+                t.title.ifEmpty { t.shortUrl() }, t.shortUrl(), { actions.select(t.id) }, onClose = { actions.close(t.id) },
+                activity = s.activity[t.id]?.tool?.let { com.ouor.localchat.ui.chat.toolLabel(it) }, asleep = t.asleep != null,
+                badges = s.badges(t.id),
+            ) { Thumbnail(t) }
+            // A disabled card, so the invisible slot takes no tap or key focus (same size: fixed grid cell).
+            else Box(Modifier.reserved()) { TabCard(slot.title, slot.shortUrl(), {}, enabled = false) }
         }
     }
 }
@@ -532,35 +566,47 @@ internal fun tabSlots(kept: List<TabInfo>, now: List<TabInfo>): List<TabInfo> {
     return (kept.map { byId[it.id] ?: it } + now.filter { it.id !in old }).map { it.copy(thumbnail = null) }
 }
 
-/** B-06: user-facing page requests. */
+/** B-06 / 2-4: the events layer 1 handed to the user, each with its usual question. */
 @Composable
-private fun PromptDialog(p: BrowserPrompt, actions: BrowserActions) {
+private fun PromptDialog(p: BrowserEvent, actions: BrowserActions) {
     val context = LocalContext.current
+    val yes = { actions.answer(p, Answer.Accept()) }
+    val no = { actions.answer(p, Answer.Dismiss) }
     when (p) {
-        is BrowserPrompt.Download -> LcDialog(
-            stringResource(R.string.ui_download_title), { actions.answerDownload(p, false) }, stringResource(R.string.ui_allow), { actions.answerDownload(p, true) },
-            text = stringResource(R.string.ui_download_body, p.fileName, if (p.contentLength > 0) Formatter.formatShortFileSize(context, p.contentLength) else "?"),
+        is BrowserEvent.Download -> LcDialog(
+            stringResource(R.string.ui_download_title), no, stringResource(R.string.ui_allow), yes,
+            text = stringResource(R.string.ui_download_body, p.fileName, if (p.size > 0) Formatter.formatShortFileSize(context, p.size) else "?"),
             dismissLabel = stringResource(R.string.ui_deny),
         )
-        is BrowserPrompt.Permission -> LcDialog(
-            stringResource(R.string.ui_permission_title), { actions.answerPermission(p, false) }, stringResource(R.string.ui_allow), { actions.answerPermission(p, true) },
+        is BrowserEvent.Permission -> LcDialog(
+            stringResource(R.string.ui_permission_title), no, stringResource(R.string.ui_allow), yes,
             text = stringResource(R.string.ui_permission_body, p.origin, p.resources.joinToString { it.substringAfterLast('.') }),
             dismissLabel = stringResource(R.string.ui_deny),
         )
-        is BrowserPrompt.Dialog -> {
+        is BrowserEvent.Dialog -> {
             var text by remember(p.id) { mutableStateOf(p.defaultText.orEmpty()) }
             LcDialog(
-                p.url.substringAfter("://").substringBefore('/'), { actions.answerDialog(p, false, null) }, stringResource(R.string.ui_ok),
-                { actions.answerDialog(p, true, text.takeIf { p.kind == DialogKind.PROMPT }) }, text = p.message,
+                p.url.substringAfter("://").substringBefore('/'), no, stringResource(R.string.ui_ok),
+                { actions.answer(p, Answer.Accept(text.takeIf { p.kind == DialogKind.PROMPT })) }, text = p.message,
                 kind = if (p.kind == DialogKind.ALERT) com.ouor.localchat.ui.components.DialogKind.Info else com.ouor.localchat.ui.components.DialogKind.Confirm,
             ) { if (p.kind == DialogKind.PROMPT) LcTextField(text, { text = it }) }
         }
-        is BrowserPrompt.FileChooser -> {
-            val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { actions.answerFiles(p, it.takeIf { u -> u.isNotEmpty() }) }
+        is BrowserEvent.FileChooser -> {
+            val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                actions.answer(p, if (uris.isEmpty()) Answer.Dismiss else Answer.Files(uris))
+            }
             LaunchedEffect(p.id) {
                 val types = p.acceptTypes.filter { '/' in it }.ifEmpty { listOf("*/*") }
                 picker.launch(types.toTypedArray())
             }
         }
+        is BrowserEvent.ExternalLink -> LcDialog(
+            stringResource(R.string.ui_external_title), no, stringResource(R.string.ui_open), yes, text = p.uri, dismissLabel = stringResource(R.string.ui_cancel),
+        )
+        is BrowserEvent.Popup -> LcDialog(
+            stringResource(R.string.ui_popup_title), no, stringResource(R.string.ui_allow), yes, dismissLabel = stringResource(R.string.ui_deny),
+        )
+        // Nothing to ask (no policy hands these to the user): answered as layer 1 would.
+        is BrowserEvent.RendererGone, is BrowserEvent.MemoryPressure -> LaunchedEffect(p.id) { no() }
     }
 }

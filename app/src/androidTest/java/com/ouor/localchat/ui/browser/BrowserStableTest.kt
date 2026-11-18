@@ -1,6 +1,5 @@
 package com.ouor.localchat.ui.browser
 
-import android.net.Uri
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,10 +31,11 @@ import androidx.compose.ui.text.TextRange
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
-import com.ouor.localchat.browser.BrowserPrompt
-import com.ouor.localchat.browser.Control
-import com.ouor.localchat.browser.Owner
+import com.ouor.localchat.browser.Answer
+import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.browser.TabInfo
+import com.ouor.localchat.browser.ToolActivity
+import com.ouor.localchat.policy.Notice
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.theme.LocalchatTheme
@@ -67,23 +67,18 @@ class BrowserStableTest {
         override fun back() {}
         override fun forward() {}
         override fun reload() {}
-        override fun takeOver(id: Int) {}
-        override fun dismissTouch() {}
-        override fun giveBack(id: Int) {}
-        override fun handToAi(id: Int) {}
-        override fun takeTab(id: Int) {}
-        override fun stopRun() {}
-        override fun answerDialog(p: BrowserPrompt.Dialog, accept: Boolean, text: String?) {}
-        override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
-        override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
-        override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
+        override fun reload(id: Int) {}
+        override fun dismissOpenFailed() {}
+        override fun stopRun(sessionId: String?) {}
+        override fun userStepDone() {}
+        override fun answer(e: BrowserEvent, answer: Answer) {}
         override fun savePdf(id: Int, uri: android.net.Uri, done: (Boolean) -> Unit) {}
-        override fun webView(id: Int): WebView? = null
+        override fun webView(id: Int): kotlinx.coroutines.flow.StateFlow<WebView?>? = null
         override fun show(id: Int) {}
         override fun park(id: Int) {}
     }
 
-    private fun tab(id: Int, title: String) = TabInfo(id, title, "https://e$id.example/", Owner.Ai("A"), Control.AI, loading = false)
+    private fun tab(id: Int, title: String) = TabInfo(id, title, "https://e$id.example/", loading = false)
 
     private fun show(state: BrowserUiState) {
         s = state
@@ -100,40 +95,56 @@ class BrowserStableTest {
         rule.waitForIdle()
     }
 
-    @Test fun handoffBannerSitsUnderThePageWithoutCoveringIt() { // M5, FB3 ui B1
-        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Login")), sessionId = "A", running = true))
+    @Test fun userStepBannerSitsUnderThePageWithoutCoveringIt() { // M5, FB3 ui B1, ask_user (6-4)
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Login")), front = 1, sessionId = "A", running = true))
         val page = page().bounds()
         val tabs = tabsButton().bounds()
-        change { it.copy(handoff = Pause.Handoff(1, "로그인이 필요합니다"), tabs = it.tabs.map { t -> t.copy(control = Control.USER) }) }
-        rule.onNodeWithText("로그인이 필요합니다").assertIsDisplayed()
+        change { it.copy(userStep = Pause.UserStep(1, "로그인")) }
+        val banner = rule.onNodeWithTag(USER_STEP_TAG)
+        banner.assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.ui_user_step_here, "로그인")).assertIsDisplayed()
         val after = page().bounds()
         // Page top and the controls stay put; only the viewport's bottom edge rises above the banner.
         assertEquals(page.top, after.top, 0.5f)
         assertEquals(page.left, after.left, 0.5f)
         assertTrue("page shrank from the bottom", after.bottom < page.bottom)
-        assertTrue("banner below the page, not over it", rule.onNodeWithText("로그인이 필요합니다").bounds().top >= after.bottom - 0.5f)
+        assertTrue("banner below the page, not over it", banner.bounds().top >= after.bottom - 0.5f)
         assertEquals(tabs, tabsButton().bounds())
-        // The ownership bar stays right under the toolbar (above the page), not at the panel bottom.
-        assertTrue(rule.onNodeWithText(ctx.getString(R.string.ui_me)).bounds().bottom <= page.top + 0.5f)
     }
 
-    @Test fun closedSensitiveBannerStaysClosedOnTheSameSite() { // FB3 ui m2
-        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Bank")), sessionId = "A", sensitive = setOf(1)))
+    @Test fun aiActivityDoesNotMoveThePageOrTheControls() { // P-STABLE: the activity bar has a fixed slot above the page
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Page")), front = 1, sessionId = "A"))
+        val page = page().bounds()
+        val tabs = tabsButton().bounds()
+        change { it.copy(activity = mapOf(1 to ToolActivity("B", "test_tool")), running = true) }
+        rule.onNodeWithText(ctx.getString(R.string.ui_stop)).assertIsDisplayed()
+        assertTrue(rule.onNodeWithText(ctx.getString(R.string.ui_stop)).bounds().bottom <= page.top + 0.5f)
+        assertEquals(page, page().bounds())
+        assertEquals(tabs, tabsButton().bounds())
+        change { it.copy(activity = emptyMap(), running = false) }
+        assertEquals(page, page().bounds())
+        assertEquals(1, s.front)
+    }
+
+    private fun bannerNotice(tabId: Int) = Notice("test-banner", "정책 안내", tabId, Notice.Style.BANNER)
+
+    @Test fun closedPolicyBannerStaysClosedOnTheSameSite() { // FB3 ui m2
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "Bank")), sessionId = "A", notices = listOf(bannerNotice(1))))
         rule.onNodeWithText(ctx.getString(R.string.ui_close)).performClick()
         change { it.copy(tabs = it.tabs.map { t -> t.copy(url = "https://e1.example/accounts") }) }
-        rule.onNodeWithText(ctx.getString(R.string.ui_sensitive_site)).assertDoesNotExist()
+        rule.onNodeWithText("정책 안내").assertDoesNotExist()
         change { it.copy(tabs = it.tabs.map { t -> t.copy(url = "https://other-bank.example/") }) }
-        rule.onNodeWithText(ctx.getString(R.string.ui_sensitive_site)).assertIsDisplayed()
+        rule.onNodeWithText("정책 안내").assertIsDisplayed()
     }
 
-    @Test fun sensitiveBannerFloatsOverThePageAndCloses() { // M6
+    @Test fun policyBannerFloatsOverThePageAndCloses() { // M6
         show(BrowserUiState(PanelState.Full, listOf(tab(1, "Bank")), sessionId = "A"))
         val page = page().bounds()
-        change { it.copy(sensitive = setOf(1)) }
-        rule.onNodeWithText(ctx.getString(R.string.ui_sensitive_site)).assertIsDisplayed()
+        change { it.copy(notices = listOf(bannerNotice(1))) }
+        rule.onNodeWithText("정책 안내").assertIsDisplayed()
         assertEquals(page, page().bounds())
         rule.onNodeWithText(ctx.getString(R.string.ui_close)).performClick()
-        rule.onNodeWithText(ctx.getString(R.string.ui_sensitive_site)).assertDoesNotExist()
+        rule.onNodeWithText("정책 안내").assertDoesNotExist()
         assertEquals(page, page().bounds())
     }
 
@@ -148,7 +159,7 @@ class BrowserStableTest {
 
     @Test fun addressIsEditedInPlace() { // FB5 B2: no dialog; the bar and its buttons keep their place
         val url = "https://www.e1.example/search?q=a"
-        show(BrowserUiState(PanelState.Full, listOf(TabInfo(1, "Mine", url, Owner.User, Control.USER, loading = false)), sessionId = "A"))
+        show(BrowserUiState(PanelState.Full, listOf(TabInfo(1, "Mine", url, loading = false)), sessionId = "A"))
         val controls = listOf(R.string.ui_back, R.string.ui_forward, R.string.ui_reload).map { rule.onNodeWithContentDescription(ctx.getString(it)) }
         val before = controls.map { it.bounds() } + tabsButton().bounds()
         val shown = rule.onNodeWithText("e1.example/search?q=a")
@@ -175,12 +186,6 @@ class BrowserStableTest {
         shown.assertIsDisplayed()
         assertEquals(listOf("kotlinlang.org"), navigated)
         assertEquals(before, controls.map { it.bounds() } + tabsButton().bounds())
-    }
-
-    @Test fun aiTabAddressIsNotEditable() { // FB5 B2: only the user's tab (or one the user controls)
-        show(BrowserUiState(PanelState.Full, listOf(tab(1, "AI")), sessionId = "A", running = true))
-        rule.onNodeWithText("e1.example/").performClick()
-        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist()
     }
 
     @Test fun tabCountSitsInTheMiddleOfItsBox() { // FB5 B3: the digits' ink is centred, not pushed down by the line height

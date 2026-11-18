@@ -116,7 +116,6 @@
     <string name="ui_thought_for">%1$s 동안 생각함</string>
     <string name="ui_tool_click">클릭</string>
     <string name="ui_tool_execute">스크립트 실행</string>
-    <string name="ui_tool_handoff">넘겨받기</string>
     <string name="ui_tool_type">입력</string>
     <string name="ui_tool_web_search">검색</string>
     <string name="ui_voice_input">음성 입력</string>
@@ -321,7 +320,6 @@
     <string name="ui_tabs_title">탭 %1$d</string>
     <string name="ui_cap_priority">내 설정 &gt; 서버 값 &gt; 내장 표 순서로 적용돼요.</string>
     <string name="ui_tool_read">페이지 읽기</string>
-    <string name="ui_tool_browse">브라우저에서 보기</string>
     <string name="ui_tool_status_opening">페이지 여는 중</string>
     <string name="ui_tool_status_settling">페이지가 다 그려지길 기다리는 중</string>
     <string name="ui_tool_status_retrying">연결 다시 시도 중</string>

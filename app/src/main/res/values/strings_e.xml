@@ -116,7 +116,6 @@
     <string name="ui_thought_for">Thought for %1$s</string>
     <string name="ui_tool_click">Click</string>
     <string name="ui_tool_execute">Run script</string>
-    <string name="ui_tool_handoff">Hand over</string>
     <string name="ui_tool_type">Type</string>
     <string name="ui_tool_web_search">Search</string>
     <string name="ui_voice_input">Voice input</string>
@@ -321,7 +320,6 @@
     <string name="ui_tabs_title">Tabs %1$d</string>
     <string name="ui_cap_priority">Your setting wins over the server value, which wins over the built-in table.</string>
     <string name="ui_tool_read">Read page</string>
-    <string name="ui_tool_browse">Open in browser</string>
     <string name="ui_tool_status_opening">Opening page</string>
     <string name="ui_tool_status_settling">Waiting for the page to finish</string>
     <string name="ui_tool_status_retrying">Retrying the connection</string>

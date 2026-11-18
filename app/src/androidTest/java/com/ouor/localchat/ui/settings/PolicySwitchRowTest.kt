@@ -24,13 +24,14 @@ import com.ouor.localchat.ui.Shots
 import com.ouor.localchat.ui.components.SettingsGroup
 import com.ouor.localchat.ui.theme.LcTheme
 import com.ouor.localchat.ui.theme.LocalchatTheme
+import com.ouor.localchat.policy.SettingItem
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** FB2-2: turning the built-in list off asks once (cancel keeps it on); turning it on does not ask. */
+/** FB2-2 through a policy switch row: turning the built-in list off asks once (cancel keeps it on); turning it on does not ask. */
 @RunWith(AndroidJUnit4::class)
-class BuiltInSensitiveRowTest {
+class PolicySwitchRowTest {
     @get:Rule val screen = ScreenOnRule()
     @get:Rule val rule = createComposeRule()
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -43,7 +44,12 @@ class BuiltInSensitiveRowTest {
         rule.setContent {
             LocalchatTheme(true) {
                 Column(Modifier.fillMaxSize().background(LcTheme.colors.surface).statusBarsPadding().padding(top = 16.dp)) {
-                    SettingsGroup { BuiltInSensitiveRow(enabled, 156) { enabled = it } }
+                    SettingsGroup {
+                        // A policy's switch drawn by shape (browser-layers 4-1): here the built-in sensitive list's.
+                        val description = if (enabled) ctx.resources.getQuantityString(R.plurals.fb2_s_builtin_on, 156, 156) else ctx.getString(R.string.fb2_s_builtin_off)
+                        val confirm = SettingItem.Confirm(ctx.getString(R.string.fb2_s_off_title), ctx.getString(R.string.fb2_s_off_body), ctx.getString(R.string.fb2_s_off_confirm))
+                        SwitchSettingRow(ctx.getString(R.string.ui_sensitive_builtin), description, enabled, confirm) { enabled = it }
+                    }
                 }
             }
         }

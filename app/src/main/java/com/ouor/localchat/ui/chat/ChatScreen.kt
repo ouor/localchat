@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Menu
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import com.ouor.localchat.R
 import com.ouor.localchat.chat.ChatRejected
 import com.ouor.localchat.chat.run.Pause
+import androidx.compose.ui.graphics.asImageBitmap
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
 import com.ouor.localchat.attach.PrepFailure
@@ -434,16 +436,13 @@ internal fun ChatScreen(
     when (val p = state.pause) {
         // Locked sheet: swipe and outside taps do nothing; back = deny (SC-13).
         is Pause.Approval -> LcBottomSheet({ chat.resolve(Resolution.ApprovalAnswer(p.id, false)) }, null, locked = true) {
+            // browser-layers 4-1: the sheet draws the request's four fields only; the policy wrote the words.
             val r = p.request
             ApprovalContent(
-                toolVisual(r.toolName).icon,
-                stringResource(R.string.ui_approval_title, toolLabel(r.toolName)),
-                r.targetText ?: stringResource(if (r.code != null) R.string.ui_approval_code else R.string.ui_approval_body),
-                listOfNotNull(r.tabId?.let { stringResource(R.string.ui_tab_n, it) }, r.url).joinToString(" · "),
+                Icons.Outlined.WarningAmber, r.title, r.target, r.pageUrl.orEmpty(),
                 onDeny = { chat.resolve(Resolution.ApprovalAnswer(p.id, false)) },
                 onAllow = { chat.resolve(Resolution.ApprovalAnswer(p.id, true)) },
-                code = r.code,
-                preview = r.previewId?.let(state.attachments::get)?.let(composer::thumbnail),
+                preview = remember(r.preview) { r.preview?.asImageBitmap() },
             )
         }
         is Pause.StepLimit -> LcDialog(

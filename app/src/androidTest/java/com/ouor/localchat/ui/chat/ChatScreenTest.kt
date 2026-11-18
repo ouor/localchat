@@ -29,8 +29,9 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
-import com.ouor.localchat.browser.BrowserPrompt
-import com.ouor.localchat.chat.run.ApprovalInfo
+import com.ouor.localchat.browser.Answer
+import com.ouor.localchat.browser.BrowserEvent
+import com.ouor.localchat.policy.ApprovalRequest
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase
@@ -92,7 +93,7 @@ class ChatScreenTest {
         override fun compactNow() {}
         override fun readAloud(messageId: String, text: String) { read += messageId to text }
         override fun toolStep(block: com.ouor.localchat.core.model.ToolCallBlock, result: com.ouor.localchat.core.model.ToolResultBlock?) =
-            com.ouor.localchat.chat.ToolStep(R.string.ui_read_aloud, "bank.example", failureRes = R.string.chat_step_fail_sensitive)
+            com.ouor.localchat.chat.ToolStep(R.string.ui_read_aloud, "bank.example", failureRes = R.string.chat_step_fail_blocked)
     }
 
     private val composer = object : ComposerActions {
@@ -125,18 +126,13 @@ class ChatScreenTest {
         override fun back() {}
         override fun forward() {}
         override fun reload() {}
-        override fun takeOver(id: Int) {}
-        override fun dismissTouch() {}
-        override fun giveBack(id: Int) {}
-        override fun handToAi(id: Int) {}
-        override fun takeTab(id: Int) {}
-        override fun stopRun() {}
-        override fun answerDialog(p: BrowserPrompt.Dialog, accept: Boolean, text: String?) {}
-        override fun answerFiles(p: BrowserPrompt.FileChooser, uris: List<Uri>?) {}
-        override fun answerPermission(p: BrowserPrompt.Permission, grant: Boolean) {}
-        override fun answerDownload(p: BrowserPrompt.Download, allow: Boolean) {}
+        override fun reload(id: Int) {}
+        override fun dismissOpenFailed() {}
+        override fun stopRun(sessionId: String?) {}
+        override fun userStepDone() {}
+        override fun answer(e: BrowserEvent, answer: Answer) {}
         override fun savePdf(id: Int, uri: Uri, done: (Boolean) -> Unit) {}
-        override fun webView(id: Int): WebView? = null
+        override fun webView(id: Int): kotlinx.coroutines.flow.StateFlow<WebView?>? = null
         override fun show(id: Int) {}
         override fun park(id: Int) {}
     }
@@ -169,7 +165,7 @@ class ChatScreenTest {
     }
 
     @Test fun approvalSheetShowsTargetAndAllows() {
-        val info = ApprovalInfo("click", 3, "https://shop.example/cart", "Place order")
+        val info = ApprovalRequest("Confirm order", "Place order", null, "https://shop.example/cart")
         show(ChatUiState(loading = false, turns = listOf(turn("buy it", reply(""), live = true)), runPhase = RunPhase.Paused(Pause.Approval("p1", info))))
         rule.onNodeWithText("Place order").assertIsDisplayed()
         rule.onNodeWithText("https://shop.example/cart", substring = true).assertIsDisplayed()
@@ -181,7 +177,7 @@ class ChatScreenTest {
         // QA: the step line said "click e11" while the sheet said link "upvote".
         val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "click", """{"ref":"e11"}""", 0, com.ouor.localchat.core.model.ToolCallState.AWAITING_APPROVAL, 0)
         val body = reply("", ReplyStatus.STREAMING).let { it.copy(blocks = it.blocks + call) }
-        val info = ApprovalInfo("click", 3, "https://news.example/", "link \"upvote\"")
+        val info = ApprovalRequest("Confirm", "link \"upvote\"", null, "https://news.example/")
         show(ChatUiState(loading = false, turns = listOf(turn("vote", body, live = true)), runPhase = RunPhase.Paused(Pause.Approval(call.key, info))))
         rule.onAllNodesWithText("link \"upvote\"", useUnmergedTree = true).assertCountEquals(2) // the sheet and the step
         rule.onAllNodesWithText("bank.example", useUnmergedTree = true).assertCountEquals(0) // not the step's own argument
@@ -196,7 +192,7 @@ class ChatScreenTest {
         rule.onNodeWithText(chooseModel, substring = true, useUnmergedTree = true).performClick()
         rule.waitForIdle()
         rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(2) // chip + sheet title
-        state = state.copy(runPhase = RunPhase.Paused(Pause.Approval("p1", ApprovalInfo("click", 3, "https://shop.example/cart", "Place order"))))
+        state = state.copy(runPhase = RunPhase.Paused(Pause.Approval("p1", ApprovalRequest("Confirm order", "Place order", null, "https://shop.example/cart"))))
         rule.waitForIdle()
         rule.onNodeWithText("Place order").assertIsDisplayed()
         rule.onAllNodesWithText(chooseModel, substring = true, useUnmergedTree = true).assertCountEquals(1) // the sheet closed; the chip stays
@@ -296,7 +292,7 @@ class ChatScreenTest {
         val body = MessageBody.Assistant(listOf(call, TextBlock("Done", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
         show(ChatUiState(loading = false, turns = listOf(turn("read it", body))))
         rule.onNodeWithText(ctx.getString(R.string.ui_steps_failed, 1, 1)).performClick()
-        rule.onNodeWithText(ctx.getString(R.string.chat_step_fail_sensitive), substring = true).assertIsDisplayed()
+        rule.onNodeWithText(ctx.getString(R.string.chat_step_fail_blocked), substring = true).assertIsDisplayed()
     }
 
     @Test fun stepLimitWrapUpEndsTheToolSteps() { // BUG-18, FB4: the stop button is "Wrap up"
@@ -347,8 +343,10 @@ class ChatScreenTest {
 
     // ---- FB-1 ----
 
-    private val aiTab = com.ouor.localchat.browser.TabInfo(1, "Wiki", "https://wiki.example/hr", com.ouor.localchat.browser.Owner.Ai("s"),
-        com.ouor.localchat.browser.Control.AI, loading = false)
+    private val aiTab = com.ouor.localchat.browser.TabInfo(1, "Wiki", "https://wiki.example/hr", loading = false)
+    private val working = mapOf(1 to com.ouor.localchat.browser.ToolActivity("s", "test_tool"))
+    /** The Peek strip for [working] (an unknown tool name is shown as is). */
+    private val stripCd get() = ctx.getString(R.string.fb_e4_strip_cd, ctx.getString(R.string.ui_peek_activity, 1, "test_tool"))
 
     @Test fun emptyChatOpensOptionsWithoutHeroChipOrCaveat() { // FB-1a, FB-1b, lead decision 1
         show(ChatUiState(loading = false))
@@ -377,8 +375,8 @@ class ChatScreenTest {
     private fun tailBottom() = rule.onNodeWithText("TAIL-MARKER", substring = true).fetchSemanticsNode().boundsInRoot.bottom
 
     @Test fun statusStripNeverCoversTheLastLine() { // FB-1c
-        longChat(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true))
-        val strip = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki"))
+        longChat(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", activity = working, running = true))
+        val strip = rule.onNodeWithContentDescription(stripCd)
         strip.assertIsDisplayed()
         rule.waitUntil(5_000) { runCatching { rule.onNodeWithText("TAIL-MARKER", substring = true).assertIsDisplayed() }.isSuccess }
         assertTrue(tailBottom() <= strip.fetchSemanticsNode().boundsInRoot.top)
@@ -388,7 +386,7 @@ class ChatScreenTest {
     @Test fun fb1Screenshots() {
         val long = (1..12).joinToString("\n\n") { "문단 $it. 강남구 아파트 전세 시세는 최근 3개월 기준 보합 흐름입니다." } + "\n\nTAIL-MARKER 마지막 줄"
         val chatState = ChatUiState(loading = false, turns = listOf(turn("전세 시세 알려줘", reply(long))))
-        val strip = BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true)
+        val strip = BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", activity = working, running = true)
         var scene by mutableStateOf(0)
         rule.setContent {
             val d = androidx.compose.ui.platform.LocalDensity.current
@@ -416,7 +414,7 @@ class ChatScreenTest {
             when (i) {
                 0, 4 -> rule.onNodeWithText(search, useUnmergedTree = true).assertIsDisplayed()
                 1 -> rule.onNodeWithText(search, useUnmergedTree = true).assertDoesNotExist()
-                else -> assertTrue(tailBottom() <= rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_strip_cd, "Wiki")).fetchSemanticsNode().boundsInRoot.top)
+                else -> assertTrue(tailBottom() <= rule.onNodeWithContentDescription(stripCd).fetchSemanticsNode().boundsInRoot.top)
             }
             saveBitmap(rule.onRoot().captureToImage().asAndroidBitmap(), name)
         }
@@ -538,7 +536,7 @@ class ChatScreenTest {
     }
 
     @Test fun panelCoveringTheInputTakesItsFocus() { // FB4 QA F1: the hidden input's keyboard must not shrink the page
-        var bs by mutableStateOf(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", running = true))
+        var bs by mutableStateOf(BrowserUiState(PanelState.Peek, listOf(aiTab), sessionId = "s", activity = working, running = true))
         rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))), ComposerUiState(), bs, chat, composer, browser, nav) } }
         val input = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder))
         input.performClick()
@@ -549,14 +547,13 @@ class ChatScreenTest {
     }
 
     @Test fun tapsOnThePanelNeverReachTheChatBehindIt() { // FB4 QA O5: a tap between the banner's text and buttons focused the hidden input
-        val handed = aiTab.copy(control = com.ouor.localchat.browser.Control.USER)
-        val bs = BrowserUiState(PanelState.Half, listOf(handed), sessionId = "s", running = true, handoff = Pause.Handoff(1, "Please sign in"))
+        val bs = BrowserUiState(PanelState.Half, listOf(aiTab), front = 1, sessionId = "s", running = true, userStep = Pause.UserStep(1, "Please sign in"))
         rule.setContent { LocalchatTheme(false) { ChatScreen(ChatUiState(loading = false, turns = listOf(turn("hi", reply("Hello")))), ComposerUiState(), bs, chat, composer, browser, nav) } }
         val input = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_composer_placeholder))
-        val give = rule.onNodeWithText(ctx.getString(R.string.ui_give_back_to_ai)).fetchSemanticsNode().boundsInRoot
+        val give = rule.onNodeWithText(ctx.getString(R.string.ui_done)).fetchSemanticsNode().boundsInRoot
         val handle = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd)).fetchSemanticsNode().boundsInRoot
         // The banner's gap left of its button (over the input), beside the handle, and below the banner's body text.
-        val body = rule.onNodeWithText(ctx.getString(R.string.ui_handoff_body)).fetchSemanticsNode().boundsInRoot
+        val body = rule.onNodeWithText(ctx.getString(R.string.ui_user_step_here, "Please sign in")).fetchSemanticsNode().boundsInRoot
         listOf(Offset(give.left - 30f, give.center.y), Offset(handle.right + 60f, handle.center.y), Offset(body.center.x, body.bottom + 4f)).forEach { p ->
             rule.onRoot().performTouchInput { click(p) }
             rule.waitForIdle()
@@ -565,7 +562,7 @@ class ChatScreenTest {
     }
 
     @Test fun halfPanelLetsTheLastLineScrollAboveIt() { // FB-1c with the FB-5 Half panel
-        longChat(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "s", running = true))
+        longChat(BrowserUiState(PanelState.Half, listOf(aiTab), sessionId = "s", activity = working, running = true))
         val handle = rule.onNodeWithContentDescription(ctx.getString(R.string.fb_e4_handle_cd))
         rule.waitUntil(5_000) { runCatching { tailBottom() <= handle.fetchSemanticsNode().boundsInRoot.top }.getOrDefault(false) }
     }
