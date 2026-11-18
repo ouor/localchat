@@ -16,6 +16,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -151,6 +152,9 @@ fun LocalchatTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composa
     if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
         // Edge-to-edge bars are transparent; icon color must follow the app theme, not the system one.
         (view.context as? android.app.Activity)?.window?.let { w ->
+            // Shows wherever nothing is drawn yet (the browser page hole for a frame, FB5 M1): the app's surface,
+            // not the platform theme's dark gray in light mode.
+            w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(colors.surface.toArgb()))
             androidx.core.view.WindowCompat.getInsetsController(w, view).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme
