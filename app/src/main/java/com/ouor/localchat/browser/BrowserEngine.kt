@@ -281,23 +281,16 @@ class BrowserEngine @Inject constructor(
         hostActivity = null
     }
 
-    /** BrowserSurface takes the WebView into its panel. */
+    /** BrowserSurface shows the WebView where it is, in the host, under its panel area (FB5 B4: never moved). */
     @MainThread
-    fun unpark(tabId: Int): WebView {
-        val w = tab(tabId).webView
-        (w.parent as? ViewGroup)?.removeView(w)
-        w.visibility = View.VISIBLE
-        return w
-    }
+    fun unpark(tabId: Int): WebView = tab(tabId).webView
 
-    /** BrowserSurface gives the WebView back to the host container. */
+    /** BrowserSurface is done with it: back to parked (hidden, full size). */
     fun park(tabId: Int) {
         onMain {
             val t = byId[tabId] ?: return@onMain
-            val w = t.webView
             if (t.refreshThumbnail()) publish() // last frame the user saw
-            (w.parent as? ViewGroup)?.removeView(w)
-            parkInHost(w)
+            parkInHost(t.webView)
         }
     }
 
@@ -307,8 +300,10 @@ class BrowserEngine @Inject constructor(
      */
     private fun parkInHost(w: WebView) {
         w.visibility = View.INVISIBLE
+        w.translationX = 0f
+        w.translationY = 0f
         val h = host ?: return
-        h.addView(w, full())
+        if (w.parent === h) w.layoutParams = full() else h.addView(w, full())
         // Screen off / dozing: no layout pass runs, so a new WebView would stay 0x0 (page innerWidth 0, no screenshots).
         // Give it the host's size now (when the host was never laid out: the Activity window's, split screen
         // included, else the display's); the next real pass agrees.

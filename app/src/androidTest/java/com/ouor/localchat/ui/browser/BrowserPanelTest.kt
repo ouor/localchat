@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -88,7 +89,12 @@ class BrowserPanelTest {
         rule.setContent {
             androidx.compose.runtime.CompositionLocalProvider(com.ouor.localchat.ui.components.LocalReducedMotion provides reduced) {
                 LocalchatTheme(false) {
-                    Box(Modifier.fillMaxSize()) {
+                    // Like MainActivity: the WebView lives under the Compose content, seen through the page area (FB5 B4).
+                    val root = androidx.compose.ui.platform.LocalView.current
+                    androidx.compose.runtime.SideEffect {
+                        page?.takeIf { it.parent == null }?.let { root.rootView.findViewById<android.widget.FrameLayout>(android.R.id.content).addView(it, 0) }
+                    }
+                    Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }) {
                         Column { BrowserPeek(s, actions) }
                         BrowserOverlay(s, actions) { cover = it; covers += it }
                     }

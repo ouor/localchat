@@ -11,6 +11,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.click
@@ -115,7 +117,9 @@ class BrowserImeTest {
             web = WebViewFactory.create(rule.activity) // the app's settings (wide viewport, zoom)
         }
         s = state
-        rule.setContent { LocalchatTheme(false) { Box(Modifier.fillMaxSize()) { outside(); BrowserOverlay(s, actions) } } }
+        rule.setContent { LocalchatTheme(false) { Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) { outside(); BrowserOverlay(s, actions) } } }
+        // Like MainActivity's host: under the Compose content (index 0), where BrowserSurface shows it (FB5 B4).
+        rule.runOnUiThread { rule.activity.findViewById<android.widget.FrameLayout>(android.R.id.content).addView(web, 0) }
         rule.waitForIdle()
         rule.runOnUiThread { web!!.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) } // loaded once on screen
         rule.waitUntil(10_000) { rule.runOnUiThread<Boolean> { web?.progress == 100 } }
