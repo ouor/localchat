@@ -28,6 +28,8 @@ class ShowParkTest {
                     assertEquals("one holder left", View.VISIBLE, w.visibility)
                     engine.park(id)
                     assertEquals("no holder left", View.INVISIBLE, w.visibility)
+                    val compose = (activity.findViewById<View>(android.R.id.content) as android.view.ViewGroup).getChildAt(1)
+                    assertEquals("TalkBack reads the page after the app UI (FB5 M3)", compose.id, w.accessibilityTraversalAfter)
                 } finally {
                     engine.close(id)
                 }

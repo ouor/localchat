@@ -294,6 +294,8 @@ class BrowserEngine @Inject constructor(
         val t = byId[tabId] ?: return
         shownBy[tabId] = (shownBy[tabId] ?: 0) + 1
         t.webView.visibility = View.VISIBLE
+        // TalkBack reads the page after the app's UI, not before it (the host comes first in the view tree; FB5 M3).
+        host?.let { t.webView.accessibilityTraversalAfter = it.accessibilityTraversalAfter }
     }
 
     /** A BrowserSurface is done with it: back to parked (hidden, full size) when no other one shows it. */

@@ -31,7 +31,9 @@ class MainActivity : ComponentActivity() {
         // Tab WebViews live under the Compose content: parked at full size, the panel's one shown under its page area
         // (Phase 0 spike (b), track-c.md 5; FB5 B4).
         val content = findViewById<FrameLayout>(android.R.id.content)
+        val compose = content.getChildAt(0).apply { if (id == android.view.View.NO_ID) id = android.view.View.generateViewId() }
         val webViewHost = FrameLayout(this)
+        webViewHost.accessibilityTraversalAfter = compose.id // the engine copies it to each shown WebView (FB5 M3)
         content.addView(webViewHost, 0, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         browserEngine.attachHost(this, webViewHost)
     }
