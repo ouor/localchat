@@ -72,6 +72,8 @@ class TabModelTest {
         "/refused" -> if (refusedHits.incrementAndGet() == 1) MockResponse.Builder().addHeader("Content-Type", "application/zip")
             .addHeader("Content-Disposition", "attachment; filename=r.zip").body("zip").build()
         else MockResponse.Builder().code(403).body("no").build()
+        "/octet.csv" -> MockResponse.Builder().addHeader("Content-Type", "application/octet-stream")
+            .addHeader("Content-Disposition", "attachment; filename=octet.csv").body("a,b").build()
         "/hang.png" -> { Thread.sleep(6_000); MockResponse.Builder().code(404).build() }
         "/loading" -> html("""<!doctype html><title>Loading</title><img src="/hang.png"><a id="file" href="/file" style="display:block;height:60px">File</a>""")
         "/rows" -> html("<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Rows</title>" +
@@ -267,6 +269,18 @@ class TabModelTest {
         assertEquals(9L, file.size)
         // QA B5: the navigation ended in a file, so the tab still shows its page.
         assertTrue(main { tab.url }, main { tab.url }.endsWith("/links"))
+    }
+
+    /** QA R-B11: a file sent as octet-stream keeps its extension when Downloads already has that name. */
+    @Test fun aTakenNameKeepsItsExtension() {
+        val tab = openReady("/a")
+        val names = List(2) {
+            val since = SystemClock.uptimeMillis()
+            main { tab.load(url("/octet.csv?n=$it")) }
+            eventually("saved") { tab.downloadsSince(since).firstOrNull { it.state == DownloadNote.State.SAVED } }.fileName
+        }
+        assertEquals(names.toString(), 2, names.distinct().size)
+        assertTrue(names.toString(), names.all { it.endsWith(".csv") })
     }
 
     /** QA B3: a refusal when the app fetches the file is a failure with its reason. */

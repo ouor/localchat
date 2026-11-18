@@ -642,7 +642,8 @@ class BrowserTab internal constructor(
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
             // A generic type makes Downloads put " (1)" after the extension of a taken name (QA R-B11): use the name's type.
-            put(MediaStore.Downloads.MIME_TYPE, mime)
+            val byName = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
+            put(MediaStore.Downloads.MIME_TYPE, if (mime == "application/octet-stream" && byName != null) byName else mime)
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Downloads refused the file")
