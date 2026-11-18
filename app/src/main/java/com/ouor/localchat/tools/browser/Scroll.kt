@@ -60,12 +60,15 @@ object Scroll : Tool {
                 }
             }
             val s = r ?: throw ToolError("The page did not scroll.")
-            val where = if (s.max <= 0) 100 else (s.y * 100 / s.max).coerceIn(0, 100)
+            // QA B7: where it is once the page settled; when the page grew the % can go back, so the result says it grew.
+            val at = runCatching { scroll(tab, "none", ref) }.getOrNull() ?: s
+            val where = if (at.max <= 0) 100 else (at.y * 100 / at.max).coerceIn(0, 100)
+            val grew = if (at.max > s.maxBefore) " (the page grew longer: ${s.maxBefore + at.docHeight - at.max} → ${at.docHeight} px)" else ""
             val lead = when {
                 !s.moved && dir == "down" -> "Reached the bottom; nothing more loaded."
                 !s.moved -> "Already at the top."
                 else -> "Scrolled $dir" + (if (acted.change == Change.UPDATED || acted.change == Change.NEW_PAGE) " → the page loaded more" else "") +
-                    "; $where% down ${if (ref != null) "the element" else "the page"}."
+                    "; $where% down ${if (ref != null) "the element" else "the page"}$grew."
             } + (s.box?.takeIf { ref == null }?.let { " (scrolled the page's main pane, $it)" } ?: "")
             ctx.actionResult(tab, lead, acted, "$dir $where%", screen = true, change = false)
         }

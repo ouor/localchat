@@ -107,6 +107,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
         val reply = awaitEnd(send("feed"))
         val t = reply.results().map { it.modelText }
         assertTrue(t[1], t[1].startsWith("Scrolled down"))
+        // QA B7: the feed grew while the scroll waited, and the result says so with the settled position.
+        assertTrue(t[1], Regex("""^Scrolled down → the page loaded more; \d+% down the page \(the page grew longer: \d+ → \d+ px\)\.""").containsMatchIn(t[1]))
         assertFalse(t[2], t[2].startsWith("Reached the bottom"))
         // The items the page loaded late (400 ms after the scroll) are listed, text lines included.
         assertTrue(t[2], "Post 25" in t[2] || "Post 30" in t[2])

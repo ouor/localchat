@@ -67,7 +67,16 @@ data class ReadText(val title: String, val url: String, val text: String, val fl
  * its scroll height and [count] the document's element count, which the app compares to tell the end from a late load.
  */
 @Serializable
-data class ScrollResult(val y: Int, val max: Int, val moved: Boolean, val docHeight: Int, val count: Int, val box: String? = null)
+data class ScrollResult(
+    val y: Int,
+    val max: Int,
+    val moved: Boolean,
+    val docHeight: Int,
+    val count: Int,
+    val box: String? = null,
+    /** The scroll range before this call moved. */
+    val maxBefore: Int = max,
+)
 
 /** `type`: the field's value after typing ([selected] = the chosen option of a select); [submitRef] = the form's submit control. */
 @Serializable

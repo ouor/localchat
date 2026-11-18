@@ -771,12 +771,14 @@
     if (a.target) { el = resolve(a.target); box = el; }
     else if (docScrolls(se)) el = se;
     else { el = largestBox() || se; if (el !== se) box = el; }
-    var step = (el === se ? innerHeight : el.clientHeight) * 0.85 * (a.dir === 'up' ? -1 : 1);
-    var before = el.scrollTop;
-    el.scrollBy({ top: step, behavior: 'instant' });
+    // dir 'none': where it is now, without moving (the position after the page loaded more).
+    var step = a.dir === 'none' ? 0 : (el === se ? innerHeight : el.clientHeight) * 0.85 * (a.dir === 'up' ? -1 : 1);
+    var before = el.scrollTop, maxBefore = Math.max(0, Math.round(el.scrollHeight - el.clientHeight));
+    if (step) el.scrollBy({ top: step, behavior: 'instant' });
     var y = el.scrollTop;
     return {
-      y: Math.round(y), max: Math.max(0, Math.round(el.scrollHeight - el.clientHeight)), moved: Math.abs(y - before) >= 1,
+      y: Math.round(y), max: Math.max(0, Math.round(el.scrollHeight - el.clientHeight)), maxBefore: maxBefore,
+      moved: Math.abs(y - before) >= 1,
       docHeight: el.scrollHeight, count: document.getElementsByTagName('*').length, box: box ? refFor(box) : null
     };
   }
