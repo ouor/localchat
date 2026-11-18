@@ -177,6 +177,17 @@ class ChatScreenTest {
         rule.runOnIdle { assertEquals(listOf<Resolution>(Resolution.ApprovalAnswer("p1", true)), resolved) }
     }
 
+    @Test fun aStepWaitingForApprovalIsNamedLikeTheSheet() {
+        // QA: the step line said "click e11" while the sheet said link "upvote".
+        val call = com.ouor.localchat.core.model.ToolCallBlock("c1", "click", """{"ref":"e11"}""", 0, com.ouor.localchat.core.model.ToolCallState.AWAITING_APPROVAL, 0)
+        val body = reply("", ReplyStatus.STREAMING).let { it.copy(blocks = it.blocks + call) }
+        val info = ApprovalInfo("click", 3, "https://news.example/", "link \"upvote\"")
+        show(ChatUiState(loading = false, turns = listOf(turn("vote", body, live = true)), runPhase = RunPhase.Paused(Pause.Approval(call.key, info))))
+        rule.onAllNodesWithText("link \"upvote\"", useUnmergedTree = true).assertCountEquals(2) // the sheet and the step
+        rule.onAllNodesWithText("bank.example", useUnmergedTree = true).assertCountEquals(0) // not the step's own argument
+        com.ouor.localchat.ui.Shots.save("approval-step-named")
+    }
+
     @Test fun approvalClosesTheOpenModelSheet() { // FB4 U-4: one sheet at a time
         var state by mutableStateOf(ChatUiState(loading = false, turns = listOf(turn("buy it", reply(""), live = true)), runPhase = RunPhase.Streaming))
         rule.setContent { LocalchatTheme(false) { ChatScreen(state, ComposerUiState(), BrowserUiState(), chat, composer, browser, nav) } }

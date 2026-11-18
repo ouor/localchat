@@ -213,6 +213,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
         // A field outside a search box is not submitted; the result points at the submit button.
         assertTrue(reply.results()[2].content, Regex("Not submitted; the form's submit button is e\\d+\\.").containsMatchIn(reply.results()[2].content))
         assertTrue(reply.results()[3].content, ToolOutcome.DENIED_TEXT in reply.results()[3].content)
+        // The denied step is named like the sheet named it, not by its ref.
+        assertEquals("button \"Send\"", engine.toolStep(reply.calls()[3], reply.results()[3])?.argSummary)
         assertTrue(reply.results()[4].content, "button \"gone\"" in reply.results()[4].content)
         assertTrue(reply.results()[5].content, "hello" in reply.results()[5].content)
         assertTrue("POST must not reach the server", pageHits.none { it == "/submit" })

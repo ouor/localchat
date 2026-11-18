@@ -60,7 +60,7 @@ object Type : Tool {
                 tab.url.startsWith("http://", ignoreCase = true) -> IrreversibleAction.Reason.INSECURE_INPUT
                 else -> null
             }
-            if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED
+            if (!ctx.guardActivate(name, tab, reason, label, at)) return@onMain ToolOutcome.DENIED.copy(summary = label)
             ctx.highlight(tab, at, if (select) R.string.browser_highlight_select else R.string.browser_highlight_type)
             var typed: TypeResult? = null
             var before: Suggestions? = null

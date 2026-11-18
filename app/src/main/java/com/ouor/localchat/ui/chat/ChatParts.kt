@@ -146,7 +146,10 @@ internal fun AssistantTurn(
                 val image = r?.artifactIds.orEmpty().firstNotNullOfOrNull { id -> state.attachments[id]?.takeIf { it.mime.startsWith("image/") }?.let(thumbnail) }
                 // tools-redesign 2-7: what the running call waits for takes the result's line (same height).
                 val waiting = (state.runPhase as? com.ouor.localchat.chat.run.RunPhase.RunningTool)?.takeIf { running && it.callId == call.callId }
-                val step = stepOf(call, r, toolStep(call, r)).copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
+                // A click/type waiting for approval is named like the sheet names it (the element, not its ref).
+                val asked = (state.pause as? com.ouor.localchat.chat.run.Pause.Approval)?.takeIf { it.id == call.key }?.request?.targetText
+                val step = stepOf(call, r, toolStep(call, r)).let { s -> asked?.let { s.copy(arg = it) } ?: s }
+                    .copy(thumbnail = image, onClick = image?.let { m -> { viewing = m } })
                 waiting?.status?.let { step.copy(result = statusText(it, waiting.engine)) } ?: step
             }
             val failed = steps.count { it.state == StepState.Failed }
