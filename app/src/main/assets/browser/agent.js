@@ -574,20 +574,28 @@
     cand.forEach(function (i) { total += items[i].s.length + 1; });
     var keep = new Set(cand);
     if (total > budget) {
-      cand.sort(function (x, y) { return (items[x].pri - items[y].pri) || (items[x].dist - items[y].dist) || (x - y); });
-      var used = 0;
+      // What is on screen is listed whatever the budget (the model acts on what it sees; at the page's end no scroll
+      // brings a left-out element back), up to twice the budget; the budget is spent on what is off screen.
+      var used = 0, off = 0;
       keep = new Set();
       cand.forEach(function (i) {
         var len = items[i].s.length + 1;
-        if (used + len <= budget) { keep.add(i); used += len; }
+        if (items[i].side === 0 && used + len <= 2 * budget) { keep.add(i); used += len; }
       });
+      cand.filter(function (i) { return items[i].side !== 0; })
+        .sort(function (x, y) { return (items[x].pri - items[y].pri) || (items[x].dist - items[y].dist) || (x - y); })
+        .forEach(function (i) {
+          var len = items[i].s.length + 1;
+          if (off + len <= budget) { keep.add(i); off += len; }
+        });
     }
-    var out = [], above = 0, below = 0;
+    var out = [], above = 0, below = 0, screenLeft = 0;
     items.forEach(function (it, i) {
       if (keep.has(i)) out.push(it.s);
+      else if (it.side === 0) screenLeft++;
       else if (it.side < 0) above++; else below++;
     });
-    return { text: out.join('\n'), listed: out.length, above: above, below: below, beyond: beyond };
+    return { text: out.join('\n'), listed: out.length, above: above, below: below, screenLeft: screenLeft, beyond: beyond };
   }
 
   // ---------- main text (read)

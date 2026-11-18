@@ -252,12 +252,13 @@ internal suspend fun ToolContext.pageResult(tab: BrowserTab, readiness: Readines
     val left = r.above + r.below
     val more = if (left == 0) "" else
         "($left more elements: ${r.above} above and ${r.below} below the listed part. scroll() brings them on screen; read() gives the page text.)"
+    val screen = if (r.screenLeft == 0) "" else "(${r.screenLeft} elements on screen could not be listed: the screen holds more than the list can carry. read() gives the page text.)"
     val beyond = if (r.beyond == 0) "" else "(${r.beyond} more elements on this very long page cannot be listed. Use read() for its text.)"
     return ToolOutcome(
         page = listOf(top, head).filter { it.isNotEmpty() }.joinToString("\n") + "\n\n" + r.text.ifBlank { "(no elements)" },
         isError = err?.http == true,
         summary = tab.title,
-        note = listOf(more, beyond).filter { it.isNotEmpty() }.joinToString("\n"),
+        note = listOf(more, screen, beyond).filter { it.isNotEmpty() }.joinToString("\n"),
     )
 }
 

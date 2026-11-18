@@ -67,8 +67,6 @@ class ToolFlowE2eTest : ToolFlowBase() {
     @Test
     fun liveHnMoreInAHiddenTab() {
         org.junit.Assume.assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
-        // The QA model's window (128k): its list budget reaches More at the bottom of a phone screen of HN.
-        caps = caps(true).copy(contextWindow = com.ouor.localchat.core.model.Sourced(128_000, com.ouor.localchat.core.model.CapSource.DEFAULT))
         llm.enqueue(
             Scenario.toolCall("open", """{"url":"https://news.ycombinator.com/newest"}"""),
             *Array(3) { Scenario.toolCall("scroll", "{}") },

@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.MainActivity
 import com.ouor.localchat.testing.ScreenOnRule
+import com.ouor.localchat.tools.browser.listBudget
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageScript
@@ -368,6 +369,19 @@ class AgentScriptTest {
         // Past MAX_ITEMS (20,000) only what is important and on screen is kept; the rest is counted apart (F6).
         assertTrue("$l", l.listed + l.above + l.below + l.beyond >= 21_001)
         assertTrue("$l", l.below > 0 && l.beyond > 0)
+    }
+
+    /** The screen is listed whatever the budget: at the bottom of HN, a 64k model's 8,000 characters still give More. */
+    @Test
+    fun theScreenIsListedWholeAtThePageEnd() = runBlocking<Unit> {
+        load("hn.html")
+        js("window.scrollTo(0, document.documentElement.scrollHeight)")
+        val l = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", listBudget(64_000)); put("screen", true) })
+        assertTrue(l.text, "link \"More\" [ref=" in l.text)
+        assertEquals("$l", 0, l.screenLeft)
+        // A budget too small for the screen: the on-screen bound (twice the budget) cuts and says how many.
+        val tiny = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 300); put("screen", true) })
+        assertTrue("$tiny", tiny.screenLeft > 0 && tiny.text.length <= 900)
     }
 
     @Test

@@ -53,6 +53,8 @@ data class PageList(
     /** Left out for the budget: scroll() reaches them. */
     val above: Int = 0,
     val below: Int = 0,
+    /** On screen but past the on-screen bound (twice the budget). */
+    val screenLeft: Int = 0,
     /** Past the element bound of a huge page: no list reaches them. */
     val beyond: Int = 0,
 )
