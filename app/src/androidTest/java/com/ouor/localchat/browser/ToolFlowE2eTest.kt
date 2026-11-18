@@ -232,6 +232,19 @@ class ToolFlowE2eTest : ToolFlowBase() {
         return n
     }
 
+    /** QA 재QA 3: a tab widget that only flips hidden/aria-selected is a page change, not "no visible change". */
+    @Test
+    fun aTabPanelSwitchIsAPageUpdate() {
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/tabs")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("tab \"Two\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("tabs"))
+        val r = reply.results()[1].modelText
+        assertTrue(r, "page updated" in r)
+    }
+
     /** QA B1 (2): a point another element covers is not pressed; the result names what is there. */
     @Test
     fun aCoveredClickIsNotPressedAndSaysWhatIsThere() {
@@ -473,6 +486,10 @@ class ToolFlowE2eTest : ToolFlowBase() {
                     if (i == 30) "<p>Designed by <a href=\"/wiki/James_Gosling\">James Gosling</a> at <a href=\"/wiki/Oracle\">Oracle Corporation</a>.</p>"
                     else "<p>Paragraph $i with <a href=\"/wiki/Topic_$i\">topic $i</a> and <a href=\"/wiki/Other_$i\">other $i</a>, then more words to fill the line.</p>"
                 },
+            "/tabs" to """<!doctype html><title>Tabs</title>
+                <div role="tablist"><button role="tab" aria-selected="true" onclick="pick(0)">One</button><button role="tab" aria-selected="false" onclick="pick(1)">Two</button></div>
+                <div role="tabpanel">Panel one</div><div role="tabpanel" hidden>Panel two</div>
+                <script>function pick(i){document.querySelectorAll('[role=tab]').forEach(function(t,j){t.setAttribute('aria-selected',String(i===j))});document.querySelectorAll('[role=tabpanel]').forEach(function(p,j){p.hidden=i!==j})}</script>""",
             "/covered" to """<!doctype html><title>Covered</title><button onclick="this.textContent='pressed'">Press</button>
                 <div id="cover" style="position:fixed;inset:0;background:#fff">Cookie wall</div>""",
         )

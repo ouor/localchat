@@ -37,7 +37,9 @@
     lastChange = Math.max(nav ? (nav.loadEventEnd || nav.domContentLoadedEventEnd || nav.responseEnd) : 0, resources().end);
     // Attribute-only changes (animations, focus rings) do not count as the page changing.
     new MutationObserver(function (recs) { changes += recs.length; lastChange = performance.now(); })
-      .observe(document, { subtree: true, childList: true, characterData: true });
+      // State attributes too (a tab panel's hidden, aria-selected); not class/style, which animations churn.
+      .observe(document, { subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ['hidden', 'open', 'aria-hidden', 'aria-expanded', 'aria-selected', 'aria-checked', 'aria-pressed'] });
   })();
 
   function mark() {
