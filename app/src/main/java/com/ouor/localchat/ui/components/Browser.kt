@@ -51,7 +51,22 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -211,7 +226,8 @@ fun BrowserToolbar(
     onBack: () -> Unit,
     onForward: () -> Unit,
     onReload: () -> Unit,
-    onUrlClick: () -> Unit,
+    /** FB5 B2: edits [fullUrl] in place and goes to what the user typed (IME Go); null = the address is not editable. */
+    onNavigate: ((String) -> Unit)?,
     onTabs: () -> Unit,
     modifier: Modifier = Modifier,
     secure: Boolean = true,
@@ -219,19 +235,22 @@ fun BrowserToolbar(
     canGoForward: Boolean = false,
     progress: Float? = null,
     trailing: @Composable () -> Unit = {},
+    fullUrl: String = url,
 ) {
     val c = LcTheme.colors
+    var editing by remember { mutableStateOf(false) }
     // P-STABLE L2: the loading bar overlays the toolbar's bottom edge, so nothing below moves when it comes and goes.
     Box(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(start = if (onCollapse == null) 8.dp else 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             if (onCollapse != null) LcIconButton(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.ui_collapse), onCollapse, size = IconButtonSize.Sm)
             LcIconButton(Icons.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack, size = IconButtonSize.Sm, enabled = canGoBack)
             LcIconButton(Icons.Rounded.ArrowForward, stringResource(R.string.ui_forward), onForward, size = IconButtonSize.Sm, enabled = canGoForward)
-            Surface(onClick = onUrlClick, modifier = Modifier.weight(1f).height(36.dp), shape = LcRadius.full, color = c.surfaceSunken, contentColor = c.textPrimary) {
+            Surface(onClick = { if (onNavigate != null) editing = true }, modifier = Modifier.weight(1f).height(36.dp), shape = LcRadius.full, color = c.surfaceSunken, contentColor = c.textPrimary) {
                 Row(Modifier.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (secure) Icon(Icons.Outlined.Lock, stringResource(R.string.ui_secure), Modifier.size(14.dp))
                     else Icon(Icons.Outlined.WarningAmber, stringResource(R.string.ui_insecure), Modifier.size(14.dp), tint = c.warning)
-                    Text(url, style = LcTheme.text.label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (editing && onNavigate != null) UrlEditor(fullUrl, { editing = false; onNavigate(it) }, { editing = false }, Modifier.weight(1f))
+                    else Text(url, style = LcTheme.text.label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     LcIconButton(Icons.Rounded.Refresh, stringResource(R.string.ui_reload), onReload, size = IconButtonSize.Xs)
                 }
             }
@@ -247,6 +266,29 @@ fun BrowserToolbar(
         }
         if (progress != null) LinearProgressIndicator({ progress }, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp), color = c.accent, trackColor = Color.Transparent, gapSize = 0.dp, drawStopIndicator = {})
     }
+}
+
+/**
+ * FB5 B2: the address edited where it is shown (no dialog): the whole URL, all selected; Go navigates, Back or leaving
+ * the field cancels. Same text style as the shown address, so the bar keeps its size (P-STABLE).
+ */
+@Composable
+private fun UrlEditor(url: String, onGo: (String) -> Unit, onCancel: () -> Unit, modifier: Modifier) {
+    var value by remember { mutableStateOf(TextFieldValue(url, TextRange(0, url.length))) }
+    val focus = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val desc = stringResource(R.string.ui_edit_url)
+    BackHandler(onBack = onCancel)
+    BasicTextField(
+        value, { value = it },
+        modifier.focusRequester(focus).semantics { contentDescription = desc }
+            .onFocusChanged { if (focused && !it.isFocused) onCancel(); focused = it.isFocused },
+        textStyle = LcTheme.text.label.copy(color = LcTheme.colors.textPrimary), singleLine = true,
+        cursorBrush = SolidColor(LcTheme.colors.accent),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
+        keyboardActions = KeyboardActions(onGo = { onGo(value.text) }),
+    )
+    LaunchedEffect(Unit) { focus.requestFocus() }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

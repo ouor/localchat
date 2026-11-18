@@ -16,9 +16,17 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
@@ -43,6 +51,7 @@ class BrowserStableTest {
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
 
     private var s by mutableStateOf(BrowserUiState())
+    private val navigated = mutableListOf<String>()
 
     private val actions = object : BrowserActions {
         override fun setPanel(p: PanelState) { s = s.copy(panel = p) }
@@ -51,7 +60,7 @@ class BrowserStableTest {
         override fun close(id: Int) { s = s.copy(tabs = s.tabs.filterNot { it.id == id }) }
         override fun open(url: String?) {}
         override fun newTab(url: String?) {}
-        override fun navigate(input: String) {}
+        override fun navigate(input: String) { navigated += input }
         override fun back() {}
         override fun forward() {}
         override fun reload() {}
@@ -130,6 +139,43 @@ class BrowserStableTest {
         assertEquals(page, page().bounds())
         change { it.copy(tabs = it.tabs.map { t -> t.copy(loading = false) }) }
         assertEquals(page, page().bounds())
+    }
+
+    @Test fun addressIsEditedInPlace() { // FB5 B2: no dialog; the bar and its buttons keep their place
+        val url = "https://www.e1.example/search?q=a"
+        show(BrowserUiState(PanelState.Full, listOf(TabInfo(1, "Mine", url, Owner.User, Control.USER, loading = false)), sessionId = "A"))
+        val controls = listOf(R.string.ui_back, R.string.ui_forward, R.string.ui_reload).map { rule.onNodeWithContentDescription(ctx.getString(it)) }
+        val before = controls.map { it.bounds() } + tabsButton().bounds()
+        val shown = rule.onNodeWithText("e1.example/search?q=a")
+        val bar = shown.bounds()
+        shown.performClick()
+        val editor = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url))
+        editor.assertIsFocused()
+        editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(url)))
+        editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(0, url.length))) // all selected
+        assertEquals(before, controls.map { it.bounds() } + tabsButton().bounds())
+        assertEquals(bar.top, editor.bounds().top, 2f) // same line as the shown address
+        rule.onNodeWithText(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist() // the old dialog's title
+        editor.performTextReplacement("kotlinlang.org")
+        editor.performImeAction() // Go
+        rule.waitForIdle()
+        assertEquals(listOf("kotlinlang.org"), navigated)
+        editor.assertDoesNotExist()
+        // Back cancels: nothing is navigated and the address shows again.
+        shown.performClick()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertIsFocused()
+        androidx.test.espresso.Espresso.pressBack()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist()
+        shown.assertIsDisplayed()
+        assertEquals(listOf("kotlinlang.org"), navigated)
+        assertEquals(before, controls.map { it.bounds() } + tabsButton().bounds())
+    }
+
+    @Test fun aiTabAddressIsNotEditable() { // FB5 B2: only the user's tab (or one the user controls)
+        show(BrowserUiState(PanelState.Full, listOf(tab(1, "AI")), sessionId = "A", running = true))
+        rule.onNodeWithText("e1.example/").performClick()
+        rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist()
     }
 
     @Test fun tabCountSitsInTheMiddleOfItsBox() { // FB5 B3: the digit's ink is centred, not pushed down by the line height

@@ -99,7 +99,6 @@ import com.ouor.localchat.ui.components.OwnershipBar
 import com.ouor.localchat.ui.components.TabCard
 import com.ouor.localchat.ui.components.TabGrid
 import com.ouor.localchat.ui.components.TabOwner
-import com.ouor.localchat.ui.components.TextFieldKind
 import com.ouor.localchat.ui.theme.LcTheme
 
 /** Callbacks of the browser panel; [BrowserViewModel] implements all of them (pure-state screen, architecture 11). */
@@ -208,7 +207,6 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
         // "Settled" allows 1px so an offset an ulp off its anchor never leaves the WebView taller than the screen.
         val top by remember { derivedStateOf { state.anchors.positionOf(state.settledValue).takeIf { abs(state.offset - it) < 1f } ?: 0f } }
         if (shown) Box(Modifier.fillMaxSize()) {
-            var editing by remember { mutableStateOf(false) }
             val drag = remember { MutableInteractionSource() }
             // FB4 U-2: with the keyboard up the panel rises by its height (as far as the top allows), so a focused page
             // field and the panel's controls stay above it; it settles back when the keyboard closes (P-STABLE keyboard
@@ -254,10 +252,10 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                             BrowserToolbar(
                                 t.shortUrl(), s.tabs.size, onCollapse = null,
                                 onBack = actions::back, onForward = actions::forward, onReload = actions::reload,
-                                onUrlClick = { if (t.owner is Owner.User || t.control == Control.USER) editing = true },
+                                onNavigate = if (t.owner is Owner.User || t.control == Control.USER) actions::navigate else null,
                                 onTabs = { actions.showTabs(true) },
                                 secure = !t.insecure, canGoBack = t.canGoBack, canGoForward = t.canGoForward,
-                                progress = if (t.loading) 0.5f else null,
+                                progress = if (t.loading) 0.5f else null, fullUrl = t.url,
                             )
                         }
                     },
@@ -289,12 +287,6 @@ fun BrowserOverlay(s: BrowserUiState, actions: BrowserActions, onCoverHeight: (I
                 stringResource(R.string.ui_switch_manual), Modifier.align(Alignment.BottomCenter).padding(12.dp).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
                 icon = Icons.Outlined.FrontHand, actionLabel = stringResource(R.string.ui_switch), onAction = { actions.takeOver(t.id) },
             )
-            if (editing) {
-                var text by remember { mutableStateOf(t.url) }
-                LcDialog(stringResource(R.string.ui_edit_url), { editing = false }, stringResource(R.string.ui_ok), { actions.navigate(text); editing = false }) {
-                    LcTextField(text, { text = it }, kind = TextFieldKind.Url)
-                }
-            }
         }
     }
     if (s.showTabs) TabsSheet(s, actions)
