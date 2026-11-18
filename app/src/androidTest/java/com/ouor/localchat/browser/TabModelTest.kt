@@ -39,6 +39,7 @@ class TabModelTest {
     private lateinit var pages: MockWebServer
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var engine: BrowserEngine
+    private val hang = java.util.concurrent.CountDownLatch(1)
 
     @Before fun setUp() {
         pages = MockWebServer()
@@ -54,6 +55,7 @@ class TabModelTest {
     @After fun tearDown() {
         runBlocking(Dispatchers.Main) { engine.tabs.value.forEach { engine.close(it.id) } }
         scenario.close()
+        hang.countDown()
         pages.close()
     }
 
@@ -74,7 +76,7 @@ class TabModelTest {
         else MockResponse.Builder().code(403).body("no").build()
         "/octet.csv" -> MockResponse.Builder().addHeader("Content-Type", "application/octet-stream")
             .addHeader("Content-Disposition", "attachment; filename=octet.csv").body("a,b").build()
-        "/hang.png" -> { Thread.sleep(6_000); MockResponse.Builder().code(404).build() }
+        "/hang.png" -> { hang.await(20, java.util.concurrent.TimeUnit.SECONDS); MockResponse.Builder().code(404).build() }
         "/loading" -> html("""<!doctype html><title>Loading</title><img src="/hang.png"><a id="file" href="/file" style="display:block;height:60px">File</a>""")
         "/rows" -> html("<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Rows</title>" +
             (0 until 80).joinToString("") { "<a href=\"/row$it\" style=\"display:block;height:40px\">Row $it</a>" } + "<a id=\"more\" href=\"/more\">More</a>")
