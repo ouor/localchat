@@ -54,6 +54,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -231,6 +233,8 @@ fun BrowserToolbar(
     onReload: () -> Unit,
     /** FB5 B2: edits [fullUrl] in place and goes to what the user typed (IME Go); null = the address is not editable. */
     onNavigate: ((String) -> Unit)?,
+    /** The address to edit (scheme included); [url] is only the short form shown. */
+    fullUrl: String,
     onTabs: () -> Unit,
     modifier: Modifier = Modifier,
     secure: Boolean = true,
@@ -238,17 +242,18 @@ fun BrowserToolbar(
     canGoForward: Boolean = false,
     progress: Float? = null,
     trailing: @Composable () -> Unit = {},
-    fullUrl: String = url,
 ) {
     val c = LcTheme.colors
-    var editing by remember { mutableStateOf(false) }
+    // A new address, or the right to edit taken away (the AI took control), ends an edit; it never comes back by itself.
+    var editing by remember(fullUrl, onNavigate != null) { mutableStateOf(false) }
     // P-STABLE L2: the loading bar overlays the toolbar's bottom edge, so nothing below moves when it comes and goes.
     Box(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(start = if (onCollapse == null) 8.dp else 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             if (onCollapse != null) LcIconButton(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.ui_collapse), onCollapse, size = IconButtonSize.Sm)
             LcIconButton(Icons.Rounded.ArrowBack, stringResource(R.string.ui_back), onBack, size = IconButtonSize.Sm, enabled = canGoBack)
             LcIconButton(Icons.Rounded.ArrowForward, stringResource(R.string.ui_forward), onForward, size = IconButtonSize.Sm, enabled = canGoForward)
-            Surface(onClick = { if (onNavigate != null) editing = true }, modifier = Modifier.weight(1f).height(36.dp), shape = LcRadius.full, color = c.surfaceSunken, contentColor = c.textPrimary) {
+            // Not editable: not a button either (no ripple, not read as one); the look is the same (P-STABLE).
+            Surface(onClick = { editing = true }, enabled = onNavigate != null, modifier = Modifier.weight(1f).height(36.dp), shape = LcRadius.full, color = c.surfaceSunken, contentColor = c.textPrimary) {
                 Row(Modifier.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (secure) Icon(Icons.Outlined.Lock, stringResource(R.string.ui_secure), Modifier.size(14.dp))
                     else Icon(Icons.Outlined.WarningAmber, stringResource(R.string.ui_insecure), Modifier.size(14.dp), tint = c.warning)
@@ -259,10 +264,10 @@ fun BrowserToolbar(
             }
             val tabsDesc = stringResource(R.string.ui_tabs_desc, tabCount)
             Box(Modifier.size(48.dp).clip(LcRadius.full).combinedClickableCompat(onTabs).semantics { contentDescription = tabsDesc }, contentAlignment = Alignment.Center) {
-                Box(Modifier.size(22.dp).border(1.8.dp, c.iconPrimary, LcRadius.xs), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(22.dp).border(1.8.dp, c.iconPrimary, LcRadius.xs).testTag(TAB_COUNT_TAG), contentAlignment = Alignment.Center) {
                     // FB5 B3: a line exactly as tall as the digits, trimmed, so they sit in the box's middle (not the default line's).
-                    Text("$tabCount", color = c.iconPrimary, style = TextStyle(fontSize = 11.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold,
-                        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)))
+                    Text("$tabCount", color = c.iconPrimary, style = LocalTextStyle.current.merge(TextStyle(fontSize = 11.sp, lineHeight = 11.sp,
+                        fontWeight = FontWeight.Bold, lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both))))
                 }
             }
             trailing()
@@ -270,6 +275,9 @@ fun BrowserToolbar(
         if (progress != null) LinearProgressIndicator({ progress }, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp), color = c.accent, trackColor = Color.Transparent, gapSize = 0.dp, drawStopIndicator = {})
     }
 }
+
+/** The tab count's box (FB5 B3 test). */
+internal const val TAB_COUNT_TAG = "tab-count"
 
 /**
  * FB5 B2: the address edited where it is shown (no dialog): the whole URL, all selected; Go navigates, Back or leaving

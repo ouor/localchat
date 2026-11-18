@@ -478,14 +478,14 @@ private fun LazyListScope.browser() {
     }
     cell("B. 절반 — 툴바 · 소유 바 · 요소 강조(B-09, 1초 후 페이드 반복)", horizontalPadding = false) {
         BrowserPanelFrame(
-            toolbar = { BrowserToolbar("wiki.corp.example/hr", 2, noop, noop, noop, noop, null, noop, progress = 0.6f) },
+            toolbar = { BrowserToolbar("wiki.corp.example/hr", 2, noop, noop, noop, noop, null, "https://wiki.corp.example/hr", noop, progress = 0.6f) },
             ownership = { OwnershipBar(BrowserOwner.Ai, toolName = "click") },
             modifier = Modifier.height(380.dp),
         ) { FakePage(highlight = true) }
     }
     cell("C. 넘겨받기(B-05) — 배너 + 하단 '나' 바 · http 경고", horizontalPadding = false) {
         BrowserPanelFrame(
-            toolbar = { BrowserToolbar("sso.corp.example/login", 2, noop, noop, noop, noop, {}, noop, secure = false) },
+            toolbar = { BrowserToolbar("sso.corp.example/login", 2, noop, noop, noop, noop, {}, "http://sso.corp.example/login", noop, secure = false) },
             ownership = { OwnershipBar(BrowserOwner.Waiting) },
             banner = { HandoffBanner("로그인이 필요합니다", "AI가 기다리는 중이에요. 로그인을 마치면 돌려주세요. 비밀번호는 AI가 볼 수 없어요.", noop, noop) },
             modifier = Modifier.height(330.dp),

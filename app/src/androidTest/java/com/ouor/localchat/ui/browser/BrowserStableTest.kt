@@ -16,6 +16,8 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.espresso.Espresso
+import com.ouor.localchat.ui.components.TAB_COUNT_TAG
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsFocused
@@ -165,7 +167,7 @@ class BrowserStableTest {
         // Back cancels: nothing is navigated and the address shows again.
         shown.performClick()
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertIsFocused()
-        androidx.test.espresso.Espresso.pressBack()
+        Espresso.pressBack()
         rule.waitForIdle()
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist()
         shown.assertIsDisplayed()
@@ -179,25 +181,22 @@ class BrowserStableTest {
         rule.onNodeWithContentDescription(ctx.getString(R.string.ui_edit_url)).assertDoesNotExist()
     }
 
-    @Test fun tabCountSitsInTheMiddleOfItsBox() { // FB5 B3: the digit's ink is centred, not pushed down by the line height
+    @Test fun tabCountSitsInTheMiddleOfItsBox() { // FB5 B3: the digits' ink is centred, not pushed down by the line height
         show(BrowserUiState(PanelState.Full, listOf(tab(1, "One")), sessionId = "A"))
-        val img = rule.onNodeWithContentDescription(ctx.getString(R.string.ui_tabs_desc, 1)).captureToImage().asAndroidBitmap()
-        val d = ctx.resources.displayMetrics.density
-        val box = 22f * d
-        val inset = (1.8f + 1.5f) * d // inside the border
-        val top = (img.height - box) / 2f
-        val left = (img.width - box) / 2f
-        val ink = ((top + inset).toInt() until (top + box - inset).toInt()).filter { y ->
-            ((left + inset).toInt() until (left + box - inset).toInt()).any { x ->
-                val c = img.getPixel(x, y)
-                (android.graphics.Color.red(c) + android.graphics.Color.green(c) + android.graphics.Color.blue(c)) / 3 < 128
+        for (n in listOf(1, 12)) { // one and two digits
+            change { st -> st.copy(tabs = (1..n).map { tab(it, "T$it") }) }
+            val img = rule.onNodeWithTag(TAB_COUNT_TAG).captureToImage().asAndroidBitmap()
+            val inset = (2 * ctx.resources.displayMetrics.density).toInt() + 2 // past the 1.8dp border
+            val ink = (inset until img.height - inset).filter { y ->
+                (inset until img.width - inset).any { x ->
+                    val c = img.getPixel(x, y)
+                    (android.graphics.Color.red(c) + android.graphics.Color.green(c) + android.graphics.Color.blue(c)) / 3 < 128
+                }
             }
+            assertTrue("$n: digits drawn", ink.isNotEmpty())
+            val inkMid = (ink.first() + ink.last() + 1) / 2f
+            assertTrue("$n: digits' centre $inkMid vs box centre ${img.height / 2f}", kotlin.math.abs(inkMid - img.height / 2f) <= 1.5f)
         }
-        assertTrue("digit drawn", ink.isNotEmpty())
-        val inkMid = (ink.first() + ink.last() + 1) / 2f
-        val boxMid = top + box / 2f
-        android.util.Log.i("FB5B3", "ink ${ink.first()}..${ink.last()} mid $inkMid box mid $boxMid")
-        assertTrue("digit centre $inkMid vs box centre $boxMid", kotlin.math.abs(inkMid - boxMid) <= 1.5f)
     }
 
     @Test fun closingATabLeavesItsSlotEmpty() { // L8
