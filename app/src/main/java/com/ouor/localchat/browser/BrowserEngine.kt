@@ -1,12 +1,9 @@
 package com.ouor.localchat.browser
 
 import android.app.Activity
-import android.app.DownloadManager
 import android.content.ActivityNotFoundException
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -18,7 +15,6 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.MainThread
-import androidx.core.content.ContextCompat
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
@@ -121,12 +117,6 @@ class BrowserEngine @Inject constructor(
                 region = s.region
             }
         }
-        ContextCompat.registerReceiver(context, object : BroadcastReceiver() {
-            override fun onReceive(c: Context, i: Intent) {
-                val dmId = i.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                onMain { byId.values.forEach { it.downloadFinished(dmId) } }
-            }
-        }, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
     }
 
     // ---------- tabs

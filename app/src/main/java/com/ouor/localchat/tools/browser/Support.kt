@@ -197,6 +197,25 @@ internal fun DownloadNote.describe(): String {
     } + if (again) " (the same file was asked for moments ago, so it was not fetched again)" else ""
 }
 
+/**
+ * A navigation that ended in a file (QA B2): where the file stands once saved or failed (up to [FILE_WAIT_MS]), that
+ * its text cannot be read here, and that the tab is gone when it only downloaded it. Main thread.
+ */
+internal suspend fun ToolContext.fileResult(tab: BrowserTab, d: DownloadNote, isError: Boolean): ToolOutcome {
+    val end = now() + FILE_WAIT_MS
+    var cur = d
+    while ((cur.state == DownloadNote.State.STARTED || cur.state == DownloadNote.State.ASKED) && now() < end) {
+        delay(100)
+        cur = tab.downloadsSince(d.at).firstOrNull { it.at == d.at && it.url == d.url } ?: cur
+    }
+    val closed = browser.tabs.value.none { it.id == tab.id }
+    val lead = cur.describe() + " Its text cannot be read in this app." +
+        (if (closed) " Tab ${tab.id} only downloaded it and was closed." else "")
+    return ToolOutcome(lead = lead, isError = isError, summary = cur.fileName)
+}
+
+private const val FILE_WAIT_MS = 10_000L
+
 private fun bytes(n: Long): String = when {
     n >= 1_000_000 -> "%.1f MB".format(n / 1_000_000.0)
     n >= 1_000 -> "${n / 1_000} KB"

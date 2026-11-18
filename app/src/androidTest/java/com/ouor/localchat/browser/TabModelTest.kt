@@ -69,10 +69,17 @@ class TabModelTest {
             <a id="file" href="/file" style="display:block;height:60px">File</a>""")
         "/file" -> MockResponse.Builder().addHeader("Content-Type", "text/plain")
             .addHeader("Content-Disposition", "attachment; filename*=UTF-8''%ED%85%8C%EC%8A%A4%ED%8A%B8.txt").body("file body").build()
+        "/refused" -> if (refusedHits.incrementAndGet() == 1) MockResponse.Builder().addHeader("Content-Type", "application/zip")
+            .addHeader("Content-Disposition", "attachment; filename=r.zip").body("zip").build()
+        else MockResponse.Builder().code(403).body("no").build()
+        "/hang.png" -> { Thread.sleep(6_000); MockResponse.Builder().code(404).build() }
+        "/loading" -> html("""<!doctype html><title>Loading</title><img src="/hang.png"><a id="file" href="/file" style="display:block;height:60px">File</a>""")
         "/rows" -> html("<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Rows</title>" +
             (0 until 80).joinToString("") { "<a href=\"/row$it\" style=\"display:block;height:40px\">Row $it</a>" } + "<a id=\"more\" href=\"/more\">More</a>")
         else -> html("<!doctype html><title>${path.trim('/')}</title><p>Page $path</p>")
     }
+
+    private val refusedHits = java.util.concurrent.atomic.AtomicInteger()
 
     private fun url(path: String) = pages.url(path).toString()
 
@@ -240,17 +247,49 @@ class TabModelTest {
         val tab = openReady("/links")
         val since = SystemClock.uptimeMillis()
         tapOn(tab, "data")
-        val data = eventually("data: saved") { tab.downloadsSince(since).firstOrNull { it.url.startsWith("data:") && it.state != DownloadNote.State.ASKED } }
+        val done = { n: DownloadNote -> n.state == DownloadNote.State.SAVED || n.state == DownloadNote.State.FAILED }
+        val data = eventually("data: saved") { tab.downloadsSince(since).firstOrNull { it.url.startsWith("data:") && done(it) } }
         assertEquals(DownloadNote.State.SAVED, data.state)
         assertEquals(5L, data.size)
         tapOn(tab, "blob")
-        val blob = eventually("blob: saved", 15_000) { tab.downloadsSince(since).firstOrNull { it.url.startsWith("blob:") && it.state != DownloadNote.State.ASKED } }
+        val blob = eventually("blob: saved", 15_000) { tab.downloadsSince(since).firstOrNull { it.url.startsWith("blob:") && done(it) } }
         assertEquals("${blob.reason}", DownloadNote.State.SAVED, blob.state)
         tapOn(tab, "file")
-        val file = eventually("http download started") { tab.downloadsSince(since).firstOrNull { it.url.endsWith("/file") && it.state != DownloadNote.State.ASKED } }
-        assertEquals("테스트.txt", file.fileName)
-        assertTrue("${file.state} ${file.reason}", file.state == DownloadNote.State.STARTED || file.state == DownloadNote.State.SAVED)
-        Log.i("TabModel", "http download: ${file.state}")
+        // QA B3: fetched by the app; the note has the name Downloads gave it ("테스트 (1).txt" when taken) and the size.
+        val file = eventually("http download saved") { tab.downloadsSince(since).firstOrNull { it.url.endsWith("/file") && done(it) } }
+        assertEquals("${file.reason}", DownloadNote.State.SAVED, file.state)
+        assertTrue(file.fileName, file.fileName.startsWith("테스트") && file.fileName.endsWith(".txt"))
+        assertEquals(9L, file.size)
+        // QA B5: the navigation ended in a file, so the tab still shows its page.
+        assertTrue(main { tab.url }, main { tab.url }.endsWith("/links"))
+    }
+
+    /** QA B3: a refusal when the app fetches the file is a failure with its reason. */
+    @Test fun aRefusedDownloadFailsWithTheReason() {
+        val tab = openReady("/a")
+        val since = SystemClock.uptimeMillis()
+        main { tab.load(url("/refused")) }
+        val n = eventually("refused") { tab.downloadsSince(since).firstOrNull { it.state == DownloadNote.State.FAILED || it.state == DownloadNote.State.SAVED } }
+        assertEquals(DownloadNote.State.FAILED, n.state)
+        assertEquals("HTTP 403", n.reason)
+    }
+
+    /** QA B2: a page still loading is a document, so a download from it keeps the tab; a new tab that only downloads goes. */
+    @Test fun aDownloadClosesOnlyATabThatNeverHadAPage() {
+        val tab = main { engine.tab(engine.open(url("/loading"))) }
+        val end = SystemClock.uptimeMillis() + 10_000
+        while (main { tab.evaluate("!!document.getElementById('file')", 5_000) } != "true") {
+            check(SystemClock.uptimeMillis() < end) { "link there" }
+            Thread.sleep(100)
+        }
+        val since = SystemClock.uptimeMillis()
+        tapOn(tab, "file")
+        eventually("saved") { tab.downloadsSince(since).firstOrNull { it.state == DownloadNote.State.SAVED } }
+        assertTrue("the tab stays", engine.tabs.value.any { it.id == tab.id })
+        val only = main { engine.tab(engine.open(url("/file"))) }
+        eventually("closed") { engine.tabs.value.none { it.id == only.id }.takeIf { it } }
+        val n = eventually("saved after the tab went") { only.downloadsSince(0).firstOrNull { it.state == DownloadNote.State.SAVED } }
+        assertEquals(9L, n.size)
     }
 
     @Test fun aRendererDeathKeepsTheTabAndTheSecondInARowWaits() {

@@ -52,7 +52,7 @@ object Open : Tool {
                 else -> return@onMain searched(ctx, tab, raw)
             }
             val o = ctx.open(tab, url)
-            tab.downloadsSince(o.since).lastOrNull()?.let { d -> return@onMain ToolOutcome(lead = d.describe(), summary = d.fileName) }
+            tab.downloadsSince(o.since).lastOrNull()?.let { d -> return@onMain ctx.fileResult(tab, d, isError = false) }
             if (o.readiness == Readiness.FAILED) {
                 val err = tab.navError(o.since)
                 if ("://" !in raw && !Targets.isPath(raw) && err?.desc?.contains("ERR_NAME_NOT_RESOLVED") == true) return@onMain searched(ctx, tab, raw)

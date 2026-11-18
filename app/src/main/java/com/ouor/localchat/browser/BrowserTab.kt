@@ -1,14 +1,12 @@
 package com.ouor.localchat.browser
 
 import android.annotation.SuppressLint
-import android.app.DownloadManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.os.Message
 import android.os.SystemClock
 import android.provider.MediaStore
@@ -51,6 +49,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * One tab: a WebView that can be put to sleep and woken ([webView] changes then), its load signals and the facts of what
@@ -563,6 +563,8 @@ class BrowserTab internal constructor(
         }
         committedAt = now
         _loading.value = false
+        // The navigation ended in a file: the tab still shows the page it had (QA B5).
+        if (hadDocument) url = _webView.value?.url ?: url
         events.onChanged(this)
         if (firstNavigation) events.closeWindow(this) // Chrome: a new tab that only downloads goes away
     }
@@ -577,36 +579,30 @@ class BrowserTab internal constructor(
         if (i >= 0) downloadLog[i] = change(downloadLog[i])
     }
 
-    /** http(s) through DownloadManager (its completion comes to [downloadFinished]); data: and blob: by the app (2-5). */
+    /**
+     * Every download is fetched by the app (2-5, QA B3): http(s) with the page's cookies, user agent and referrer,
+     * data: and blob: from the page. One path into Downloads; the note says started, saved (name, size) or failed (why).
+     */
     private fun save(n: DownloadNote) {
         val scheme = Uri.parse(n.url).scheme?.lowercase()
-        if (scheme == "http" || scheme == "https") {
-            try {
-                val req = DownloadManager.Request(Uri.parse(n.url))
-                    .setMimeType(n.mime)
-                    .addRequestHeader("User-Agent", view.settings.userAgentString)
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, n.fileName)
-                if (url.startsWith("http")) req.addRequestHeader("Referer", url)
-                CookieManager.getInstance().getCookie(n.url)?.let { req.addRequestHeader("Cookie", it) }
-                val dm = contextWrapper.getSystemService(DownloadManager::class.java)
-                val dmId = dm.enqueue(req)
-                update(n) { it.copy(state = DownloadNote.State.STARTED, managerId = dmId) }
-            } catch (e: Exception) {
-                update(n) { it.copy(state = DownloadNote.State.FAILED, reason = e.message ?: e.javaClass.simpleName) }
-            }
-            return
-        }
-        scope.launch {
+        val referer = url.takeIf { it.startsWith("http") }
+        val agent = _webView.value?.settings?.userAgentString
+        update(n) { it.copy(state = DownloadNote.State.STARTED) }
+        val web = scheme == "http" || scheme == "https"
+        // A web file outlives its tab (a new tab that only downloads is closed at once); data: and blob: need the page.
+        (if (web) downloads else scope).launch {
             val r = runCatching {
-                val (bytes, type) = if (scheme == "data") TabRules.dataUrl(n.url) ?: error("not a readable data: URL")
-                else TabRules.dataUrl(PageScript.blob(this@BrowserTab, n.url)) ?: error("the page did not hand over the file")
-                withContext(Dispatchers.IO) { writeDownload(n.fileName, n.mime ?: type, bytes) }
-                bytes.size.toLong() to type
+                if (web) {
+                    withContext(Dispatchers.IO) { fetch(n, agent, referer) }
+                } else {
+                    val (bytes, type) = if (scheme == "data") TabRules.dataUrl(n.url) ?: error("not a readable data: URL")
+                    else TabRules.dataUrl(PageScript.blob(this@BrowserTab, n.url)) ?: error("the page did not hand over the file")
+                    withContext(Dispatchers.IO) { writeDownload(n.fileName, n.mime ?: type) { it.write(bytes) } } to type
+                }
             }
             update(n) { cur ->
                 r.fold(
-                    { (size, type) -> cur.copy(state = DownloadNote.State.SAVED, size = size, savedMime = type) },
+                    { (saved, type) -> cur.copy(state = DownloadNote.State.SAVED, fileName = saved.first, size = saved.second, savedMime = type) },
                     { cur.copy(state = DownloadNote.State.FAILED, reason = it.message ?: it.javaClass.simpleName) },
                 )
             }
@@ -614,7 +610,26 @@ class BrowserTab internal constructor(
         }
     }
 
-    private fun writeDownload(name: String, mime: String, bytes: ByteArray) {
+    /** GET [n] like the page would; (saved name, size) to its type. IO thread. */
+    private fun fetch(n: DownloadNote, agent: String?, referer: String?): Pair<Pair<String, Long>, String> {
+        val req = Request.Builder().url(n.url).apply {
+            agent?.let { header("User-Agent", it) }
+            referer?.let { header("Referer", it) }
+            CookieManager.getInstance().getCookie(n.url)?.let { header("Cookie", it) }
+        }.build()
+        http.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) error("HTTP ${res.code}")
+            val type = res.body.contentType()?.let { "${it.type}/${it.subtype}" } ?: n.mime ?: "application/octet-stream"
+            return writeDownload(n.fileName, n.mime ?: type) { out -> res.body.byteStream().use { it.copyTo(out) } } to type
+        }
+    }
+
+    /**
+     * Writes into Downloads as a pending entry that is published only once complete, so a crash leaves no partial file
+     * (Android removes expired pending entries). Returns the name Downloads gave it (it adds " (1)" for a taken name) and
+     * the size. IO thread.
+     */
+    private fun writeDownload(name: String, mime: String, write: (java.io.OutputStream) -> Unit): Pair<String, Long> {
         val resolver = contextWrapper.applicationContext.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
@@ -623,32 +638,16 @@ class BrowserTab internal constructor(
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Downloads refused the file")
         try {
-            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Downloads could not be written")
+            resolver.openOutputStream(uri)?.use(write) ?: error("Downloads could not be written")
             resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            resolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) return (c.getString(0) ?: name) to c.getLong(1)
+            }
+            return name to -1L
         } catch (e: Exception) {
             resolver.delete(uri, null, null)
             throw e
         }
-    }
-
-    /** DownloadManager finished [managerId] (any of the app's): records the real name, size, type or failure. Main. */
-    internal fun downloadFinished(managerId: Long) {
-        val n = downloadLog.lastOrNull { it.managerId == managerId } ?: return
-        val dm = contextWrapper.getSystemService(DownloadManager::class.java)
-        val done = runCatching {
-            dm.query(DownloadManager.Query().setFilterById(managerId)).use { c ->
-                if (!c.moveToFirst()) return@use n.copy(state = DownloadNote.State.FAILED, reason = "cancelled")
-                val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                val size = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                val type = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_MEDIA_TYPE))
-                val local = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
-                val name = local?.let { Uri.parse(it).lastPathSegment } ?: n.fileName
-                if (status == DownloadManager.STATUS_SUCCESSFUL) n.copy(state = DownloadNote.State.SAVED, fileName = name, size = size, savedMime = type)
-                else n.copy(state = DownloadNote.State.FAILED, reason = "reason ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))}")
-            }
-        }.getOrElse { n.copy(state = DownloadNote.State.FAILED, reason = it.message ?: "unknown") }
-        update(n) { done }
-        events.onChanged(this)
     }
 
     private inner class Client : WebViewClient() {
@@ -661,6 +660,8 @@ class BrowserTab internal constructor(
             if (startUrl != crashUrl) crashUrl = null
             _loading.value = true
             url = startUrl
+            // Committed, finished or not: a page that never finishes loading is still a document (QA B2).
+            if (startUrl != BrowserEngine.BLANK) hadDocument = true
             events.onChanged(this@BrowserTab)
         }
 
@@ -798,6 +799,8 @@ class BrowserTab internal constructor(
         private const val FOCUS_HOLD_MS = 300L
         private val WEB_SCHEMES = setOf("http", "https", "about", "data", "blob", "javascript")
         private val eventIds = AtomicLong()
+        private val http by lazy { OkHttpClient() }
+        private val downloads = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         internal fun nextEventId() = eventIds.incrementAndGet()
 
         fun dialogNote(d: BrowserEvent.Dialog): String =
@@ -817,7 +820,6 @@ data class DownloadNote(
     val savedMime: String? = null,
     val reason: String? = null,
     val again: Boolean = false,
-    internal val managerId: Long = -1,
 ) {
     enum class State { ASKED, NOT_SAVED, STARTED, SAVED, FAILED }
 }

@@ -173,7 +173,18 @@ class ToolFlowE2eTest : ToolFlowBase() {
         )
         val reply = awaitEnd(send("download"))
         val t = reply.results().map { it.modelText }
-        assertTrue(t[1], "notes.txt" in t[1] && "Downloads" in t[1])
+        // The name Downloads gave it: "notes (1).txt" when an earlier run saved one.
+        assertTrue(t[1], Regex("""saved to Downloads as notes( \(\d+\))?\.txt\.""").containsMatchIn(t[1]))
+    }
+
+    /** QA B2: opening a file says what was saved, that its text is not readable here and that the tab went. */
+    @Test
+    fun openingAFileSaysWhatBecameOfItAndOfTheTab() {
+        llm.enqueue(Scenario.toolCall("read", """{"url":"${url("/file.txt")}"}"""), Scenario.text("done"))
+        val reply = awaitEnd(send("read it"))
+        val lead = reply.results()[0].modelText
+        assertTrue(lead, Regex("""^Opened tab (\d+)\. This is a file \(text/plain, 9 bytes\), saved to Downloads as notes.*\.txt\. Its text cannot be read in this app\. Tab \1 only downloaded it and was closed\.""").containsMatchIn(lead))
+        assertTrue(browser.tabs.value.isEmpty())
     }
 
     @Test
