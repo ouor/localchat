@@ -137,7 +137,7 @@ class AgentScriptTest {
         listOf(
             "- navigation \"Main\"",
             "  - link \"Next page\" [ref=",
-            "-> /next", // a path on this site, which browse() and read() take as it is (G-m5, QA-M2)
+            "-> /next", // a path on this site, which open() and read() take as it is (G-m5, QA-M2)
             "- heading \"Search results\" [level=1]",
             "- text: \"Plain paragraph text.\"",
             "- searchbox \"Query\" [ref=", // named q: a search box (G-m4)

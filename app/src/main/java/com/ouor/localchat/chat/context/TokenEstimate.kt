@@ -63,6 +63,6 @@ object TokenEstimate {
         is ThinkingBlock -> block.text.length
         is ToolCallBlock -> block.name.length + block.argumentsJson.length
         // Only the newest page picture is sent, but counting each is a safe upper bound (SE 13).
-        is ToolResultBlock -> block.content.length + (if (block.imageForModelId != null) IMAGE_CHARS else 0)
+        is ToolResultBlock -> block.modelText.length + (if (block.imageForModelId != null) IMAGE_CHARS else 0)
     }
 }

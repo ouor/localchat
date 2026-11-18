@@ -257,7 +257,7 @@ class BrowserEngine @Inject constructor(
     override fun dispatch(tab: BrowserTab, e: BrowserEvent): Answer {
         var a = defaultAnswer(e, shown = _shown.value == tab.id)
         // A failing listener keeps the answer it was given: the page must get one.
-        val ask = { l: EventListener -> runCatching { l.onEvent(e, a) }.getOrNull()?.let { a = it } }
+        val ask = { l: EventListener -> runCatching { l.onEvent(e, a) }.getOrNull()?.let { a = it }; Unit }
         tabListeners[tab.id]?.reversed()?.forEach(ask)
         allListeners.forEach(ask)
         if (a == Answer.ToUser) _prompts.value += e

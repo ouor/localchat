@@ -66,8 +66,8 @@ class ToolExecutor(
     override val vision: Boolean = false,
     /** This chat's tabs memory; it outlives the turn. */
     override val chat: ChatTabs,
-    /** Uptime ms, the clock of layer 1's event and request logs; JVM tests pass their own. */
-    private val uptime: () -> Long = { android.os.SystemClock.uptimeMillis() },
+    /** The read tool link prefetch runs, exposed or not (the catalog's; JVM tests pass a fake). */
+    private val readTool: Tool = Read,
     /** Shows a call's state change (AWAITING_APPROVAL ↔ RUNNING) in the reply. */
     private val onState: (callKey: String, ToolCallState) -> Unit,
 ) : ToolContext {
@@ -116,10 +116,11 @@ class ToolExecutor(
 
     /** LinkPrefetcher (A-m10): a link in a question read through the same chain as a read call; null when it failed. */
     suspend fun prefetchRead(url: String): ToolOutcome? {
-        val call = ToolCallBlock(Ids.new(), Read.name, buildJsonObject { put("url", JsonPrimitive(url)) }.toString(), 0, ToolCallState.RUNNING, 0)
+        val args = buildJsonObject { put("url", JsonPrimitive(url)) }
+        val call = ToolCallBlock(Ids.new(), readTool.name, args.toString(), 0, ToolCallState.RUNNING, 0)
         callId = call.callId
         tabId = null
-        val r = runChain(call, Read, buildJsonObject { put("url", JsonPrimitive(url)) }, call.key)
+        val r = runChain(call, readTool, args, call.key)
         return r.takeUnless { it.isError }
     }
 
@@ -139,8 +140,8 @@ class ToolExecutor(
 
     /** 4-1 steps 2–8 for one call. */
     private suspend fun runChain(call: ToolCallBlock, tool: Tool, args: JsonObject, key: String): ToolOutcome {
-        val startedAt = now()
         val facts = tool.facts
+        val startedAt = now()
         val target = if (!facts.browser) Targets.Target.None else Targets.resolve(facts.target, args, browserPort.tabs(), browserPort.front(), chat)
         var tab: BrowserTab? = null
         var held = false
@@ -323,7 +324,7 @@ class ToolExecutor(
 
     private suspend fun <T> onMain(block: suspend () -> T): T = withContext(Dispatchers.Main.immediate) { block() }
 
-    private fun now() = uptime()
+    private fun now() = browserPort.now()
 
     companion object {
         const val TOOL_OFF = "The user turned this tool off."

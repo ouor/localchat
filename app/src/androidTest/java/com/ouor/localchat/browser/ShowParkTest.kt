@@ -19,9 +19,9 @@ class ShowParkTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val engine = activity.browserEngine
-                val id = engine.openAiTab("show-park", "about:blank")
+                val id = engine.open("about:blank")
                 try {
-                    val w = engine.webView(id)
+                    val w = engine.webView(id).value!!
                     assertEquals(View.INVISIBLE, w.visibility)
                     engine.show(id); engine.show(id)
                     engine.park(id)

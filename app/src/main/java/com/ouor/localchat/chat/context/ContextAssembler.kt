@@ -50,6 +50,10 @@ data class AssemblyInput(
     val noteText: String = SystemPrompt.TOOLS_OFF_NOTE,
     /** Steps left before the step-limit question; 1-3 adds a note to the newest tool result (tools-redesign 5-4). */
     val stepsLeft: Int = 0,
+    /** browser-layers 5-1: the tabs as the turn started, after the last user message; never stored. */
+    val tabNote: String? = null,
+    /** Tabs open now: a closed tab's lists keep only their head (5-3). Null = unknown. */
+    val openTabs: Set<Int>? = null,
 )
 
 enum class NotePlacement {
@@ -100,9 +104,10 @@ object ContextAssembler {
             replies.flatMapIndexed { reply, body ->
                 val results = body.blocks.filterIsInstance<ToolResultBlock>().associateBy { it.key }
                 body.blocks.filterIsInstance<ToolCallBlock>()
-                    .map { Triple("$reply/${it.key}", it.name, results[it.key]?.content ?: SystemPrompt.ABORTED) }
+                    .map { Triple("$reply/${it.key}", it.name, results[it.key]) }
             },
             input.model.caps.contextWindow.value,
+            input.openTabs,
         )
         // Rule 12 (tools-redesign 5-4, G-m8): near the step limit the newest result says how many steps are left, outside
         // the page boundary. Only this request has it: it is never stored, so it never goes stale.
@@ -114,9 +119,10 @@ object ContextAssembler {
         val latestImage = replies.flatMap { b -> b.blocks.filterIsInstance<ToolResultBlock>().mapNotNull { it.imageForModelId } }.lastOrNull()
 
         var reply = 0
+        val lastUser = kept.lastOrNull { it.body is MessageBody.User }
         for (node in kept) {
             when (val body = node.body) {
-                is MessageBody.User -> messages += userMessage(body, input)
+                is MessageBody.User -> messages += userMessage(body, input, input.tabNote.takeIf { node === lastUser && !input.continueMode })
                 is MessageBody.Assistant -> messages += assistantSteps(body, reply++, current = false, sendable, latestImage, input)
             }
         }
@@ -189,7 +195,7 @@ object ContextAssembler {
                 body.blocks.none { (it is TextBlock && it.text.isNotBlank()) || it is ToolCallBlock })
 
     /** Rule 4. */
-    private fun userMessage(body: MessageBody.User, input: AssemblyInput): WireMessage {
+    private fun userMessage(body: MessageBody.User, input: AssemblyInput, tabNote: String? = null): WireMessage {
         val texts = mutableListOf<String>()
         if (body.text.isNotBlank()) texts += body.text
         val images = mutableListOf<JsonElement>()
@@ -205,6 +211,7 @@ object ContextAssembler {
                 texts += if (p.text != null) "File: ${a.name}\n```\n${p.text}\n```" else "[File: ${a.name}]"
             }
         }
+        if (tabNote != null) texts += tabNote
         val text = texts.joinToString("\n\n")
         if (images.isEmpty()) return WireMessage("user", JsonPrimitive(text))
         val parts = buildList {

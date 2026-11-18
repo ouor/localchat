@@ -70,7 +70,10 @@ sessions/*.json.messages[].body.blocks[].endedAt
 sessions/*.json.messages[].body.blocks[].imageForModelId
 sessions/*.json.messages[].body.blocks[].isError
 sessions/*.json.messages[].body.blocks[].isTemplate
+sessions/*.json.messages[].body.blocks[].lead
 sessions/*.json.messages[].body.blocks[].name
+sessions/*.json.messages[].body.blocks[].note
+sessions/*.json.messages[].body.blocks[].refused
 sessions/*.json.messages[].body.blocks[].sources
 sessions/*.json.messages[].body.blocks[].sources[].n
 sessions/*.json.messages[].body.blocks[].sources[].siteName

@@ -83,4 +83,7 @@ interface BrowserPort {
     /** Main thread. Throws TabClosed for a closed tab. */
     fun tab(tabId: Int): BrowserTab
     fun cookieHeader(url: String): String?
+
+    /** The clock of the tabs' event, request and input logs (uptime ms). */
+    fun now(): Long
 }

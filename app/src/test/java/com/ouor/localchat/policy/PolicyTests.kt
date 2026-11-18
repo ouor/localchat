@@ -205,10 +205,10 @@ class TabMemoryPolicyTest {
     @Test fun `past K the least recently used tabs sleep, never the front, shown, busy or pending ones`() {
         val tabs = (1..8).map { tab(it, lastUsedAt = it.toLong(), pending = it == 3) }
         val out = TabMemoryPolicy.toDiscard(tabs, Front(1, 0), shown = 2, activity = mapOf(4 to ToolActivity("s", "click")), k = 4)
-        assertEquals(listOf(5, 6, 7, 8).take(4), out)
+        assertEquals(listOf(5, 6, 7, 8), out)
         assertTrue(TabMemoryPolicy.toDiscard(tabs.take(4), null, null, emptyMap(), 4).isEmpty())
         val asleep = tabs.map { if (it.id > 5) it.copy(asleep = Asleep.DISCARDED) else it }
-        assertEquals(listOf(5).take(1), TabMemoryPolicy.toDiscard(asleep, Front(1, 0), 2, emptyMap(), 4))
+        assertEquals("the least recently used awake one", listOf(4), TabMemoryPolicy.toDiscard(asleep, Front(1, 0), 2, emptyMap(), 4))
         assertEquals(listOf(3, 6), listOf(TabMemoryPolicy.startK(6L shl 30), TabMemoryPolicy.startK(16L shl 30)))
     }
 
@@ -267,7 +267,7 @@ class PolicyChainTest {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PoliciesTest {
-    @Test fun `no policies, no contributions; one policy, only its own`() = runTest(UnconfinedTestDispatcher()) {
+    @Test fun `no policies, no contributions, one policy, only its own`() = runTest(UnconfinedTestDispatcher()) {
         val empty = Policies(emptyList(), emptyList())
         assertTrue(empty.promptLines().isEmpty() && empty.hiddenTools().isEmpty() && empty.settings().isEmpty())
         assertEquals(emptyList<Notice>(), empty.notices.first())

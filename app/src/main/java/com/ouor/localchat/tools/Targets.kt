@@ -68,7 +68,8 @@ object Targets {
             TargetRule.OPEN -> return Target.NewTab
             // 4. read(url): a tab already showing it, else a new tab.
             TargetRule.READ -> args.optString("url")?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
-                val url = webUrl(raw, default?.let(open::get)?.url) ?: return Target.NewTab
+                // Not a web URL: an error before any tab opens.
+                val url = webUrl(raw, default?.let(open::get)?.url) ?: return Target.Error(notWebUrl(raw))
                 val matching = tabs.filter { t -> (t.urlChain + t.url).any { sameUrl(it, url) } }
                 val pick = matching.firstOrNull { it.id == chat.current } ?: matching.maxByOrNull { it.lastUsedAt }
                 return pick?.let { Target.Tab(it.id) } ?: Target.NewTab
@@ -126,6 +127,10 @@ object Targets {
         if (scheme != "http" && scheme != "https") return null
         return url.takeIf { runCatching { URI(it).host }.getOrNull()?.isNotEmpty() == true }
     }
+
+    /** Why [raw] is not opened. */
+    fun notWebUrl(raw: String) =
+        if (isPath(raw)) "$raw is a path and the tab has no web page to open it on; pass a full URL." else "Not an http(s) URL: $raw"
 
     private fun sameUrl(a: String, b: String) = a.substringBefore('#').trimEnd('/') == b.substringBefore('#').trimEnd('/')
 }

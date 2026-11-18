@@ -33,10 +33,10 @@ class WebSearchLiveTest : ToolFlowBase() {
         val reply = awaitEnd(send("search", browserOn = false, searchOn = true))
         val ms = SystemClock.uptimeMillis() - start
         val result = reply.results().single()
-        Log.i(TAG, "\"$query\" in $ms ms: ${result.content.take(600)}")
-        assumeTrue("all engines blocked", "bot check or consent page" !in result.content)
-        assertEquals(result.content, ToolCallState.DONE, reply.calls().single().state)
-        assertTrue(result.content, (result.summary?.toIntOrNull() ?: 0) >= 5)
+        Log.i(TAG, "\"$query\" in $ms ms: ${result.modelText.take(600)}")
+        assumeTrue("all engines blocked", "bot check or consent page" !in result.modelText)
+        assertEquals(result.modelText, ToolCallState.DONE, reply.calls().single().state)
+        assertTrue(result.modelText, (result.summary?.toIntOrNull() ?: 0) >= 5)
         assertTrue("$ms ms", ms < 20_000)
     }
 
@@ -49,11 +49,11 @@ class WebSearchLiveTest : ToolFlowBase() {
         llm.enqueue(Scenario.toolCall("read", """{"url":"https://en.wikipedia.org/wiki/Kotlin_(programming_language)"}"""), Scenario.text("done"))
         val start = SystemClock.uptimeMillis()
         val reply = awaitEnd(send("read", browserOn = false, searchOn = true))
-        val text = reply.results().single().content
+        val text = reply.results().single().modelText
         Log.i(TAG, "wikipedia in ${SystemClock.uptimeMillis() - start} ms, ${text.length} chars: ${text.take(300)}")
         assertEquals(text.take(300), ToolCallState.DONE, reply.calls().single().state)
         assertTrue(text.take(300), text.length >= 4_000)
-        val parts = Regex("\\(part 1 of (\\d+)\\)").find(text)?.groupValues?.get(1)?.toInt() ?: 1
+        val parts = Regex("part 1 of (\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 1
         assertTrue(text.take(300), parts >= 2)
     }
 

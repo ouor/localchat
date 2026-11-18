@@ -40,7 +40,7 @@ class ArchitectureTest {
         "chat" to listOf("ChatEngine.kt", "SessionRepository.kt", "DraftRepository.kt", "run/RunState.kt"),
         "provider" to listOf("ProviderRepository.kt", "Presets.kt"),
         "attach" to listOf("AttachmentIngest.kt"),
-        "browser" to listOf("BrowserEngine.kt", "BrowserEvent.kt", "BrowserFacts.kt", "Highlight.kt"), // element types of its public flows
+        "browser" to listOf("BrowserEngine.kt", "BrowserEvent.kt", "BrowserFacts.kt", "Highlight.kt", "SearchEngines.kt"), // element types of its public flows; the address bar's search URL
         "policy" to POLICY_GENERIC,
         "backup" to listOf("BackupService.kt"),
         "storage" to listOf("SettingsStore.kt"),

@@ -5,15 +5,12 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.chat.run.Pause
-import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.core.model.SearchEngine
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.testing.Scenario
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import mockwebserver3.MockResponse
 import mockwebserver3.RecordedRequest
 import org.junit.Assert.assertEquals
@@ -74,13 +71,13 @@ class PageReadyTest : ToolFlowBase() {
             awaitRun(sid, "resume") { it?.phase !is com.ouor.localchat.chat.run.RunPhase.Paused }
         }
         val reply = awaitEnd(sid)
-        return reply.results().single().content to reply.calls().single().state
+        return reply.results().single().modelText to reply.calls().single().state
     }
 
     /** One readiness wait on a hidden tab, from the load call: (readiness, ms). */
     private fun measure(path: String): Pair<Readiness, Long> = runBlocking {
         val since = SystemClock.uptimeMillis()
-        val id = withContext(Dispatchers.Main) { browser.openAiTab("m", url(path), hidden = true) }
+        val id = withContext(Dispatchers.Main) { browser.open(url(path)) }
         try {
             val tab = withContext(Dispatchers.Main) { browser.tab(id) }
             val r = tab.awaitReady(since)
@@ -96,12 +93,12 @@ class PageReadyTest : ToolFlowBase() {
     @Test
     fun e2_aClickToASlowFirstByteWaitsForTheNewPage() {
         llm.enqueue(
-            Scenario.toolCall("browse", """{"url":"${url("/a")}"}"""),
+            Scenario.toolCall("open", """{"url":"${url("/a")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Slow page\"")}"}"""),
             Scenario.text("done"),
         )
         val reply = awaitEnd(send("go"))
-        val click = reply.results()[1].content
+        val click = reply.results()[1].modelText
         assertTrue(click, "→ new page." in click && "/slow" in click && "Slow page body text" in click)
     }
 
@@ -129,7 +126,7 @@ class PageReadyTest : ToolFlowBase() {
 
     @Test
     fun e5_aScriptRedirectRightAfterLoadIsFollowed() {
-        val (text, _) = run("browse", """{"url":"${url("/jsredir")}"}""")
+        val (text, _) = run("open", """{"url":"${url("/jsredir")}"}""")
         assertTrue(text, "Page: Final — ${url("/final")}" in text)
     }
 
@@ -163,50 +160,43 @@ class PageReadyTest : ToolFlowBase() {
     @Test
     fun dialogsAreReportedInTheResult() {
         llm.enqueue(
-            Scenario.toolCall("browse", """{"url":"${url("/dialogs")}"}"""),
+            Scenario.toolCall("open", """{"url":"${url("/dialogs")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Save\"")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Leave\"")}"}"""),
             Scenario.text("done"),
         )
-        val sid = send("dialogs")
-        // The confirm is the user's: shown in the panel; the test answers Cancel there.
-        val prompt = runBlocking { withTimeout(30_000) { browser.prompts.first { it.isNotEmpty() } }.first() }
-        val tabId = browser.tabs.value.single().id
-        runBlocking(Dispatchers.Main) { browser.tab(tabId).answerDialog(false, null) }
-        assertTrue(prompt.toString(), "Really leave?" in prompt.toString())
-        val reply = awaitEnd(sid)
-        val (alert, confirm) = reply.results().drop(1).map { it.content }
+        // A dialog during the AI's own action is part of the flow it chose (3-6): answered OK, never shown to the user.
+        val reply = awaitEnd(send("dialogs"))
+        val (alert, confirm) = reply.results().drop(1).map { it.modelText }
         assertTrue(alert, "The page showed an alert: \"Saved!\"." in alert && "after alert" in alert)
-        assertTrue(confirm, "The page asked (confirm): \"Really leave?\" — the user chose Cancel." in confirm && "confirm=false" in confirm)
+        assertTrue(confirm, "The page asked (confirm): \"Really leave?\" — it was answered OK." in confirm && "confirm=true" in confirm)
+        assertTrue(browser.prompts.value.isEmpty())
     }
 
     @Test
     fun aDownloadLinkIsNotRead() {
         val (text, state) = run("read", """{"url":"${url("/file.pdf")}"}""")
         assertEquals(ToolCallState.FAILED, state)
-        assertTrue(text, "This URL is a file download (application/pdf)" in text)
+        assertTrue(text, "This is a file" in text && "file.pdf" in text && "cannot be read" in text)
     }
 
     @Test
-    fun enterInAPostFormAsksFirst() {
+    fun enterInAPostFormSendsItWithoutAQuestion() {
+        // browser-layers 0: the user is asked only about money and account deletion; a plain form is the AI's to send.
         llm.enqueue(
-            Scenario.toolCall("browse", """{"url":"${url("/post")}"}"""),
+            Scenario.toolCall("open", """{"url":"${url("/post")}"}"""),
             Scenario.toolCall("type", """{"ref":"${Scenario.ref("textbox")}","text":"hi\n"}"""),
             Scenario.text("done"),
         )
-        val sid = send("post")
-        val p = awaitPause(sid) as Pause.Approval
-        assertEquals("POST_FORM", p.request.reason?.name)
-        engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = false))
-        assertEquals(ToolCallState.DENIED, awaitEnd(sid).calls()[1].state)
-        assertTrue(pageHits.none { it == "/submit" })
+        assertEquals(ToolCallState.DONE, awaitEnd(send("post")).calls()[1].state)
+        assertTrue(pageHits.toString(), pageHits.any { it == "/submit" })
     }
 
     @Test
     fun searchPagesAreTold_blockedOrExtracted() = runBlocking<Unit> {
         suspend fun page(path: String) = withContext(Dispatchers.Main) {
             val since = SystemClock.uptimeMillis()
-            val id = browser.openAiTab("s", url(path), hidden = true)
+            val id = browser.open(url(path))
             val tab = browser.tab(id)
             tab.awaitReady(since)
             PageScript.search(tab, SearchEngine.DUCKDUCKGO).also { browser.close(id) }
@@ -222,7 +212,7 @@ class PageReadyTest : ToolFlowBase() {
         // B-m3 and main-frame ERR_ABORTED: a same-page anchor, a download and a 204 commit no document; the wait ends
         // when the request ends instead of running to the load cap, and an aborted load is no error.
         llm.enqueue(
-            Scenario.toolCall("browse", """{"url":"${url("/jump")}"}"""),
+            Scenario.toolCall("open", """{"url":"${url("/jump")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Jump down\"")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Get the file\"")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"No content\"")}"}"""),
@@ -230,7 +220,7 @@ class PageReadyTest : ToolFlowBase() {
         )
         val reply = awaitEnd(send("jump"))
         val calls = reply.calls().drop(1)
-        val results = reply.results().drop(1).map { it.content }
+        val results = reply.results().drop(1).map { it.modelText }
         val ms = calls.map { it.endedAt!! - it.startedAt }
         Log.i(TAG, "anchor/download/204 clicks: $ms ms")
         assertEquals(results.joinToString(), List(3) { ToolCallState.DONE }, calls.map { it.state })
@@ -243,12 +233,12 @@ class PageReadyTest : ToolFlowBase() {
     fun aNavigationReplacedByAnotherIsNoError() {
         // Main-frame ERR_ABORTED: the slow load is replaced by a script navigation 300 ms later; the click lands there.
         llm.enqueue(
-            Scenario.toolCall("browse", """{"url":"${url("/hop")}"}"""),
+            Scenario.toolCall("open", """{"url":"${url("/hop")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"Slow then final\"")}"}"""),
             Scenario.text("done"),
         )
         val reply = awaitEnd(send("hop"))
-        val click = reply.results()[1].content
+        val click = reply.results()[1].modelText
         assertEquals(click, ToolCallState.DONE, reply.calls()[1].state)
         assertTrue(click, "Page: Final" in click && "ERR_ABORTED" !in click)
     }
@@ -258,20 +248,15 @@ class PageReadyTest : ToolFlowBase() {
         // B-m1/m2: no second activation of a click, no re-run of code whose answer was lost, and code that does not
         // parse is reported without running.
         llm.enqueue(
-            Scenario.toolCall("browse", """{"url":"${url("/jump")}"}"""),
+            Scenario.toolCall("open", """{"url":"${url("/jump")}"}"""),
             Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Count\"")}"}"""),
             Scenario.toolCall("execute", """{"code":"window.clicks = (window.clicks || 0) + 1; void 0"}"""),
             Scenario.toolCall("execute", """{"code":"window.clicks = 100; ("}"""),
             Scenario.toolCall("execute", """{"code":"window.clicks"}"""),
             Scenario.text("done"),
         )
-        val sid = send("count")
-        repeat(3) {
-            val p = awaitPause(sid) as Pause.Approval
-            engine.resolve(sid, Resolution.ApprovalAnswer(p.id, allow = true))
-        }
-        val reply = awaitEnd(sid)
-        val results = reply.results().map { it.content }
+        val reply = awaitEnd(send("count")) // no question for code (browser-layers 0)
+        val results = reply.results().map { it.modelText }
         assertTrue(results[1], "count=1" in results[1])
         assertEquals(results[3], ToolCallState.FAILED, reply.calls()[3].state)
         assertTrue(results[3], "SyntaxError" in results[3])

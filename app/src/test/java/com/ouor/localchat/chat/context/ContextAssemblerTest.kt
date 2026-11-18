@@ -57,7 +57,7 @@ class ContextAssemblerTest {
             user("u3", "q3"),
         )
         val tools = ContextAssembler.build(input(path)).messages.filter { it.role == "tool" }.map { it.content!!.jsonPrimitive.content }
-        assertEquals(listOf("PAGE A", "PAGE B"), tools)
+        assertEquals(listOf(result("PAGE A").modelText, result("PAGE B").modelText), tools)
     }
 
     @Test
@@ -70,7 +70,7 @@ class ContextAssemblerTest {
         )
         val msgs = ContextAssembler.build(input(path)).messages
         assertEquals(listOf("system", "user", "assistant", "tool", "user"), msgs.map { it.role })
-        assertEquals("ordered", msgs[3].content!!.jsonPrimitive.content)
+        assertEquals(done.modelText, msgs[3].content!!.jsonPrimitive.content)
     }
 
     @Test
@@ -235,19 +235,21 @@ class ContextAssemblerTest {
         val blocks = (0..2).flatMap { listOf(ToolCallBlock("c$it", "execute", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, big, false)) }
         val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
         val sent = msgs.map { it.content!!.jsonPrimitive.content }
-        assertTrue(sent[0].contains("…[1000 characters omitted]…"))
-        assertEquals(big, sent[1])
-        assertEquals(big, sent[2])
+        val whole = ToolResultBlock("c", 0, big, false).modelText
+        assertTrue(sent[0].contains("characters omitted]…"))
+        assertEquals(whole, sent[1])
+        assertEquals(whole, sent[2])
     }
 
     @Test
     fun `older element lists are sent as their head`() {
-        val list = "Clicked e1 → new page.\n" + Untrusted.wrap("Page: A — https://a.test/\n\n- link \"x\" [ref=e1]") + "\n(3 more elements: 0 above and 3 below.)"
-        val blocks = (0..1).flatMap { listOf(ToolCallBlock("c$it", "browse", "{}", it, ToolCallState.DONE, 0), ToolResultBlock("c$it", it, list, false)) }
+        val page = "Page: A — https://a.test/ (tab 1)\n\n- link \"x\" [ref=1e1]"
+        val result = { i: Int -> ToolResultBlock("c$i", i, page, false, lead = "Clicked 1e1 → new page.", note = "(3 more elements: 0 above and 3 below.)") }
+        val blocks = (0..1).flatMap { listOf(ToolCallBlock("c$it", "click", "{}", it, ToolCallState.DONE, 0), result(it)) }
         val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
         val sent = msgs.map { it.content!!.jsonPrimitive.content }
-        assertEquals("Clicked e1 → new page.\n" + Untrusted.wrap("Page: A — https://a.test/\n" + ToolResultTrimmer.STALE), sent[0])
-        assertEquals(list, sent[1])
+        assertEquals(com.ouor.localchat.core.Untrusted.result("Clicked 1e1 → new page.", "Page: A — https://a.test/ (tab 1)\n" + ToolResultTrimmer.STALE, ""), sent[0])
+        assertEquals(result(1).modelText, sent[1])
     }
 
     @Test
@@ -256,8 +258,9 @@ class ContextAssemblerTest {
         val body = empty().copy(blocks = blocks)
         fun sent(left: Int) = ContextAssembler.build(input(listOf(user("u", "q")), body).copy(stepsLeft = left)).messages
             .filter { it.role == "tool" }.map { it.content!!.jsonPrimitive.content }
-        assertEquals(listOf("r0", "r1\n\n" + SystemPrompt.stepsLeft(2)), sent(2))
-        assertEquals(listOf("r0", "r1"), sent(0))
-        assertEquals(listOf("r0", "r1"), sent(5))
+        val (r0, r1) = blocks.filterIsInstance<ToolResultBlock>().map { it.modelText }
+        assertEquals(listOf(r0, r1 + "\n\n" + SystemPrompt.stepsLeft(2)), sent(2))
+        assertEquals(listOf(r0, r1), sent(0))
+        assertEquals(listOf(r0, r1), sent(5))
     }
 }

@@ -73,4 +73,5 @@ class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) :
     override fun setActivity(tabId: Int, activity: ToolActivity?) = engine.setActivity(tabId, activity)
     override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
     override fun cookieHeader(url: String): String? = engine.cookieHeader(url)
+    override fun now(): Long = android.os.SystemClock.uptimeMillis()
 }

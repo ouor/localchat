@@ -77,23 +77,23 @@ class EngineSearchTest : ToolFlowBase() {
         val reply = awaitEnd(send("search", browserOn = false, searchOn = true))
         assertEquals(ReplyStatus.DONE, reply.status)
         val result = reply.results().single()
-        assertEquals(result.content, ToolCallState.FAILED, reply.calls().single().state)
-        assertTrue(result.content, result.content.startsWith("Search failed:"))
+        assertEquals(result.modelText, ToolCallState.FAILED, reply.calls().single().state)
+        assertTrue(result.modelText, "Search failed:" in result.lead)
         // Each engine is loaded twice (one retry); two engines failing on the network ends the search.
         val hosts = tunnels.distinct()
         assertEquals(tunnels.toString(), 2, hosts.size)
         assertEquals(tunnels.toString(), listOf(hosts[0], hosts[0], hosts[1], hosts[1]), tunnels.toList())
-        assertTrue("hidden tab closed", browser.tabs.value.isEmpty())
+        assertEquals("the search tab stays, like any tab", 1, browser.tabs.value.size)
     }
 
     @Test
     fun noNewLoadStartsPastTheBudget() {
         // 13 s per load: DuckDuckGo twice (27.5 s with the retry pause), the next engine once (40.5 s), then no retry.
         delayMs = 13_000
-        llm.enqueue(Scenario.toolCall("browse", """{"url":"lamps"}"""), Scenario.text("done"))
+        llm.enqueue(Scenario.toolCall("open", """{"url":"lamps"}"""), Scenario.text("done"))
         val reply = awaitEnd(send("search", browserOn = true), timeoutMs = 90_000)
         val result = reply.results().single()
-        assertTrue(result.content, result.content.startsWith("Search timed out after trying"))
+        assertTrue(result.modelText, "Search timed out after trying" in result.lead)
         assertEquals(tunnels.toString(), 3, tunnels.size)
     }
 }

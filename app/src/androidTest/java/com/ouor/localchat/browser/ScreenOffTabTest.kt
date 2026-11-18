@@ -56,11 +56,11 @@ class ScreenOffTabTest {
         Thread.sleep(1_000) // let the Activity stop
 
         runBlocking {
-            val id = withContext(Dispatchers.Main) { engine.openAiTab("screen-off", "about:blank") }
+            val id = withContext(Dispatchers.Main) { engine.open("about:blank") }
             try {
                 val tab = withContext(Dispatchers.Main) { engine.tab(id) }
                 tab.awaitReady(android.os.SystemClock.uptimeMillis())
-                val (w, h) = withContext(Dispatchers.Main) { tab.webView.width to tab.webView.height }
+                val (w, h) = withContext(Dispatchers.Main) { tab.webView.value!!.width to tab.webView.value!!.height }
                 assertTrue("WebView ${w}x$h", w > 0 && h > 0)
                 val inner = tab.evaluate("window.innerWidth", 5_000).toFloat()
                 assertTrue("innerWidth $inner", inner > 0f)

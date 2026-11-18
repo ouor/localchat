@@ -309,7 +309,4 @@ internal class Opened(val readiness: Readiness, val since: Long, val retried: Bo
 
 /** A URL argument as a web URL on [tab]'s site, or a model-facing error. */
 internal fun webUrlOrThrow(raw: String, base: String?): String =
-    Targets.webUrl(raw, base) ?: throw ToolError(
-        if (Targets.isPath(raw)) "$raw is a path and the tab has no web page to open it on; pass a full URL."
-        else "Not an http(s) URL: $raw",
-    )
+    Targets.webUrl(raw, base) ?: throw ToolError(Targets.notWebUrl(raw))

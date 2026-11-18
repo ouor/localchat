@@ -45,6 +45,7 @@ class TargetsTest {
         assertEquals(Target.Tab(1), resolve(TargetRule.READ, args("url" to "https://a.test/start"), t = t))
         assertEquals(Target.Tab(2), resolve(TargetRule.READ, args("url" to "b.test/p"), t = t))
         assertEquals(Target.NewTab, resolve(TargetRule.READ, args("url" to "https://c.test/"), t = t))
+        assertEquals(Target.Error("Not an http(s) URL: javascript:x()"), resolve(TargetRule.READ, args("url" to "javascript:x()"), t = t))
         // Several: this chat's current tab, then the one used last.
         val same = listOf(tab(1, "https://a.test/", used = 5), tab(2, "https://a.test/", used = 1), tab(3, "https://a.test/", used = 3))
         assertEquals(Target.Tab(2), resolve(TargetRule.READ, args("url" to "https://a.test/"), c = chat(2), t = same))

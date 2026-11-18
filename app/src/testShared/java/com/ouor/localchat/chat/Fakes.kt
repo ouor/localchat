@@ -186,6 +186,8 @@ class FakeBrowserPort : BrowserPort {
     override fun setActivity(tabId: Int, activity: ToolActivity?) { this.activity += tabId to activity }
     override fun tab(tabId: Int): BrowserTab = throw IllegalStateException("no WebView on the JVM (tab $tabId)")
     override fun cookieHeader(url: String): String? = cookies[url]
+    var clock = 0L
+    override fun now(): Long = ++clock
 }
 
 /** A tool whose behaviour is a lambda. */

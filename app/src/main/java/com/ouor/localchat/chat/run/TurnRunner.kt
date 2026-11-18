@@ -13,6 +13,7 @@ import com.ouor.localchat.chat.ModelPort
 import com.ouor.localchat.chat.ResolvedModel
 import com.ouor.localchat.chat.TitleGenerator
 import com.ouor.localchat.chat.ToolPort
+import com.ouor.localchat.tools.browser.Read
 import com.ouor.localchat.chat.context.AssemblyInput
 import com.ouor.localchat.chat.context.ContextAssembler
 import com.ouor.localchat.chat.context.SystemPrompt
@@ -170,6 +171,7 @@ class TurnRunner @Inject constructor(
             val executor = ToolExecutor(
                 sessionId, browser, attachments, browserPort, policies, handle, listed, existingSources,
                 contextWindow = model.caps.contextWindow.value, vision = model.caps.imageInput.value, chat = chat,
+                readTool = toolPort.byName(Read.name) ?: Read,
             ) { id, state ->
                 publish(body.copy(blocks = body.blocks.map { if (it is ToolCallBlock && it.key == id) it.copy(state = state) else it }))
             }

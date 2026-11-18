@@ -47,7 +47,7 @@ internal fun executor(
     states: MutableList<ToolCallState> = mutableListOf(),
 ) = ToolExecutor(
     "s", Provider { throw AssertionError("engine used") }, FakeAttachments(), browser, policies, handle, tools, emptyList(),
-    chat = chat, uptime = { 0L },
+    chat = chat,
 ) { _, st -> states += st }
 
 internal fun call(name: String, args: String = "{}", id: String = "c1") = ToolCallBlock(id, name, args, 0, ToolCallState.RUNNING, 0)
@@ -96,7 +96,7 @@ class ToolExecutorPolicyTest {
         assertFalse(executor(none, listOf(t)).execute(call("t")).block.refused)
     }
 
-    @Test fun `a confirmation pauses with the generic request; no is DENIED, yes runs`() = runTest {
+    @Test fun `a confirmation pauses with the generic request, no is DENIED, yes runs`() = runTest {
         var ran = 0
         val t = FakeTool("t", body = { _, _ -> ran++; ToolOutcome(page = "done") })
         val request = ApprovalRequest("Pay?", "button \"Pay\"", null, "https://shop.test/")
