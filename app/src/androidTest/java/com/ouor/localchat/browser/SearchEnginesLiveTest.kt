@@ -42,16 +42,16 @@ class SearchEnginesLiveTest {
         scenario.onActivity { a ->
             val host = FrameLayout(a)
             a.addContentView(host, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            tab = BrowserTab(1, a.applicationContext, Owner.Ai("s"), object : BrowserTab.Events {})
+            tab = BrowserTab(1, a.applicationContext, object : BrowserTab.Events {})
             tab.contextWrapper.baseContext = a
-            host.addView(tab.webView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            host.addView(tab.view, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
     }
 
     @After
     fun tearDown() {
         if (!::scenario.isInitialized) return
-        scenario.onActivity { tab.webView.destroy() }
+        scenario.onActivity { tab.destroy() }
         scenario.close()
     }
 

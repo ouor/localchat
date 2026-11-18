@@ -8,12 +8,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.MainActivity
 import com.ouor.localchat.testing.ScreenOnRule
-import com.ouor.localchat.browser.safety.IrreversibleAction
-import com.ouor.localchat.browser.safety.IrreversibleAction.Reason
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.ReadText
+import com.ouor.localchat.browser.script.ScrollResult
 import com.ouor.localchat.browser.script.Suggestions
 import com.ouor.localchat.browser.script.TypeResult
 import com.ouor.localchat.core.model.SearchEngine
@@ -31,7 +30,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
@@ -71,15 +69,21 @@ class AgentScriptTest {
         scenario.onActivity { a ->
             val host = FrameLayout(a)
             a.addContentView(host, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            tab = BrowserTab(1, a.applicationContext, Owner.Ai("s"), object : BrowserTab.Events {})
+            tab = BrowserTab(1, a.applicationContext, events)
             tab.contextWrapper.baseContext = a
-            host.addView(tab.webView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            host.addView(tab.view, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
+    }
+
+    /** Dialogs wait for an answer here ([BrowserTab.resolve]), like the shown tab's dialogs wait for the user. */
+    private val events = object : BrowserTab.Events {
+        override fun dispatch(tab: BrowserTab, e: BrowserEvent): Answer =
+            if (e is BrowserEvent.Dialog) Answer.ToUser else BrowserEngine.defaultAnswer(e, shown = false)
     }
 
     @After
     fun tearDown() {
-        scenario.onActivity { tab.webView.destroy() }
+        scenario.onActivity { tab.destroy() }
         scenario.close()
         server.close()
     }
@@ -96,7 +100,7 @@ class AgentScriptTest {
     private suspend fun js(code: String) = PageScript.execute(tab, code, 5_000)
     private suspend fun text(id: String) = js("document.getElementById('$id').textContent").trim('"')
     private fun refOf(snap: String, line: String): String =
-        Regex(Regex.escape(line) + "[^\\n]*\\[ref=(e\\d+)]").find(snap)?.groupValues?.get(1) ?: error("no ref for '$line' in\n$snap")
+        Regex(Regex.escape(line) + "[^\\n]*\\[ref=(\\d+e\\d+)]").find(snap)?.groupValues?.get(1) ?: error("no ref for '$line' in\n$snap")
 
     /**
      * The ref the element list gives the element with [id], as a model would read it (the tools take refs only, F2):
@@ -150,10 +154,11 @@ class AgentScriptTest {
             "  - button \"Inner button\" [ref=",
             "- iframe \"Cross origin\" (cross-origin, not accessible) [ref=", // a click on it asks first
         ).forEach { assertTrue("missing '$it' in\n$s", it in s) }
-        assertTrue(s, Regex("textbox \"Password\" \\[ref=e\\d+] \\[sensitive] value=••••").containsMatchIn(s))
-        assertTrue(s, Regex("textbox \"One-time code\" \\[ref=e\\d+] \\[sensitive] value=••••").containsMatchIn(s))
-        assertTrue(s, Regex("textbox \"Card\" \\[ref=e\\d+] \\[sensitive] value=••••").containsMatchIn(s))
-        listOf("hunter22", "123456", "4111", "hidden-value", "Invisible", "Hidden from AT").forEach {
+        // [secret] is a fact (password type, autocomplete one-time-code / cc-*); the value is listed, a policy hides it.
+        assertTrue(s, Regex("textbox \"Password\" \\[secret] \\[ref=1e\\d+] value=\"hunter22\"").containsMatchIn(s))
+        assertTrue(s, Regex("textbox \"Card\" \\[secret] \\[ref=1e\\d+] value=\"4111111111111111\"").containsMatchIn(s))
+        assertTrue(s, Regex("textbox \"One-time code\" \\[ref=1e\\d+] value=\"123456\"").containsMatchIn(s)) // a name alone is no fact
+        listOf("hidden-value", "Invisible", "Hidden from AT").forEach {
             assertFalse("'$it' leaked into\n$s", it in s)
         }
         // Same element keeps its ref across lists; the page DOM has no marker attributes.
@@ -169,10 +174,10 @@ class AgentScriptTest {
         assertTrue("hit test", at.hit)
         assertEquals(200f, at.rect.width, 1f)
         assertEquals(50f, at.rect.height, 1f)
-        val (viewWidth, density) = withContext(Dispatchers.Main) { tab.webView.width to tab.webView.resources.displayMetrics.density }
+        val (viewWidth, density) = withContext(Dispatchers.Main) { tab.view.width to tab.view.resources.displayMetrics.density }
         // view.width / innerWidth is the CSS px -> view px factor the overlay uses (architecture 7.5).
         assertTrue("innerWidth ${at.innerWidth} * density $density vs view $viewWidth", abs(at.innerWidth * density - viewWidth) < 3)
-        assertTrue(withContext(Dispatchers.Main) { tab.tap(at.cx, at.cy, at.innerWidth) })
+        assertEquals(BrowserTab.Tap.DONE, tab.tap(at.cx, at.cy, at.innerWidth))
         delay(300)
         assertEquals("clicked:true", text("out"))
     }
@@ -183,10 +188,11 @@ class AgentScriptTest {
         load("snapshot.html")
         val first = snapshot()
         val old = refOf(first, "button \"Press me\"")
-        val highest = Regex("\\[ref=e(\\d+)]").findAll(first).maxOf { it.groupValues[1].toInt() }
+        val highest = Regex("\\[ref=1e(\\d+)]").findAll(first).maxOf { it.groupValues[1].toInt() }
         load("snapshot.html")
         val second = snapshot()
-        assertTrue(second, Regex("\\[ref=e(\\d+)]").findAll(second).all { it.groupValues[1].toInt() > highest })
+        assertTrue(second, Regex("\\[ref=1e(\\d+)]").findAll(second).all { it.groupValues[1].toInt() > highest })
+        assertFalse("every ref names its tab (S4)", Regex("\\[ref=e").containsMatchIn(second))
         try {
             locate(old)
             fail("expected stale ref")
@@ -194,10 +200,16 @@ class AgentScriptTest {
             assertEquals("Ref $old is from an earlier page of this tab, not this one.", e.message)
         }
         try {
-            locate("e99999")
+            locate("1e99999")
             fail("expected unknown ref")
         } catch (e: StaleRef) {
-            assertEquals("Ref e99999 is not on this page.", e.message)
+            assertEquals("Ref 1e99999 is not on this page.", e.message)
+        }
+        try {
+            locate("2e5")
+            fail("expected another tab's ref")
+        } catch (e: StaleRef) {
+            assertEquals("Ref 2e5 is from tab 2, not tab 1.", e.message)
         }
         try {
             locate("#q")
@@ -205,7 +217,7 @@ class AgentScriptTest {
         } catch (e: StaleRef) {
             assertTrue(e.message, "is not a ref" in e.message!!)
         }
-        // How models write refs (G-m5): @e1, [ref=e1], e1.
+        // How models write refs (G-m5): @1e1, [ref=1e1], 1e1.
         val now = refOf(second, "button \"Press me\"")
         listOf("@$now", "[ref=$now]", " $now ").forEach { assertTrue(it, locate(it).hit) }
     }
@@ -217,7 +229,7 @@ class AgentScriptTest {
         val shadow = refOf(s, "button \"Shadow button\"")
         val at = locate(shadow)
         assertTrue("shadow hit", at.hit)
-        assertTrue(withContext(Dispatchers.Main) { tab.tap(at.cx, at.cy, at.innerWidth) })
+        assertEquals(BrowserTab.Tap.DONE, tab.tap(at.cx, at.cy, at.innerWidth))
         delay(300)
         assertEquals("shadow clicked", text("out"))
         val inner = locate(refOf(s, "button \"Inner button\""))
@@ -225,49 +237,35 @@ class AgentScriptTest {
     }
 
     @Test
-    fun sensitiveFieldsAreRefusedForTypeAndExecute() = runBlocking<Unit> {
+    fun secretFieldsAreTypedLikeAnyOtherAndExecuteRunsOnce() = runBlocking<Unit> {
+        // Layer 1 refuses nothing (browser-layers 2-7): whether the AI may fill a secret field is a policy's call.
         load("snapshot.html")
-        assertTrue(locate(ref("pw")).sensitive)
-        assertTrue(locate(ref("otp")).sensitive)
-        assertFalse(locate(ref("q")).sensitive)
-        try {
-            call("type", "pw", "x")
-            fail("typed into password")
-        } catch (e: PageError) {
-            assertTrue(e.message, e.message!!.startsWith("refused"))
-        }
+        assertEquals("pass", PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("pw")); put("text", "pass") }).value)
         val r = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("q")); put("text", "bar") })
         assertEquals("bar", r.value)
         assertTrue(locate(ref("q")).info.search)
-        try {
-            js("document.getElementById('pw').value = 'x'")
-            fail("execute set a password")
-        } catch (e: PageError) {
-            assertTrue(e.message, "refused" in e.message!!)
-        }
-        // The setter patch lives only while execute runs.
-        assertEquals("true", tab.evaluate("Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.toString().indexOf('native code') >= 0", 5_000))
+        js("document.getElementById('pw').value = 'x'")
+        assertEquals("\"x\"", js("document.getElementById('pw').value"))
         assertEquals("6", js("var a = 2; return a * 3"))
         assertEquals("42", js("new Promise(function (r) { setTimeout(function () { r(42); }, 300); })"))
         assertEquals("\"Snapshot test\"", js("document.title;"))
     }
 
     @Test
-    fun postFormAndKeywordJudgement() = runBlocking<Unit> {
+    fun describeTellsTheFormsSubmitButtonAndTheFrame() = runBlocking<Unit> {
         load("forms.html")
-        suspend fun reason(id: String) = IrreversibleAction.reasonForClick(locate(ref(id)).info)
-        assertEquals(Reason.POST_FORM, reason("signin"))
-        assertNull(reason("go"))
-        assertNull(reason("plain"))
-        assertNull(reason("override"))
-        assertEquals(Reason.RISKY_KEYWORD, reason("del"))
-        assertEquals(Reason.RISKY_KEYWORD, reason("buy"))
-        assertEquals(Reason.RISKY_KEYWORD, reason("article")) // SE 18: the label start is checked even on long links
-        assertEquals(Reason.POST_FORM, IrreversibleAction.reasonForEnter(locate(ref("user")).info))
-        assertNull(IrreversibleAction.reasonForEnter(locate(ref("sq")).info))
+        val user = PageScript.call<Located>(tab, "locate", buildJsonObject { put("target", ref("user")); put("scroll", false) })
+        assertEquals("Sign in", user.formSubmitLabel)
+        assertEquals("POST".lowercase(), user.info.formMethod)
+        assertEquals(null, user.frame)
+        assertEquals("Search", locate(ref("sq")).formSubmitLabel)
+        assertEquals(null, locate(ref("del")).formSubmitLabel)
         // type reports the form's submit button for the "not submitted" note.
         val typed = PageScript.call<TypeResult>(tab, "type", buildJsonObject { put("target", ref("user")); put("text", "kim") })
         assertEquals(ref("signin"), typed.submitRef)
+        load("snapshot.html")
+        val frame = Regex("iframe \"Cross origin\" \\(cross-origin, not accessible\\) \\[ref=(\\d+e\\d+)]").find(snapshot())!!.groupValues[1]
+        assertTrue(locate(frame).frame.orEmpty().startsWith("http"))
     }
 
     @Test
@@ -310,21 +308,23 @@ class AgentScriptTest {
             call("click", "ask")
             fail("click should be cut short by confirm()")
         } catch (e: PageError) {
-            assertTrue(e.message, "confirm dialog is open: \"Really delete?\". The page is waiting for the user to answer a dialog." in e.message!!)
+            assertTrue(e.message, "confirm dialog is open: \"Really delete?\". The page is waiting for the user to answer it." in e.message!!)
         }
         val d = tab.dialog.value!!
         assertEquals(DialogKind.CONFIRM, d.kind)
-        withContext(Dispatchers.Main) { tab.answerDialog(true, null) }
+        withContext(Dispatchers.Main) { tab.resolve(d.id, Answer.Accept()) }
         assertEquals("confirm=true", text("r"))
         val at = locate(ref("name"))
-        withContext(Dispatchers.Main) { tab.tap(at.cx, at.cy, at.innerWidth) }
+        tab.tap(at.cx, at.cy, at.innerWidth)
         delay(300)
         assertEquals(DialogKind.PROMPT, tab.dialog.value?.kind)
         assertEquals("anon", tab.dialog.value?.defaultText)
-        withContext(Dispatchers.Main) { tab.answerDialog(true, "Kim") }
+        withContext(Dispatchers.Main) { tab.resolve(tab.dialog.value!!.id, Answer.Accept("Kim")) }
         assertEquals("prompt=Kim", text("r"))
-        // Both answers are logged for the next tool result (tools-redesign 2-4).
-        assertEquals(listOf(DialogKind.CONFIRM to true, DialogKind.PROMPT to true), tab.dialogsSince(0).map { it.kind to it.accepted })
+        // Every event and its final answer is in the tab's record for the next tool result (browser-layers 2-4).
+        val final = withContext(Dispatchers.Main) { tab.eventsSince(0) }.filter { it.answer != Answer.ToUser }
+        assertEquals(listOf(DialogKind.CONFIRM, DialogKind.PROMPT), final.map { (it.event as BrowserEvent.Dialog).kind })
+        assertTrue(final.all { it.answer is Answer.Accept })
     }
 
     @Test
@@ -377,14 +377,11 @@ class AgentScriptTest {
         val l = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 16_000) })
         assertTrue(l.text, "link \"More\" [ref=" in l.text)
         // 228 links and the search field: every one of them.
-        assertEquals(l.text, 229, Regex("\\[ref=e").findAll(l.text).count())
+        assertEquals(l.text, 229, Regex("\\[ref=1e").findAll(l.text).count())
         // QA-M3: the nameless vote link is named by its icon, and a link with nothing else by its address.
         assertTrue(l.text, "link \"upvote\" [ref=" in l.text)
         assertTrue(l.text, "link \"news.ycombinator.com\" [ref=" in l.text)
         assertFalse(l.text, Regex("^ *- (table|row|cell|listitem)", RegexOption.MULTILINE).containsMatchIn(l.text))
-        // ... and asks the user first: it votes.
-        val vote = Regex("link \"upvote\" \\[ref=(e\\d+)]").find(l.text)!!.groupValues[1]
-        assertEquals(Reason.ACTION_LINK, IrreversibleAction.reasonForClick(locate(vote).info))
     }
 
     @Test
@@ -411,7 +408,7 @@ class AgentScriptTest {
         val next = tab.refNext
         tab.refNext = next + 100 // what another document of the tab handed out meanwhile
         tab.evaluate("document.body.insertAdjacentHTML('afterbegin', '<button>Added later</button>')", 5_000)
-        assertEquals("e${next + 100}", refOf(snapshot(), "button \"Added later\""))
+        assertEquals("1e${next + 100}", refOf(snapshot(), "button \"Added later\""))
     }
 
     @Test
@@ -426,6 +423,75 @@ class AgentScriptTest {
         }
         assertEquals("\"undefined\"", tab.evaluate("String(window.hits)", 5_000))
         assertEquals("3", js("1 + 2"))
+    }
+
+    private suspend fun scroll(dir: String, target: String? = null) =
+        PageScript.call<ScrollResult>(tab, "scroll", buildJsonObject { put("dir", dir); target?.let { put("target", it) } })
+
+    private suspend fun scrollY() = tab.evaluate("String(Math.round(scrollY))", 5_000).trim('"').toInt()
+
+    @Test
+    fun scrollMovesTheDocumentOneScreenAtOnceAndBack() = runBlocking<Unit> {
+        load("scroll.html")
+        val inner = tab.evaluate("innerHeight", 5_000).toFloat()
+        val down = scroll("down")
+        assertTrue("$down", down.moved && down.box == null)
+        // instant despite the page's scroll-behavior: smooth, and 0.85 of a screen
+        assertEquals(inner * 0.85f, scrollY().toFloat(), 2f)
+        assertEquals(down.y, scrollY())
+        assertTrue("$down", down.max > down.y && down.docHeight > inner && down.count > 100)
+        val up = scroll("up")
+        assertTrue(up.moved)
+        assertEquals(0, scrollY())
+        assertFalse("already at the top", scroll("up").moved)
+    }
+
+    @Test
+    fun aScrollingBoxIsListedAndScrolledByItsRef() = runBlocking<Unit> {
+        load("scroll.html")
+        val s = snapshot()
+        val box = Regex("generic \\[scrollable] \\[ref=(1e\\d+)]").find(s)?.groupValues?.get(1) ?: error("no scrollable line in\n$s")
+        // the pane's own lines sit one level deeper
+        assertTrue(s, Regex("generic \\[scrollable] \\[ref=1e\\d+]\\n  - text: \"Box line 1\"").containsMatchIn(s))
+        val r = scroll("down", box)
+        assertTrue("$r", r.moved && r.box == box && r.y > 0)
+        assertEquals("the document stays", 0, scrollY())
+        // On a tiny budget the pane line is kept: it is important (W-m1).
+        val small = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 300) }).text
+        assertTrue(small, "[scrollable]" in small)
+    }
+
+    @Test
+    fun aPageWhoseDocumentDoesNotScrollScrollsItsBiggestPane() = runBlocking<Unit> {
+        load("pane.html")
+        val r = scroll("down")
+        assertTrue("$r", r.moved && r.box != null)
+        assertEquals("\"pane\"", tab.evaluate("(function(){return document.getElementById('pane').scrollTop > 0 ? 'pane' : 'none'})()", 5_000))
+        assertEquals("\"0\"", tab.evaluate("String(document.getElementById('side').scrollTop)", 5_000))
+    }
+
+    @Test
+    fun readTextSaysWhereTheScreenIsAndSkipsAFixedHeader() = runBlocking<Unit> {
+        load("scroll.html")
+        val top = PageScript.call<ReadText>(tab, "readText")
+        assertFalse(top.text, "\u0001" in top.text)
+        assertTrue(top.text.substring(top.screenAt!!), top.text.substring(top.screenAt!!).startsWith("Box line 1"))
+        scroll("down")
+        scroll("down")
+        val lower = PageScript.call<ReadText>(tab, "readText")
+        val at = lower.text.substring(lower.screenAt!!)
+        assertTrue(at.take(80), at.startsWith("Paragraph ") && !at.startsWith("Paragraph 1 "))
+        assertTrue(lower.screenAt!! > top.screenAt!!)
+    }
+
+    @Test
+    fun aFlingingPageIsNotTapped() = runBlocking<Unit> {
+        load("scroll.html")
+        val ref = refOf(PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 500_000) }).text, "generic [scrollable]")
+        val at = locate(ref)
+        // a smooth scroll still running when the tap comes: the down would only stop it
+        tab.evaluate("window.scrollTo({top: 3000, behavior: 'smooth'})", 5_000)
+        assertEquals(BrowserTab.Tap.MOVING, tab.tap(at.cx, at.cy, at.innerWidth))
     }
 
     /** Live DuckDuckGo HTML results (R8). Skipped without network. */

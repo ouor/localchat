@@ -2,9 +2,10 @@
  * localchat page agent (architecture 7.3). Evaluated by browser.script.PageScript as
  *   (this function)(K, CFG)
  * once per document; it installs a non-enumerable window[K] whose call(fn, args) runs one function below.
- * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs. Ref
- * numbers start at CFG.refBase, which the app raises past every ref the tab handed out, and every call passes the
- * tab's next number again (a document back from the back/forward cache), so a ref never repeats in a tab.
+ * Nothing is written to the DOM: element refs live in JS memory (refs/refOf), so a new document = stale refs. A ref
+ * is "{tab}e{n}" (CFG.tab, browser-layers S4); n starts at CFG.refBase, which the app raises past every ref the tab
+ * handed out, and every call passes the tab's next number again (a document back from the back/forward cache), so a
+ * ref never repeats in the app.
  * The file must stay a single function expression (no trailing semicolon or call).
  */
 (function (K, CFG) {
@@ -13,12 +14,11 @@
 
   var base = CFG.refBase || 1; // first ref number of this document
   var nextNum = base;          // number of the next new ref
-  var refs = new Map();        // n -> WeakRef(element) for ref "e<n>"
-  var refOf = new WeakMap();   // element -> "e<n>": an element keeps its ref across snapshots
+  var tabNo = CFG.tab || 0;    // the tab's number, the first part of every ref
+  var refs = new Map();        // n -> WeakRef(element) for ref "<tab>e<n>"
+  var refOf = new WeakMap();   // element -> "<tab>e<n>": an element keeps its ref across snapshots
   var pend = {};               // execute promises: id -> null (running) | {ok} | {error}
   var pendSeq = 0;
-  var patched = 0;
-  var sensRe = new RegExp(CFG.pattern, 'i');
   var inputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   var textareaValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
   var botRe = new RegExp(CFG.bot, 'i');
@@ -177,21 +177,19 @@
     } catch (e) { return ''; }
   }
 
-  // ---------- B-S1 sensitive fields (rule from browser.safety.SensitiveFields via CFG)
+  // ---------- fields
 
   function isField(el) {
     return el.localName === 'input' || el.localName === 'textarea' || el.isContentEditable;
   }
 
-  function isSensitive(el) {
+  var SECRET_AC = { 'current-password': 1, 'new-password': 1, 'one-time-code': 1 };
+  /** A password, one-time code or card field: a fact the list marks [secret]; whether to hide it is a policy's call. */
+  function isSecret(el) {
     if (!isField(el)) return false;
     if ((el.getAttribute('type') || '').toLowerCase() === 'password') return true;
     var ac = (el.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
-    for (var i = 0; i < ac.length; i++) {
-      if (CFG.autocomplete.indexOf(ac[i]) >= 0 || (ac[i] && ac[i].indexOf(CFG.prefix) === 0)) return true;
-    }
-    var c = [el.getAttribute('name'), el.id, nameOf(el, roleOf(el)), el.getAttribute('placeholder')];
-    for (i = 0; i < c.length; i++) if (c[i] && sensRe.test(c[i])) return true;
+    for (var i = 0; i < ac.length; i++) if (SECRET_AC[ac[i]] || ac[i].indexOf('cc-') === 0) return true;
     return false;
   }
 
@@ -274,24 +272,25 @@
     var r = refOf.get(el);
     if (!r) {
       refs.set(nextNum, new WeakRef(el));
-      r = 'e' + nextNum++;
+      r = tabNo + 'e' + nextNum++;
       refOf.set(el, r);
     }
     return r;
   }
 
-  // "e12", "@e12", "#e12", "[ref=e12]"
-  var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?[@#]?e(\d+)\s*\]?\s*$/i;
+  // "4e12", "@4e12", "#4e12", "[ref=4e12]"
+  var REF_RE = /^\s*\[?\s*(?:ref\s*=\s*)?[@#]?(\d+)e(\d+)\s*\]?\s*$/i;
 
   /** The element of a ref; anything else is refused with a "REF:" message (the app then shows the current list). */
   function resolve(target) {
     var m = REF_RE.exec(target == null ? '' : String(target));
-    if (!m) throw new Error('REF:' + q(cut(String(target == null ? '' : target), 40)) + ' is not a ref. Pass a ref from the element list, e.g. e12.');
-    var n = +m[1];
-    if (n < base) throw new Error('REF:Ref e' + n + ' is from an earlier page of this tab, not this one.');
+    if (!m) throw new Error('REF:' + q(cut(String(target == null ? '' : target), 40)) + ' is not a ref. Pass a ref from the element list, e.g. ' + tabNo + 'e12.');
+    var t = +m[1], n = +m[2], name = t + 'e' + n;
+    if (t !== tabNo) throw new Error('REF:Ref ' + name + ' is from tab ' + t + ', not tab ' + tabNo + '.');
+    if (n < base) throw new Error('REF:Ref ' + name + ' is from an earlier page of this tab, not this one.');
     var w = refs.get(n), el = w && w.deref();
-    if (!w) throw new Error('REF:Ref e' + n + ' is not on this page.');
-    if (!el || !el.isConnected) throw new Error('REF:Ref e' + n + ' is gone; the page changed.');
+    if (!w) throw new Error('REF:Ref ' + name + ' is not on this page.');
+    if (!el || !el.isConnected) throw new Error('REF:Ref ' + name + ' is gone; the page changed.');
     return el;
   }
 
@@ -360,6 +359,19 @@
     };
   }
 
+  /** Label of the button that submits el's form (a money or account check reads it before a click or Enter). */
+  function submitLabel(el) {
+    var form = el.form || (el.closest && el.closest('form'));
+    var sub = form && form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
+    return sub ? (nameOf(sub, 'button') || null) : null;
+  }
+
+  /** Where the element's page comes from when it is not this document: an iframe's src, a frame document's URL. */
+  function frameOf(el) {
+    if (el.localName === 'iframe' || el.localName === 'frame') return el.src || null;
+    return el.ownerDocument !== document ? el.ownerDocument.location.href : null;
+  }
+
   function locate(el, scroll) {
     if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     var r = rectInTop(el);
@@ -370,7 +382,8 @@
       (el.labels ? Array.prototype.some.call(el.labels, function (l) { return within(l, hitEl); }) : false));
     return {
       info: info(el), rect: r, innerWidth: innerWidth, cx: cx, cy: cy, hit: hit,
-      sensitive: isSensitive(el), editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true')
+      editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
+      formSubmitLabel: submitLabel(el), frame: frameOf(el)
     };
   }
 
@@ -398,12 +411,11 @@
     if (ex === 'true' || ex === 'false') s += ' [expanded=' + ex + ']';
     if (el.getAttribute('aria-selected') === 'true') s += ' [selected]';
     if (el.getAttribute('aria-pressed') === 'true') s += ' [pressed]';
-    var tabindex = el.getAttribute('tabindex');
-    if (INTERACTIVE[role] || (tabindex !== null && +tabindex >= 0) || el.hasAttribute('onclick')) s += ' [ref=' + refFor(el) + ']';
-    if (isField(el) && isSensitive(el)) {
-      s += ' [sensitive]';
-      if ((el.isContentEditable ? el.textContent : el.value)) s += ' value=••••';
-    } else if (el.localName === 'select') {
+    var tabindex = el.getAttribute('tabindex'), box = scrollBox(el);
+    if (box) s += ' [scrollable]';
+    if (isSecret(el)) s += ' [secret]';
+    if (box || INTERACTIVE[role] || (tabindex !== null && +tabindex >= 0) || el.hasAttribute('onclick')) s += ' [ref=' + refFor(el) + ']';
+    if (el.localName === 'select') {
       var opts = Array.prototype.slice.call(el.options);
       var sel = opts.filter(function (o) { return o.selected; }).map(function (o) { return norm(o.text); });
       if (sel.length) s += ' value=' + q(cut(sel.join(', '), 100));
@@ -426,13 +438,21 @@
     return s;
   }
 
+  /** An element that scrolls inside the page (a chat pane, a map's result list); the document's own scroller is not one. */
+  function scrollBox(el) {
+    if (el.scrollHeight <= el.clientHeight + 20) return false;
+    var se = document.scrollingElement || document.documentElement;
+    if (el === se || el === document.body || el === document.documentElement) return false;
+    var o = styleOf(el).overflowY;
+    return o === 'auto' || o === 'scroll' || o === 'overlay';
+  }
+
   /**
    * Lines of the page's elements within budget characters. When everything does not fit, interactive elements and
-   * headings on screen come first, then those off screen (nearest first), then text on screen, then other text;
-   * the chosen lines are printed in document order. With more, a page that is (nearly) the same as at the last call
-   * lists the lines that call left out (G-M3); otherwise it starts over.
+   * headings on screen come first, then those off screen (nearest first), then text on screen, then other text; with
+   * a.screen (after a scroll) every line on screen comes first, text included (S12). The chosen lines are printed in
+   * document order.
    */
-  var lastList = null; // { all: Set of every line, shown: Set of listed lines }
 
   function pageList(a) {
     var budget = a.budget || 16000, vh = innerHeight;
@@ -446,7 +466,8 @@
       else if (r.top >= vh) { side = 1; dist = r.top - vh; }
       // Past the bound only what is on screen and actionable is kept; no list can reach the rest, so it is counted apart.
       if (items.length >= MAX_ITEMS && !(important && side === 0)) { beyond++; return; }
-      items.push({ s: new Array(depth + 1).join('  ') + '- ' + line, pri: (important ? 0 : 2) + (side ? 1 : 0), dist: dist, side: side });
+      var pri = a.screen ? (side === 0 ? 0 : important ? 1 : 2) : (important ? 0 : 2) + (side ? 1 : 0);
+      items.push({ s: new Array(depth + 1).join('  ') + '- ' + line, pri: pri, dist: dist, side: side });
     }
 
     // A table without headers or caption lays out the page (HN); its rows and cells are not data.
@@ -497,6 +518,11 @@
       var role = roleShown(el);
       var inner = el.shadowRoot || el;
       var field = isField(el) || el.localName === 'select';
+      if (!role && scrollBox(el) && visibleBox(el)) {
+        // A scrolling pane gets a line of its own, so scroll(ref) can reach it, and is never left out (W-m1).
+        emit(depth, 'generic [scrollable] [ref=' + refFor(el) + ']', el, true);
+        return children(inner, depth + 1, false);
+      }
       if (!role) {
         if (!textLeaf(el)) return children(inner, depth, false);
         var t = norm(el.innerText);
@@ -524,14 +550,7 @@
 
     children(document.body || document.documentElement, 0, false);
 
-    // Continue the last list when most of its lines are still here and some were left out.
-    var shown = new Set(), continued = false;
-    if (a.more && lastList) {
-      var same = 0, open = 0;
-      items.forEach(function (it) { if (lastList.all.has(it.s)) same++; if (!lastList.shown.has(it.s)) open++; });
-      if (open > 0 && same >= 0.9 * items.length) { shown = lastList.shown; continued = true; }
-    }
-    var cand = items.map(function (it, i) { return i; }).filter(function (i) { return !shown.has(items[i].s); });
+    var cand = items.map(function (it, i) { return i; });
     var total = 0;
     cand.forEach(function (i) { total += items[i].s.length + 1; });
     var keep = new Set(cand);
@@ -544,14 +563,12 @@
         if (used + len <= budget) { keep.add(i); used += len; }
       });
     }
-    var out = [], above = 0, below = 0, all = new Set(), nowShown = new Set(shown);
+    var out = [], above = 0, below = 0;
     items.forEach(function (it, i) {
-      all.add(it.s);
-      if (keep.has(i)) { out.push(it.s); nowShown.add(it.s); }
-      else if (!nowShown.has(it.s) && !shown.has(it.s)) { if (it.side < 0) above++; else below++; }
+      if (keep.has(i)) out.push(it.s);
+      else if (it.side < 0) above++; else below++;
     });
-    lastList = { all: all, shown: nowShown };
-    return { text: out.join('\n'), listed: out.length, above: above, below: below, beyond: beyond, continued: continued };
+    return { text: out.join('\n'), listed: out.length, above: above, below: below, beyond: beyond };
   }
 
   // ---------- main text (read)
@@ -576,11 +593,30 @@
     if (arts.length === 1 && norm(arts[0].textContent).length >= 500) root = arts[0];
     var text = textOf(root || body, !root);
     if (root && text.length < 200) text = textOf(body, true);
-    return { title: norm(document.title), url: location.href, text: text, flags: flags(text) };
+    // The first text block on screen carries a mark through the normalising; its place is where the screen is (W-m2).
+    var at = text.indexOf(MARK);
+    text = text.split(MARK).join('');
+    return { title: norm(document.title), url: location.href, text: text, flags: flags(text), screenAt: at >= 0 ? at : null };
+  }
+
+  var MARK = '\u0001';
+
+  /** A block with its own text, on screen and not in a fixed or sticky bar. */
+  function onScreenLeaf(n) {
+    var own = false;
+    for (var c = n.firstChild; c && !own; c = c.nextSibling) own = c.nodeType === 3 && /\S/.test(c.data);
+    if (!own) return false;
+    var r = rectInTop(n);
+    if (!(r.height > 0 && r.top < innerHeight && r.top + r.height > 0)) return false;
+    for (var p = n; p && p.nodeType === 1; p = p.parentElement) {
+      var pos = styleOf(p).position;
+      if (pos === 'fixed' || pos === 'sticky') return false;
+    }
+    return true;
   }
 
   function textOf(root, skipChrome) {
-    var lines = [], cur = '', prefix = '';
+    var lines = [], cur = '', prefix = '', marked = false;
     function flush() {
       var t = cur.replace(/\s+/g, ' ').trim();
       if (t) lines.push(prefix + t);
@@ -615,6 +651,7 @@
       flush();
       if (HEADINGS[t]) { lines.push(''); prefix = '## '; }
       else if (t === 'li') prefix = '- ';
+      if (!marked && onScreenLeaf(n)) { cur += MARK; marked = true; }
       kids(n.shadowRoot || n);
       flush();
       if (HEADINGS[t] || t === 'p' || t === 'table' || t === 'pre' || t === 'blockquote') lines.push('');
@@ -646,7 +683,6 @@
   function typeText(a) {
     var el = resolve(a.target);
     if (el.localName === 'select') return chooseOption(el, a.text);
-    if (isSensitive(el)) throw new Error('refused: password, OTP and card fields are filled by the user only (use request_handoff)');
     if (!isEditable(el)) throw new Error('The element is not a text field (' + el.localName + (roleOf(el) ? ', ' + roleOf(el) : '') + ').');
     if (el.disabled || el.readOnly) throw new Error('text field is disabled or read-only');
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
@@ -687,26 +723,48 @@
     return {};
   }
 
-  // ---------- execute (architecture 7.4): sensitive value setter refused while user code runs
+  // ---------- scroll (browser-layers 2-7, S16)
 
-  function execBegin() {
-    if (patched++ > 0) return {};
-    Object.defineProperty(HTMLInputElement.prototype, 'value', {
-      configurable: true, enumerable: inputValue.enumerable, get: inputValue.get,
-      set: function (v) {
-        if (isSensitive(this)) throw new Error('refused: execute may not set password, OTP or card fields');
-        return inputValue.set.call(this, v);
-      }
-    });
-    return {};
+  /** The scroll box with the most area on screen, for a page whose document does not scroll. */
+  function largestBox() {
+    var best = null, area = 0, all = document.body ? document.body.getElementsByTagName('*') : [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (!scrollBox(el)) continue;
+      var r = el.getBoundingClientRect();
+      var w = Math.min(r.right, innerWidth) - Math.max(r.left, 0), h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+      if (w > 0 && h > 0 && w * h > area) { area = w * h; best = el; }
+    }
+    return best;
   }
 
-  function execEnd(a) {
-    if (a && a.force) patched = 1;
-    if (patched === 0 || --patched > 0) return {};
-    Object.defineProperty(HTMLInputElement.prototype, 'value', inputValue);
-    return {};
+  function docScrolls(se) {
+    if (se.scrollHeight <= se.clientHeight + 1) return false;
+    var h = styleOf(document.documentElement).overflowY, b = document.body ? styleOf(document.body).overflowY : '';
+    return h !== 'hidden' && h !== 'clip' && b !== 'hidden' && b !== 'clip';
   }
+
+  /**
+   * One screen (0.85 of it) down or up, at once (a page's smooth scrolling would delay reading the place): the element
+   * a.target, else the document, else the biggest pane on screen. "Reached the end" is the app's call (moved, docHeight
+   * and count staying the same after a wait).
+   */
+  function scroll(a) {
+    var se = document.scrollingElement || document.documentElement, el, box = null;
+    if (a.target) { el = resolve(a.target); box = el; }
+    else if (docScrolls(se)) el = se;
+    else { el = largestBox() || se; if (el !== se) box = el; }
+    var step = (el === se ? innerHeight : el.clientHeight) * 0.85 * (a.dir === 'up' ? -1 : 1);
+    var before = el.scrollTop;
+    el.scrollBy({ top: step, behavior: 'instant' });
+    var y = el.scrollTop;
+    return {
+      y: Math.round(y), max: Math.max(0, Math.round(el.scrollHeight - el.clientHeight)), moved: Math.abs(y - before) >= 1,
+      docHeight: el.scrollHeight, count: document.getElementsByTagName('*').length, box: box ? refFor(box) : null
+    };
+  }
+
+  // ---------- execute (architecture 7.4)
 
   function ser(v) {
     if (v === undefined) return 'undefined';
@@ -740,10 +798,9 @@
       Promise.resolve(r).then(
         function (v) { pend[id] = { ok: ser(v) }; },
         function (e) { pend[id] = { error: String((e && e.message) || e) }; }
-      ).then(function () { execEnd(); });
+      );
       return { pending: id };
     }
-    execEnd();
     return { ok: ser(r) };
   }
 
@@ -757,8 +814,7 @@
 
   var FNS = {
     mark: mark, pageList: pageList, readText: readText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
-    click: click, type: typeText, suggestions: suggestions, execBegin: execBegin, execEnd: execEnd, execResult: execResult,
-    execPoll: execPoll
+    click: click, type: typeText, suggestions: suggestions, scroll: scroll, execResult: execResult, execPoll: execPoll
   };
 
   var api = {

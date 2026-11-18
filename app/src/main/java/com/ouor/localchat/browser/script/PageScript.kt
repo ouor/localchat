@@ -5,7 +5,6 @@ import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.SearchEngines
 import com.ouor.localchat.browser.StaleRef
 import android.os.SystemClock
-import com.ouor.localchat.browser.safety.SensitiveFields
 import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.model.SearchEngine
 import kotlinx.coroutines.delay
@@ -20,7 +19,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import java.security.SecureRandom
 
 /**
@@ -32,29 +30,22 @@ import java.security.SecureRandom
 object PageScript {
 
     // SE 17: the page can find this key (getOwnPropertyNames) and pre-define a fake API for its own document, so
-    // page-reported values (sensitive, formMethod, labels) are only as trustworthy as that page. The page cannot
-    // reach the other layers: agent.js type() re-checks the live element, and approvals are asked app-side.
+    // page-reported values (labels, formMethod, [secret]) are only as trustworthy as that page.
     private val key: String = "__lc" + ByteArray(8).also(SecureRandom()::nextBytes).joinToString("") { "%02x".format(it) }
     private val keyJs = JsonPrimitive(key).toString()
 
-    private val config = buildJsonObject {
-        putJsonArray("autocomplete") { SensitiveFields.AUTOCOMPLETE.forEach { add(JsonPrimitive(it)) } }
-        put("prefix", SensitiveFields.AUTOCOMPLETE_PREFIX)
-        put("pattern", SensitiveFields.NAME_PATTERN)
-        put("bot", SearchEngines.BOT_PATTERN)
-    }.toString()
-    private val searchCfg = buildJsonObject { put("bot", SearchEngines.BOT_PATTERN) }.toString()
+    private val config = buildJsonObject { put("bot", SearchEngines.BOT_PATTERN) }.toString()
 
     @Volatile private var agentJs: String? = null
     @Volatile private var searchJs: String? = null
 
     private fun asset(tab: BrowserTab, name: String): String =
-        tab.webView.context.applicationContext.assets.open("browser/$name").bufferedReader().use { it.readText() }
+        tab.view.context.applicationContext.assets.open("browser/$name").bufferedReader().use { it.readText() }
 
-    /** Installs agent.js in a new document with refs numbered from [BrowserTab.refNext] (G-M1). */
+    /** Installs agent.js in a new document with refs "{tab}e{n}" numbered from [BrowserTab.refNext] (G-M1, S4). */
     private fun install(tab: BrowserTab): String {
         val lib = agentJs ?: asset(tab, "agent.js").also { agentJs = it }
-        return "var A=window[$keyJs];if(!A){($lib\n)($keyJs,Object.assign($config,{refBase:${tab.refNext}}));A=window[$keyJs];}"
+        return "var A=window[$keyJs];if(!A){($lib\n)($keyJs,Object.assign($config,{refBase:${tab.refNext},tab:${tab.id}}));A=window[$keyJs];}"
     }
 
     /**
@@ -94,7 +85,7 @@ object PageScript {
     /** search.js extractor for [engine] on the loaded result page: up to [MAX_RESULTS] results, or blocked. */
     suspend fun search(tab: BrowserTab, engine: SearchEngine): SearchPage {
         val lib = searchJs ?: asset(tab, "search.js").also { searchJs = it }
-        val js = "(function(){try{return JSON.stringify({ok:($lib\n)(${JsonPrimitive(engine.name)},$MAX_RESULTS,$searchCfg)});}" +
+        val js = "(function(){try{return JSON.stringify({ok:($lib\n)(${JsonPrimitive(engine.name)},$MAX_RESULTS,$config)});}" +
             "catch(e){return JSON.stringify({error:String(e&&e.message||e)});}})()"
         val raw = tab.evaluate(js, DEFAULT_TIMEOUT).takeUnless { it == "null" } ?: throw PageError(NOT_RUN)
         return AppJson.decodeFromJsonElement(okOf(decode(raw)))
@@ -103,13 +94,12 @@ object PageScript {
     /**
      * `execute` (architecture 7.4): [code] runs as an expression, or as a function body when it is not one; it runs
      * at most once (tools-redesign 3-6). Which form parses is checked first without running anything ([JsSyntax]), so an empty
-     * answer afterwards can only mean the document changed while the code ran (B-m2). Sensitive input value setters
-     * are refused while it runs; a returned Promise is awaited by polling. Returns the JSON-ish result text (not yet
-     * capped or cookie-masked).
+     * answer afterwards can only mean the document changed while the code ran (B-m2). A returned Promise is awaited
+     * by polling. Returns the JSON-ish result text (not yet capped).
      */
     suspend fun execute(tab: BrowserTab, code: String, timeoutMs: Long): String {
         val expr = code.trim().trimEnd(';').trim()
-        val ctx = tab.webView.context
+        val ctx = tab.view.context
         val body = listOf("return ($expr\n);", "$code\n").firstOrNull { JsSyntax.parses(ctx, it) ?: throw PageError(NOT_CHECKED) }
             ?: throw PageError("SyntaxError: the code could not be parsed as an expression or as statements; it was not run.")
         val raw = tab.evaluate(execWrapper(body, tab), timeoutMs)
@@ -118,7 +108,6 @@ object PageScript {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (result["pending"] != null) {
             if (System.currentTimeMillis() > deadline) {
-                runCatching { callJson(tab, "execEnd", buildJsonObject { put("force", true) }) }
                 throw PageError("The returned Promise did not settle within ${timeoutMs / 1000}s.")
             }
             delay(POLL_MS)
@@ -130,12 +119,19 @@ object PageScript {
         return okOf(result).jsonPrimitive.content
     }
 
-    // shortcut: code that closes the wrapper's braces itself runs outside execBegin's setter guard (still once); a
-    // page-side `new Function` would close that gap but a page's CSP may forbid it.
     private fun execWrapper(body: String, tab: BrowserTab) =
-        "(function(){${install(tab)}A.call('execBegin');var r;try{r=(function(){$body})();}" +
-            "catch(e){A.call('execEnd');return JSON.stringify({error:String(e&&e.stack||e)});}" +
+        "(function(){${install(tab)}var r;try{r=(function(){$body})();}" +
+            "catch(e){return JSON.stringify({error:String(e&&e.stack||e)});}" +
             "return JSON.stringify(A.call('execResult',{value:r}));})()"
+
+    /** The bytes of a `blob:` URL the page made, as a data: URL (browser-layers 2-5); only the page can read it. */
+    suspend fun blob(tab: BrowserTab, url: String): String {
+        val u = JsonPrimitive(url).toString()
+        val code = "return fetch($u).then(function(r){return r.blob()}).then(function(b){return new Promise(function(ok,no){" +
+            "var f=new FileReader();f.onload=function(){ok(f.result)};f.onerror=function(){no(f.error)};f.readAsDataURL(b)})})"
+        val raw = execute(tab, code, BLOB_TIMEOUT)
+        return AppJson.parseToJsonElement(raw).jsonPrimitive.content
+    }
 
     private fun decode(raw: String?): JsonObject {
         if (raw == null || raw == "null") throw PageError(NOT_RUN)
@@ -151,13 +147,14 @@ object PageScript {
     const val NOT_RUN = "The page did not run the script (it may still be loading)."
     const val NOT_CHECKED = "The code could not be checked before running, so it was not run. Try again."
 
-    /** The model-facing text after the one retry; ToolExecutor adds the browse hint when browse is exposed. */
+    /** The model-facing text after the one retry. */
     const val NOT_RUN_AGAIN = "The page was changing and did not run the script."
 
     /** agent.js marks a refused ref this way. */
     private const val REF_PREFIX = "REF:"
-    const val EXEC_UNKNOWN = "The page changed while the code ran; it may or may not have run. Check with browse() before running it again."
+    const val EXEC_UNKNOWN = "The page changed while the code ran; it may or may not have run. Check with look() before running it again."
     const val MAX_RESULTS = 8
     const val DEFAULT_TIMEOUT = 10_000L
     const val POLL_MS = 100L
+    private const val BLOB_TIMEOUT = 15_000L
 }

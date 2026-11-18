@@ -1,6 +1,5 @@
 package com.ouor.localchat.browser.script
 
-import com.ouor.localchat.browser.safety.ElementInfo
 import kotlinx.serialization.Serializable
 
 /** Return shapes of assets/browser/agent.js and search.js functions (same names as there). */
@@ -8,7 +7,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class CssRect(val left: Float, val top: Float, val width: Float, val height: Float)
 
-/** `locate`: the element after scrollIntoView; [cx]/[cy] are top-viewport CSS px, [hit] = elementFromPoint lands on it. */
+/**
+ * `locate`: the element (after scrollIntoView unless asked not to); [cx]/[cy] are top-viewport CSS px, [hit] =
+ * elementFromPoint lands on it. [formSubmitLabel] = the label of its form's submit button, [frame] = where its page
+ * comes from when not the tab's document (an iframe's src, a frame's URL).
+ */
 @Serializable
 data class Located(
     val info: ElementInfo,
@@ -17,9 +20,10 @@ data class Located(
     val cx: Float,
     val cy: Float,
     val hit: Boolean,
-    val sensitive: Boolean,
     val editable: Boolean,
     val disabled: Boolean,
+    val formSubmitLabel: String? = null,
+    val frame: String? = null,
 )
 
 /**
@@ -37,25 +41,31 @@ data class PageMark(
     val title: String = "",
 )
 
-/**
- * `pageList`: element lines within the budget; [above]/[below] count the left-out ones by side of the visible part;
- * [continued] = these are the lines the last list of the page left out.
- */
+/** `pageList`: element lines within the budget; [above]/[below] count the left-out ones by side of the visible part. */
 @Serializable
 data class PageList(
     val text: String,
     val listed: Int,
-    /** Left out for the budget: the next browse() lists them. */
+    /** Left out for the budget: scroll() reaches them. */
     val above: Int = 0,
     val below: Int = 0,
     /** Past the element bound of a huge page: no list reaches them. */
     val beyond: Int = 0,
-    val continued: Boolean = false,
 )
 
-/** `readText`: main text; [flags] = "bot" (bot check) and/or "login" (sign-in page). */
+/**
+ * `readText`: main text; [flags] = "bot" (bot check) and/or "login" (sign-in page); [screenAt] = the character of
+ * [text] at the top of the screen, null when no text block is on screen.
+ */
 @Serializable
-data class ReadText(val title: String, val url: String, val text: String, val flags: List<String> = emptyList())
+data class ReadText(val title: String, val url: String, val text: String, val flags: List<String> = emptyList(), val screenAt: Int? = null)
+
+/**
+ * `scroll`: [y] / [max] of what moved (the document, or [box] = the ref of the pane it moved instead), [docHeight]
+ * its scroll height and [count] the document's element count, which the app compares to tell the end from a late load.
+ */
+@Serializable
+data class ScrollResult(val y: Int, val max: Int, val moved: Boolean, val docHeight: Int, val count: Int, val box: String? = null)
 
 /** `type`: the field's value after typing ([selected] = the chosen option of a select); [submitRef] = the form's submit control. */
 @Serializable

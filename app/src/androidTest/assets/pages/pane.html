@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pane</title>
+<style>
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  #side { position: absolute; left: 0; top: 0; width: 20%; height: 100%; overflow-y: auto; }
+  #pane { position: absolute; left: 20%; top: 0; right: 0; height: 100%; overflow-y: auto; }
+  p { margin: 0; padding: 12px 8px; }
+</style>
+</head>
+<body>
+<div id="side"></div>
+<div id="pane"></div>
+<script>
+  var side = document.getElementById('side'), pane = document.getElementById('pane');
+  for (var i = 1; i <= 40; i++) side.insertAdjacentHTML('beforeend', '<p>Side ' + i + '</p>');
+  for (var j = 1; j <= 80; j++) pane.insertAdjacentHTML('beforeend', '<p>Message ' + j + ' in the main pane.</p>');
+</script>
+</body>
+</html>
