@@ -67,6 +67,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
     @Test
     fun liveHnMoreInAHiddenTab() {
         org.junit.Assume.assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
+        // The QA model's window (128k): its list budget reaches More at the bottom of a phone screen of HN.
+        caps = caps(true).copy(contextWindow = com.ouor.localchat.core.model.Sourced(128_000, com.ouor.localchat.core.model.CapSource.DEFAULT))
         llm.enqueue(
             Scenario.toolCall("open", """{"url":"https://news.ycombinator.com/newest"}"""),
             *Array(3) { Scenario.toolCall("scroll", "{}") },
@@ -78,6 +80,25 @@ class ToolFlowE2eTest : ToolFlowBase() {
         val t = reply.results().map { it.modelText }
         assertTrue(t[5], "→ new page." in t[5])
         assertTrue(browser.tabs.value.single().url, "next=" in browser.tabs.value.single().url)
+    }
+
+    /** QA B2/B3 on real sites (liveWeb=true): a public PDF read in a new tab, then a download link on a page. */
+    @Test
+    fun liveAPdfAndADownloadLink() {
+        org.junit.Assume.assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
+        llm.enqueue(
+            Scenario.toolCall("read", """{"url":"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"}"""),
+            Scenario.toolCall("open", """{"url":"https://filesamples.com/formats/csv"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("link \"sample1.csv\"")}"}"""),
+            Scenario.toolCall("look", "{}"),
+            Scenario.text("done"),
+        )
+        val reply = awaitEnd(send("files"), 120_000)
+        val t = reply.results().map { it.modelText }
+        t.forEachIndexed { i, x -> android.util.Log.i("LIVE", "$i: ${x.take(600)}") }
+        assertTrue(t[0], Regex("""saved to Downloads as dummy.*\.pdf\. Its text cannot be read in this app\. Tab \d+ only downloaded it and was closed\.""").containsMatchIn(t[0]))
+        assertTrue(t[2], "This is a file" in t[2])
+        assertEquals("the page's tab stays", ToolCallState.DONE, reply.calls()[3].state)
     }
 
     /** QA B1 (2): a point another element covers is not pressed; the result names what is there. */
