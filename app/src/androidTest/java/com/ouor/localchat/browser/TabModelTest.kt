@@ -65,7 +65,7 @@ class TabModelTest {
             <a id="blank" href="/child" target="_blank" style="display:block;height:60px">Blank</a>
             <button id="pop" style="display:block;height:60px" onclick="window.open('/child')">Pop</button>
             <button id="data" style="display:block;height:60px" onclick="location.href='data:application/octet-stream;base64,aGVsbG8='">Data</button>
-            <button id="blob" style="display:block;height:60px" onclick="var a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['blob body'],{type:'application/octet-stream'}));a.download='b.bin';document.body.appendChild(a);a.click()">Blob</button>
+            <button id="blob" style="display:block;height:60px" onclick="var a=document.createElement('a');a.href=window.URL.createObjectURL(new Blob(['blob body'],{type:'application/octet-stream'}));a.download='b.bin';document.body.appendChild(a);a.click()">Blob</button>
             <a id="file" href="/file" style="display:block;height:60px">File</a>""")
         "/file" -> MockResponse.Builder().addHeader("Content-Type", "text/plain")
             .addHeader("Content-Disposition", "attachment; filename*=UTF-8''%ED%85%8C%EC%8A%A4%ED%8A%B8.txt").body("file body").build()
