@@ -305,6 +305,8 @@ class ToolFlowE2eTest : ToolFlowBase() {
             "/search" to """<!doctype html><title>Search</title><form action="/results"><input id="q" type="search" name="q"></form>""",
             "/shop" to """<!doctype html><title>Shop</title><button onclick="this.textContent='ordered'">Place order</button>
                 <button onclick="this.textContent='more'">Show more</button>""",
+            "/order" to """<!doctype html><meta name="viewport" content="width=device-width"><title>Order</title>
+                <form action="/ordered"><p style="height:120px">Large pizza, 1</p><button>Submit order</button></form>""",
             "/covered" to """<!doctype html><title>Covered</title><button onclick="this.textContent='pressed'">Press</button>
                 <div id="cover" style="position:fixed;inset:0;background:#fff">Cookie wall</div>""",
         )
@@ -324,6 +326,23 @@ class ToolFlowPolicyTest : ToolFlowBase() {
         val b = MockResponse.Builder().addHeader("Content-Type", "text/html; charset=utf-8")
         if (path == "/start") b.addHeader("Set-Cookie", "sid=${ToolFlowE2eTest.COOKIE}; Path=/")
         return b.body(body).build()
+    }
+
+    /** QA B6: the approval preview shows the form being sent, not only its button. */
+    @Test
+    fun anOrderPreviewShowsTheForm() {
+        llm.enqueue(
+            Scenario.toolCall("open", """{"url":"${url("/order")}"}"""),
+            Scenario.toolCall("click", """{"ref":"${Scenario.ref("button \"Submit order\"")}"}"""),
+            Scenario.text("done"),
+        )
+        val sid = send("order")
+        val ask = awaitPause(sid) as Pause.Approval
+        val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        val preview = ask.request.preview!!
+        assertTrue("${preview.height} px", preview.height >= 140 * density)
+        engine.resolve(sid, Resolution.ApprovalAnswer(ask.id, allow = false))
+        awaitEnd(sid)
     }
 
     @Test

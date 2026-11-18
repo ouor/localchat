@@ -359,9 +359,11 @@
     };
   }
 
+  function formOf(el) { return el.form || (el.closest && el.closest('form')) || null; }
+
   /** Label of the button that submits el's form (a money or account check reads it before a click or Enter). */
   function submitLabel(el) {
-    var form = el.form || (el.closest && el.closest('form'));
+    var form = formOf(el);
     var sub = form && form.querySelector('button:not([type]), button[type=submit], input[type=submit], input[type=image]');
     return sub ? (nameOf(sub, 'button') || null) : null;
   }
@@ -392,7 +394,7 @@
       info: info(el), rect: r, innerWidth: innerWidth, cx: cx, cy: cy, hit: hit,
       atPoint: hit ? null : (inView ? brief(hitEl) : 'nothing (its centre is outside the viewport)'),
       editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
-      formSubmitLabel: submitLabel(el), frame: frameOf(el)
+      formSubmitLabel: submitLabel(el), frame: frameOf(el), formRect: formOf(el) ? rectInTop(formOf(el)) : null
     };
   }
 

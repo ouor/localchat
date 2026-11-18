@@ -26,6 +26,8 @@ data class Located(
     val disabled: Boolean,
     val formSubmitLabel: String? = null,
     val frame: String? = null,
+    /** The element's form, for a confirmation preview that shows what is being sent. */
+    val formRect: CssRect? = null,
 )
 
 /**

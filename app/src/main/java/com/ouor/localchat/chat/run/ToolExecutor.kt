@@ -11,6 +11,7 @@ import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.TabClosed
 import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.browser.ToolActivity
+import com.ouor.localchat.browser.script.CssRect
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.chat.AttachmentPort
@@ -305,7 +306,9 @@ class ToolExecutor(
     }
 
     private suspend fun captureElement(ref: String) = describe(ref)?.let { at ->
-        tabId?.let { id -> onMain { browserPort.tab(id).captureElement(at.rect, at.innerWidth) } }
+        // QA B6: the form around it (or a band of the screen), so the sheet shows what is ordered, not only the button.
+        val area = at.formRect ?: CssRect(0f, at.rect.top - PREVIEW_BAND, at.innerWidth, at.rect.height + 2 * PREVIEW_BAND)
+        tabId?.let { id -> onMain { browserPort.tab(id).captureElement(area, at.innerWidth) } }
     }
 
     // ToolContext
@@ -328,6 +331,8 @@ class ToolExecutor(
 
     companion object {
         const val TOOL_OFF = "The user turned this tool off."
+        /** CSS px above and below the element when it has no form (QA B6). */
+        private const val PREVIEW_BAND = 160f
         const val TOOL_FAILED = "Tool failed unexpectedly (an app error). Do not repeat the same call; continue another way."
         const val TAB_CLOSED = "The tab closed during the call (the page crashed or the user closed it)."
     }
