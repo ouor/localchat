@@ -80,7 +80,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInRoot
 import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserPrompt
 import com.ouor.localchat.browser.Control
@@ -353,26 +356,31 @@ private const val SCROLL_FOCUSED_INTO_VIEW =
     "(function(){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;" +
         "if(e&&e!==document.body&&e.scrollIntoView)e.scrollIntoView({block:'nearest'});})()"
 
-/** Engine-owned WebView + highlight overlay (api-spec ui.browser.BrowserSurface). */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/**
+ * Engine-owned WebView + highlight overlay (api-spec ui.browser.BrowserSurface).
+ *
+ * FB5 B4: the WebView is not moved into the panel. It stays in the host container under the Compose content (where
+ * it is parked) and is placed under this area, which is cleared to a hole, so it is drawn before everything else in
+ * the window. Moving it into the panel rebuilt its draw functor on every open, new tab and tab switch (devphone02
+ * atrace), and a new WebView's first draws blanked the window buffer drawn before it: the app went black (s25 still,
+ * with a hardware layer). Requires the app's Compose root to be an offscreen layer (MainActivity), so the hole is
+ * transparent. Touches on the area go to the WebView.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag(PAGE_TAG)) {
         androidx.compose.runtime.key(tabId) {
             val view = remember(tabId) { actions.webView(tabId) }
-            if (view != null) AndroidView(
-                factory = {
-                    // FB5 B4: a new WebView's first draws blanked the whole window, not just the page (devphone02 trace +
-                    // recording: black for 130-380ms on a new tab). Drawn into a layer until its page shows, it stays inside.
-                    view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                    view.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
-                        override fun onComplete(requestId: Long) = view.setLayerType(View.LAYER_TYPE_NONE, null)
-                    })
-                    view
-                },
-                Modifier.fillMaxSize(),
-                onRelease = { view.setLayerType(View.LAYER_TYPE_NONE, null); actions.park(tabId) },
-            )
+            if (view != null) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .drawBehind { drawRect(androidx.compose.ui.graphics.Color.Black, blendMode = androidx.compose.ui.graphics.BlendMode.Clear) }
+                        .onPlaced { view.placeUnder(it.positionInRoot(), it.size) }
+                        .pointerInteropFilter { view.dispatchTouchEvent(it) },
+                )
+                DisposableEffect(view) { onDispose { actions.park(tabId) } }
+            }
             else Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
             // QA F1: WebView scrolls a focused field into view only when the keyboard's show result comes before the
             // page shrinks; the panel may shrink first. Once the page has its keyboard-time height, bring the focused
@@ -392,6 +400,20 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
             h?.let { stringResource(it.labelRes) }.orEmpty(), null, h,
         )
     }
+}
+
+/** Puts the host's WebView exactly under the page area: moved by translation, resized only when the size changes. */
+private fun WebView.placeUnder(at: androidx.compose.ui.geometry.Offset, size: androidx.compose.ui.unit.IntSize) {
+    if (size.width <= 0 || size.height <= 0) return // a 0-sized view drops its focus (QA F6)
+    translationX = at.x
+    translationY = at.y
+    if (width != size.width || height != size.height) {
+        layoutParams = android.widget.FrameLayout.LayoutParams(size.width, size.height)
+        // Laid out now, not on the next pass: the hole and the page stay the same size in every frame.
+        measure(View.MeasureSpec.makeMeasureSpec(size.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(size.height, View.MeasureSpec.EXACTLY))
+        layout(0, 0, size.width, size.height)
+    }
+    visibility = View.VISIBLE
 }
 
 /** SC-12. */
