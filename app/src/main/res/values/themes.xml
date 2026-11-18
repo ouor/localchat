@@ -1,4 +1,10 @@
 <resources>
-    <!-- Window theme only; all visual styling lives in Compose (ui.theme). -->
-    <style name="Theme.Localchat" parent="android:Theme.Material.NoActionBar" />
+    <!-- Window theme only; all visual styling lives in Compose (ui.theme). Light / night follows the system, which is
+         also what WebView pages get as prefers-color-scheme. The window background is the app surface (LcColors), so
+         the launch screen and anything not drawn yet are not the platform's dark gray (FB5 M1). -->
+    <style name="Theme.Localchat" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_surface</item>
+        <item name="android:windowSplashScreenBackground">@color/window_surface</item>
+    </style>
+    <color name="window_surface">#FFF7F7F7</color>
 </resources>
