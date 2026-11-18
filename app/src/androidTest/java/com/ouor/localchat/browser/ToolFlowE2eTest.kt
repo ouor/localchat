@@ -126,35 +126,110 @@ class ToolFlowE2eTest : ToolFlowBase() {
      */
     @Test
     fun hiddenTabClicksNeverPressAnotherElement() {
-        for ((path, line, target) in listOf(
-            Triple("/list", "link \"More\"", "/more"),
-            Triple("/article", "link \"James Gosling\"", "/wiki/James_Gosling"),
-        )) {
-            var ok = 0; var refused = 0; var wrong = 0; var nothing = 0
-            repeat(4) {
+        for ((path, line, target) in TARGETS) {
+            val n = clicks(path, line, target, chats = 4)
+            assertEquals("$path: another element pressed", 0, n.wrong)
+            assertEquals("$path: pressed with no effect", 0, n.nothing)
+            assertEquals("$path: 20 clicks", 20, n.touch + n.script + n.refused)
+        }
+    }
+
+    /**
+     * Re-QA 2 (devphone02): the user's keyboard over the app also lies over a parked tab, so the page's visual
+     * viewport is offset from its layout viewport and every tap landed that far down. Taps go by the visual viewport.
+     */
+    @Test
+    fun hiddenTabClicksLandWithTheKeyboardUp() {
+        keyboardUp()
+        for ((path, line, target) in TARGETS) {
+            val n = clicks(path, line, target, chats = 1)
+            assertEquals("$path: pressed by touch", 5, n.touch)
+        }
+    }
+
+    /** The user's keyboard is up over the app (an EditText of the activity has it), as after typing a request. */
+    private fun keyboardUp() {
+        onActivity { a ->
+            val e = android.widget.EditText(a)
+            a.addContentView(e, android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
+            e.requestFocus()
+            androidx.core.view.WindowCompat.getInsetsController(a.window, e).show(androidx.core.view.WindowInsetsCompat.Type.ime())
+        }
+        val end = android.os.SystemClock.uptimeMillis() + 10_000
+        while (!onActivity { a -> androidx.core.view.ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true }) {
+            check(android.os.SystemClock.uptimeMillis() < end) { "keyboard up" }
+            Thread.sleep(100)
+        }
+    }
+
+    /**
+     * Re-QA 2 on real sites (liveWeb=true), hidden tab with the keyboard up: HN /newest More, Wikipedia Java's
+     * "James Gosling" (infobox), an APG tab (top of the page), five times each. Logs how each click went (tag RB1).
+     */
+    @Test
+    fun liveHiddenTabClicksWithTheKeyboardUp() {
+        org.junit.Assume.assumeTrue("liveWeb", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
+        keyboardUp()
+        data class Site(val url: String, val line: String, val toEnd: Boolean = false, val reached: (String, String) -> Boolean)
+        val sites = listOf(
+            Site("https://news.ycombinator.com/newest", "link \"More\"", toEnd = true) { _, u -> "next=" in u },
+            Site("https://en.wikipedia.org/wiki/Java_(programming_language)", "link \"James Gosling\"") { _, u -> "James_Gosling" in u },
+            Site("https://www.w3.org/WAI/ARIA/apg/patterns/tabs/examples/tabs-automatic/", "tab \"Carl Andersen\"") { t, _ -> "tab \"Carl Andersen\" [selected]" in t },
+        )
+        var wrong = 0
+        for (site in sites) {
+            var touch = 0; var script = 0; var other = 0
+            repeat(5) { n ->
+                // More is listed once the page's end is on screen (the list carries the screen whole).
+                val toEnd = if (site.toEnd) List(3) { Scenario.toolCall("scroll", "{}") } else emptyList()
                 llm.enqueue(
-                    *(0 until 5).flatMap {
-                        listOf(Scenario.toolCall("open", """{"url":"${url(path)}"}"""), Scenario.toolCall("click", """{"ref":"${Scenario.ref(line)}"}"""))
-                    }.toTypedArray(),
+                    Scenario.toolCall("open", """{"url":"${site.url}"}"""),
+                    *toEnd.toTypedArray(),
+                    Scenario.toolCall("click", """{"ref":"${Scenario.ref(site.line)}"}"""),
                     Scenario.text("done"),
                 )
-                val reply = awaitEnd(send("click"), 120_000)
+                val reply = awaitEnd(send("live $n"), 90_000)
                 awaitTitleRequest()
-                reply.results().filterIndexed { i, _ -> i % 2 == 1 }.map { it.modelText }.forEach { t ->
-                    when {
-                        "did not reach" in t || "would have landed" in t -> refused++
-                        "→ new page" in t && target in t -> ok++
-                        "→ new page" in t -> { wrong++; android.util.Log.e("RB1", t.take(400)) }
-                        else -> { nothing++; android.util.Log.e("RB1", t.take(400)) }
-                    }
+                val t = reply.results().last().modelText
+                val u = browser.tabs.value.maxBy { it.id }.url
+                when {
+                    site.reached(t, u) -> if ("pressed by script" in t) script++ else touch++
+                    "nothing was pressed" in t || "did not reach" in t -> other++
+                    else -> { wrong++; android.util.Log.e("RB1", "${site.url}: ${t.take(400)} | $u") }
                 }
                 runBlocking(Dispatchers.Main) { browser.tabs.value.forEach { browser.close(it.id) } }
             }
-            android.util.Log.i("RB1", "$path: ok=$ok refused=$refused wrong=$wrong nothing=$nothing")
-            assertEquals("$path: another element pressed", 0, wrong)
-            assertEquals("$path: pressed with no effect", 0, nothing)
-            assertEquals("$path: 20 clicks", 20, ok + refused)
+            android.util.Log.i("RB1", "live ${site.url}: touch=$touch script=$script refused=$other")
         }
+        assertEquals("another element pressed", 0, wrong)
+    }
+
+    private class Clicks(var touch: Int = 0, var script: Int = 0, var refused: Int = 0, var wrong: Int = 0, var nothing: Int = 0)
+
+    /** [chats] chats of 5 (open [path] in a hidden tab + click [line]); how each click went (tag RB1). */
+    private fun clicks(path: String, line: String, target: String, chats: Int): Clicks {
+        val n = Clicks()
+        repeat(chats) {
+            llm.enqueue(
+                *(0 until 5).flatMap {
+                    listOf(Scenario.toolCall("open", """{"url":"${url(path)}"}"""), Scenario.toolCall("click", """{"ref":"${Scenario.ref(line)}"}"""))
+                }.toTypedArray(),
+                Scenario.text("done"),
+            )
+            val reply = awaitEnd(send("click"), 120_000)
+            awaitTitleRequest()
+            reply.results().filterIndexed { i, _ -> i % 2 == 1 }.map { it.modelText }.forEach { t ->
+                when {
+                    "did not reach" in t || "would have landed" in t -> n.refused++
+                    "→ new page" in t && target in t -> if ("pressed by script" in t) n.script++ else n.touch++
+                    "→ new page" in t -> { n.wrong++; android.util.Log.e("RB1", t.take(400)) }
+                    else -> { n.nothing++; android.util.Log.e("RB1", t.take(400)) }
+                }
+            }
+            runBlocking(Dispatchers.Main) { browser.tabs.value.forEach { browser.close(it.id) } }
+        }
+        android.util.Log.i("RB1", "$path: touch=${n.touch} script=${n.script} refused=${n.refused} wrong=${n.wrong} nothing=${n.nothing}")
+        return n
     }
 
     /** QA B1 (2): a point another element covers is not pressed; the result names what is there. */
@@ -365,6 +440,12 @@ class ToolFlowE2eTest : ToolFlowBase() {
 
     companion object {
         const val COOKIE = "SECRETCOOKIE123"
+
+        /** A hidden tab's bottom link, and a link in the middle of a long article (QA R-B1 / R-B1b). */
+        val TARGETS = listOf(
+            Triple("/list", "link \"More\"", "/more"),
+            Triple("/article", "link \"James Gosling\"", "/wiki/James_Gosling"),
+        )
         val PAGES = mapOf(
             "/start" to """<!doctype html><title>Start</title><a id="go" href="/next">Next page</a>
                 <p id="c"></p><script>document.getElementById('c').textContent = 'cookie: ' + document.cookie</script>""",

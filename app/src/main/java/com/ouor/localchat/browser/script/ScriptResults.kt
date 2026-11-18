@@ -8,7 +8,8 @@ import kotlinx.serialization.Serializable
 data class CssRect(val left: Float, val top: Float, val width: Float, val height: Float)
 
 /**
- * `locate`: the element (after scrollIntoView unless asked not to); [cx]/[cy] are top-viewport CSS px, [hit] =
+ * `locate`: the element (after scrollIntoView unless asked not to); [rect], [cx]/[cy] are CSS px of the visual viewport
+ * (what is drawn and touched, at scale 1 = [innerWidth] wide), [hit] =
  * elementFromPoint lands on it. [formSubmitLabel] = the label of its form's submit button, [frame] = where its page
  * comes from when not the tab's document (an iframe's src, a frame's URL).
  */

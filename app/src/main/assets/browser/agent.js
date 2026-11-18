@@ -427,6 +427,22 @@
     return {};
   }
 
+  /**
+   * click(ref) in a tab that is not on screen when the tap reached another element: the element's own press sequence,
+   * and el.click() for its default action (a link follows, a button submits).
+   */
+  function press(a) {
+    var el = resolve(a.target), r = el.getBoundingClientRect(), win = el.ownerDocument.defaultView || window;
+    var o = { bubbles: true, cancelable: true, composed: true, view: win, button: 0, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    var P = win.PointerEvent || win.MouseEvent;
+    el.dispatchEvent(new P('pointerdown', Object.assign({ pointerType: 'touch', isPrimary: true }, o)));
+    el.dispatchEvent(new win.MouseEvent('mousedown', o));
+    el.dispatchEvent(new P('pointerup', Object.assign({ pointerType: 'touch', isPrimary: true }, o)));
+    el.dispatchEvent(new win.MouseEvent('mouseup', o));
+    el.click();
+    return {};
+  }
+
   function locate(el, scroll) {
     if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     var r = rectInTop(el);
@@ -435,11 +451,16 @@
     var hitEl = inView ? deepHit(cx, cy) : null;
     var hit = !!hitEl && (within(el, hitEl) ||
       (el.labels ? Array.prototype.some.call(el.labels, function (l) { return within(l, hitEl); }) : false));
+    // Touches and the drawn view are in the visual viewport: it is offset from the layout viewport when the keyboard
+    // overlaps the view or the page is pinch-zoomed (re-QA 2: an IME over a parked tab moved every tap 332 px down).
+    var vv = window.visualViewport, ox = vv ? vv.offsetLeft : 0, oy = vv ? vv.offsetTop : 0, k = vv && vv.width ? innerWidth / vv.width : 1;
+    function seen(b) { return { left: (b.left - ox) * k, top: (b.top - oy) * k, width: b.width * k, height: b.height * k }; }
+    var f = formOf(el);
     return {
-      info: info(el), rect: r, innerWidth: innerWidth, cx: cx, cy: cy, hit: hit,
+      info: info(el), rect: seen(r), innerWidth: innerWidth, cx: (cx - ox) * k, cy: (cy - oy) * k, hit: hit,
       atPoint: hit ? null : (inView ? brief(hitEl) : 'nothing (its centre is outside the viewport)'),
       editable: isEditable(el), disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
-      formSubmitLabel: submitLabel(el), frame: frameOf(el), formRect: formOf(el) ? rectInTop(formOf(el)) : null
+      formSubmitLabel: submitLabel(el), frame: frameOf(el), formRect: f ? seen(rectInTop(f)) : null
     };
   }
 
@@ -889,7 +910,7 @@
 
   var FNS = {
     mark: mark, pageList: pageList, readText: readText, locate: function (a) { return locate(resolve(a.target), a.scroll !== false); },
-    click: click, armTap: armTap, tapCheck: tapCheck, disarmTap: disarmTap, type: typeText, suggestions: suggestions, scroll: scroll, execResult: execResult, execPoll: execPoll
+    click: click, armTap: armTap, tapCheck: tapCheck, disarmTap: disarmTap, press: press, type: typeText, suggestions: suggestions, scroll: scroll, execResult: execResult, execPoll: execPoll
   };
 
   var api = {

@@ -129,6 +129,12 @@ abstract class ToolFlowBase {
         engine.send(sid, Draft(sid, text, emptyList(), 0), GenOptions(browser = true), MODEL)
     }
 
+    protected fun <T> onActivity(block: (MainActivity) -> T): T {
+        var r: Result<T>? = null
+        scenario.onActivity { r = runCatching { block(it) } }
+        return r!!.getOrThrow()
+    }
+
     /** A new chat's first reply is followed by a title request; waits for it so it does not take a scripted scenario. */
     protected fun awaitTitleRequest() {
         repeat(30) {
