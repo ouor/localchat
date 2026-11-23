@@ -16,7 +16,7 @@ import com.ouor.localchat.browser.script.ReadText
 import com.ouor.localchat.browser.script.ScrollResult
 import com.ouor.localchat.browser.script.Suggestions
 import com.ouor.localchat.browser.script.TypeResult
-import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.browser.SearchEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking

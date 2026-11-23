@@ -52,7 +52,7 @@ object Type : Tool {
             val select = at.info.tag == "select"
             if (!select && !at.editable) throw ToolError("$ref is not a text field or select; use click.")
             val plan = if (select) TypeRules.Plan(text, enter = false) else TypeRules.plan(at.info, text)
-            ctx.highlight(tab, at, if (select) R.string.browser_highlight_select else R.string.browser_highlight_type)
+            ctx.highlight(tab, at, if (select) "select" else "type")
             var typed: TypeResult? = null
             var before: Suggestions? = null
             val typing = ctx.act(tab) {

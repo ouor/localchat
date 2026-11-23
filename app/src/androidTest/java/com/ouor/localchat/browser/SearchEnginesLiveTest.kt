@@ -10,7 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.MainActivity
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.browser.script.PageScript
-import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.browser.SearchEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext

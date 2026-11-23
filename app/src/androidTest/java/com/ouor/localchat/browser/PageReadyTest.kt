@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.chat.run.Pause
-import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.browser.SearchEngine
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.testing.Scenario
 import kotlinx.coroutines.Dispatchers

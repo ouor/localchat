@@ -4,7 +4,7 @@ import com.ouor.localchat.browser.script.CssRect
 import com.ouor.localchat.browser.script.PageMark
 
 /** Pure rules behind BrowserEngine/BrowserTab, kept apart so JVM tests can run them. */
-internal object TabRules {
+object TabRules {
 
     /** CSS px around the element in an approval preview. */
     private const val CROP_PAD = 24f

@@ -1,5 +1,6 @@
 package com.ouor.localchat.core.model
 
+import com.ouor.localchat.browser.SearchEngine
 import kotlinx.serialization.Serializable
 
 /**
@@ -40,5 +41,3 @@ enum class AppLanguage { SYSTEM, KO, EN }
 @Serializable
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
-@Serializable
-enum class SearchEngine { DUCKDUCKGO, GOOGLE, BING, NAVER }

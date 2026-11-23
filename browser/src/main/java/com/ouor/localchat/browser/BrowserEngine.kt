@@ -16,12 +16,6 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.annotation.MainThread
 import com.ouor.localchat.browser.script.Located
-import com.ouor.localchat.core.ApplicationScope
-import com.ouor.localchat.core.Clock
-import com.ouor.localchat.core.model.AppLanguage
-import com.ouor.localchat.core.model.SearchEngine
-import com.ouor.localchat.storage.SettingsStore
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,8 +28,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * A plain browser (browser-layers 2-2): every tab, which one the user has in front, which one the drawer shows, and
@@ -45,12 +37,12 @@ import javax.inject.Singleton
  * Activity root ([attachHost]) and ui.browser.BrowserSurface borrows them ([webView], [show] / [park]). Never calls
  * pauseTimers()/onPause().
  */
-@Singleton
-class BrowserEngine @Inject constructor(
-    @ApplicationContext private val context: Context,
-    settings: SettingsStore,
-    @ApplicationScope private val scope: CoroutineScope,
-    private val clock: Clock,
+class BrowserEngine(
+    private val context: Context,
+    /** Outlives every screen; wakes sleeping tabs. */
+    private val scope: CoroutineScope,
+    /** Epoch ms (front, last use, highlight end). */
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : BrowserFacts, BrowserTab.Events {
 
     private val main = Handler(Looper.getMainLooper())
@@ -90,34 +82,17 @@ class BrowserEngine @Inject constructor(
     private val tabListeners = HashMap<Int, CopyOnWriteArrayList<EventListener>>()
     private val allListeners = CopyOnWriteArrayList<EventListener>()
 
-    /** S-05 engine for web_search and the address bar. */
+    /** S-05 engine for web_search and the address bar; the app sets it from its settings. */
     @Volatile
     var searchEngine: SearchEngine = SearchEngine.DUCKDUCKGO
-        private set
 
     /** App language code for result pages (Google hl, Bing setlang). */
     @Volatile
     var searchLanguage: String = Locale.getDefault().language
-        private set
 
     /** The user's region (Bing cc), null when unset. */
     @Volatile
     var region: String? = null
-        private set
-
-    init {
-        scope.launch {
-            settings.settings.collect { s ->
-                searchEngine = s.searchEngine
-                searchLanguage = when (s.language) {
-                    AppLanguage.KO -> "ko"
-                    AppLanguage.EN -> "en"
-                    AppLanguage.SYSTEM -> Locale.getDefault().language
-                }
-                region = s.region
-            }
-        }
-    }
 
     // ---------- tabs
 
@@ -128,7 +103,7 @@ class BrowserEngine @Inject constructor(
     private fun newTab(): BrowserTab {
         val tab = BrowserTab(ids.next(), context, this)
         byId[tab.id] = tab
-        tab.lastUsedAt = clock.now()
+        tab.lastUsedAt = clock()
         publish()
         return tab
     }
@@ -140,7 +115,7 @@ class BrowserEngine @Inject constructor(
             if (_front.value?.tabId == tabId) {
                 val order = byId.keys.toList()
                 val i = order.indexOf(tabId)
-                _front.value = (order.getOrNull(i + 1) ?: order.getOrNull(i - 1))?.let { Front(it, clock.now()) }
+                _front.value = (order.getOrNull(i + 1) ?: order.getOrNull(i - 1))?.let { Front(it, clock()) }
             }
             val tab = byId.remove(tabId)!!
             tab.destroy()
@@ -166,8 +141,8 @@ class BrowserEngine @Inject constructor(
     fun select(tabId: Int) {
         onMain {
             val tab = byId[tabId] ?: return@onMain
-            _front.value = Front(tabId, clock.now())
-            tab.lastUsedAt = clock.now()
+            _front.value = Front(tabId, clock())
+            tab.lastUsedAt = clock()
             if (tab.asleep != null) scope.launch(Dispatchers.Main.immediate) { tab.wake() }
             publish()
         }
@@ -184,7 +159,7 @@ class BrowserEngine @Inject constructor(
         _activity.value = if (a == null) _activity.value - tabId else _activity.value + (tabId to a)
         onMain {
             val t = byId[tabId] ?: return@onMain
-            if (a != null) { t.lastUsedAt = clock.now(); publish() }
+            if (a != null) { t.lastUsedAt = clock(); publish() }
             t.webView.value?.let { exposure(tabId, it) }
         }
     }
@@ -392,10 +367,10 @@ class BrowserEngine @Inject constructor(
         }
     }
 
-    /** B-09 ①: outline [target] for [HIGHLIGHT_MS] with label [labelRes]. */
-    fun showHighlight(tabId: Int, target: Located, labelRes: Int) {
+    /** B-09 ①: outline [target] for [HIGHLIGHT_MS], labelled by what [action] does ("click", "type", "select"). */
+    fun showHighlight(tabId: Int, target: Located, action: String) {
         val r = target.rect
-        val h = Highlight(tabId, r.left, r.top, r.width, r.height, target.innerWidth, labelRes, clock.now() + HIGHLIGHT_MS)
+        val h = Highlight(tabId, r.left, r.top, r.width, r.height, target.innerWidth, action, clock() + HIGHLIGHT_MS)
         _highlight.value = h
         main.postDelayed({ if (_highlight.value === h) _highlight.value = null }, HIGHLIGHT_MS)
     }

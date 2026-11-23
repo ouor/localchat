@@ -30,7 +30,6 @@ import androidx.core.view.drawToBitmap
 import com.ouor.localchat.browser.script.CssRect
 import com.ouor.localchat.browser.script.PageMark
 import com.ouor.localchat.browser.script.PageScript
-import com.ouor.localchat.core.model.ToolStatus
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -161,7 +160,7 @@ class BrowserTab internal constructor(
     @Volatile internal var refNext = 1
 
     /** The document the last list was marked "still changing" for (G-m13). Main thread. */
-    internal var changingDoc: String? = null
+    var changingDoc: String? = null
 
     /** Events of the tab and their answers, newest last (at most [LOG]). */
     private val eventLog = ArrayDeque<Handled>()

@@ -1,8 +1,12 @@
 package com.ouor.localchat.browser
 
-import com.ouor.localchat.core.model.SearchEngine
+import kotlinx.serialization.Serializable
 import java.net.URI
 import java.net.URLEncoder
+
+/** S-05: the engine web_search and the address bar use. Stored by name in the app's settings. */
+@Serializable
+enum class SearchEngine { DUCKDUCKGO, GOOGLE, BING, NAVER }
 
 /** S-05 result pages and the automatic engine switch (tools-redesign 6); the extractors are in assets/browser/search.js. */
 object SearchEngines {

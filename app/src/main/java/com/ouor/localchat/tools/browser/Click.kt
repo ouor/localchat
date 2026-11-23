@@ -72,7 +72,7 @@ object Click : Tool {
             val first = ctx.locate(tab, ref)
             if (first.disabled) throw ToolError("$ref is disabled.")
             val label = first.info.label()
-            ctx.highlight(tab, first, R.string.browser_highlight_click)
+            ctx.highlight(tab, first, "click")
             var byScript = false
             val acted = ctx.act(tab) {
                 // The page may have moved while the outline showed; a fling gets one more look.

@@ -21,7 +21,7 @@ import com.ouor.localchat.core.model.Source
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.policy.CallFacts
 import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.policy.PolicyCall

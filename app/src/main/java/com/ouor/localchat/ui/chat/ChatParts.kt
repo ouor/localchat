@@ -35,7 +35,7 @@ import com.ouor.localchat.core.model.ThinkingBlock as ThinkingData
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.speech.VoiceState
 import com.ouor.localchat.ui.components.AssistantMessage
 import com.ouor.localchat.ui.components.BranchSwitcher

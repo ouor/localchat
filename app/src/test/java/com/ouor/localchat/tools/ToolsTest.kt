@@ -6,7 +6,7 @@ import com.ouor.localchat.browser.script.ElementInfo
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.Sourced
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.tools.browser.TypeRules
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject

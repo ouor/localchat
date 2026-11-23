@@ -11,7 +11,7 @@ import androidx.webkit.WebViewFeature
  * B-S7 WebView settings (architecture 7.2). No addJavascriptInterface / addWebMessageListener anywhere:
  * the page has no channel into the app.
  */
-internal object WebViewFactory {
+object WebViewFactory {
     fun create(context: Context): WebView = WebView(context).apply {
         with(settings) {
             javaScriptEnabled = true

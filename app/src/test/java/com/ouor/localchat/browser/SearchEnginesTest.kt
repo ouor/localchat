@@ -2,11 +2,11 @@ package com.ouor.localchat.browser
 
 import com.ouor.localchat.browser.SearchEngines.Next
 import com.ouor.localchat.browser.SearchEngines.Outcome
-import com.ouor.localchat.core.model.SearchEngine
-import com.ouor.localchat.core.model.SearchEngine.BING
-import com.ouor.localchat.core.model.SearchEngine.DUCKDUCKGO
-import com.ouor.localchat.core.model.SearchEngine.GOOGLE
-import com.ouor.localchat.core.model.SearchEngine.NAVER
+import com.ouor.localchat.browser.SearchEngine
+import com.ouor.localchat.browser.SearchEngine.BING
+import com.ouor.localchat.browser.SearchEngine.DUCKDUCKGO
+import com.ouor.localchat.browser.SearchEngine.GOOGLE
+import com.ouor.localchat.browser.SearchEngine.NAVER
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

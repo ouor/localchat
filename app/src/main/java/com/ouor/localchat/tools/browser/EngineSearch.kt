@@ -10,8 +10,8 @@ import com.ouor.localchat.browser.SearchEngines.Outcome
 import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.SearchResult
-import com.ouor.localchat.core.model.SearchEngine
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.SearchEngine
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.tools.ToolContext
 import kotlinx.coroutines.delay
 

@@ -2,12 +2,12 @@ package com.ouor.localchat.browser.script
 
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.PageError
+import com.ouor.localchat.browser.SearchEngine
 import com.ouor.localchat.browser.SearchEngines
 import com.ouor.localchat.browser.StaleRef
 import android.os.SystemClock
-import com.ouor.localchat.core.AppJson
-import com.ouor.localchat.core.model.SearchEngine
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -28,6 +28,13 @@ import java.security.SecureRandom
  * to the app. Failures throw [PageError] with a model-facing message.
  */
 object PageScript {
+
+    /** Script results may grow fields the app does not read yet. */
+    @PublishedApi internal val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     // SE 17: the page can find this key (getOwnPropertyNames) and pre-define a fake API for its own document, so
     // page-reported values (labels, formMethod, [secret]) are only as trustworthy as that page.
@@ -80,7 +87,7 @@ object PageScript {
         args: JsonObject = JsonObject(emptyMap()),
         timeoutMs: Long = DEFAULT_TIMEOUT,
         retry: Boolean = true,
-    ): T = AppJson.decodeFromJsonElement(callJson(tab, fn, args, timeoutMs, retry))
+    ): T = json.decodeFromJsonElement(callJson(tab, fn, args, timeoutMs, retry))
 
     /** search.js extractor for [engine] on the loaded result page: up to [MAX_RESULTS] results, or blocked. */
     suspend fun search(tab: BrowserTab, engine: SearchEngine): SearchPage {
@@ -88,7 +95,7 @@ object PageScript {
         val js = "(function(){try{return JSON.stringify({ok:($lib\n)(${JsonPrimitive(engine.name)},$MAX_RESULTS,$config)});}" +
             "catch(e){return JSON.stringify({error:String(e&&e.message||e)});}})()"
         val raw = tab.evaluate(js, DEFAULT_TIMEOUT).takeUnless { it == "null" } ?: throw PageError(NOT_RUN)
-        return AppJson.decodeFromJsonElement(okOf(decode(raw)))
+        return json.decodeFromJsonElement(okOf(decode(raw)))
     }
 
     /**
@@ -130,13 +137,13 @@ object PageScript {
         val code = "return fetch($u).then(function(r){return r.blob()}).then(function(b){return new Promise(function(ok,no){" +
             "var f=new FileReader();f.onload=function(){ok(f.result)};f.onerror=function(){no(f.error)};f.readAsDataURL(b)})})"
         val raw = execute(tab, code, BLOB_TIMEOUT)
-        return AppJson.parseToJsonElement(raw).jsonPrimitive.content
+        return json.parseToJsonElement(raw).jsonPrimitive.content
     }
 
     private fun decode(raw: String?): JsonObject {
         if (raw == null || raw == "null") throw PageError(NOT_RUN)
-        val inner = AppJson.parseToJsonElement(raw).jsonPrimitive.content
-        return AppJson.parseToJsonElement(inner).jsonObject
+        val inner = json.parseToJsonElement(raw).jsonPrimitive.content
+        return json.parseToJsonElement(inner).jsonObject
     }
 
     private fun okOf(o: JsonObject): JsonElement {

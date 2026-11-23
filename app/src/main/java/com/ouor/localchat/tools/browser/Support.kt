@@ -18,7 +18,7 @@ import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageMark
 import com.ouor.localchat.browser.script.PageScript
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.tools.ParamsBuilder
 import com.ouor.localchat.tools.Targets
 import com.ouor.localchat.tools.ToolContext
@@ -85,8 +85,8 @@ private suspend fun ToolContext.staleRef(tab: BrowserTab, e: StaleRef): ToolErro
 internal fun refArgs(ref: String, extra: JsonObjectBuilder.() -> Unit = {}) = buildJsonObject { put("target", ref); extra() }
 
 /** Show the outline, then give the user a moment to see it before the page changes. */
-internal suspend fun ToolContext.highlight(tab: BrowserTab, at: Located, labelRes: Int) {
-    browser.showHighlight(tab.id, at, labelRes)
+internal suspend fun ToolContext.highlight(tab: BrowserTab, at: Located, action: String) {
+    browser.showHighlight(tab.id, at, action)
     delay(HIGHLIGHT_LEAD_MS)
 }
 

@@ -1,7 +1,7 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.core.model.MessageNode
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.policy.ApprovalRequest
 
 /** A live run of one session (architecture 5.2). Exposed through ChatEngine.runs. */
