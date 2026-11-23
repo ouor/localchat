@@ -18,6 +18,13 @@ class BrowserTabHost @JvmOverloads constructor(context: Context, attrs: Attribut
     private var engine: BrowserEngine? = null
     private var shown: Int? = null
 
+    init {
+        // The window's first focus lands here, not on a WebView: a WebView taking focus scrolls its page back (QA B1),
+        // which would move an element under the AI's tap. A user's touch still focuses the page.
+        isFocusableInTouchMode = true
+        descendantFocusability = FOCUS_BEFORE_DESCENDANTS
+    }
+
     /** Hosts [engine]'s tabs and shows [tabId]; null shows none. */
     @MainThread
     fun bind(engine: BrowserEngine, tabId: Int?) {

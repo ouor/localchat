@@ -35,6 +35,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core) // brings the AndroidJUnitRunner
     androidTestImplementation(libs.coroutines.test)
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(testFixtures(project(":browser")))
