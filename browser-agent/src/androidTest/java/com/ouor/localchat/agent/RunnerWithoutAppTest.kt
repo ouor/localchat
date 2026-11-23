@@ -13,8 +13,7 @@ import com.ouor.localchat.policy.RepeatFailurePolicy
 import com.ouor.localchat.policy.SecretValuePolicy
 import com.ouor.localchat.policy.SensitiveUrls
 import com.ouor.localchat.policy.SiteBlockPolicy
-import com.ouor.localchat.policy.SiteBlockSettings
-import com.ouor.localchat.policy.SiteBlockState
+import com.ouor.localchat.policy.InMemorySiteBlockSettings
 import com.ouor.localchat.policy.TabMemoryPolicy
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.testing.TestHostActivity
@@ -25,7 +24,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
@@ -66,12 +64,6 @@ class RunnerWithoutAppTest {
         override fun numberSource(url: String, title: String, snippet: String?) = sources.getOrPut(url) { sources.size + 1 }
     }
 
-    private val siteBlock = object : SiteBlockSettings {
-        override val state = MutableStateFlow(SiteBlockState())
-        override suspend fun setBuiltInOn(on: Boolean) { state.value = state.value.copy(builtInOn = on) }
-        override suspend fun setUserDomains(domains: List<String>) { state.value = state.value.copy(userDomains = domains) }
-    }
-
     @Before fun setUp() {
         pages = MockWebServer()
         pages.dispatcher = object : Dispatcher() {
@@ -103,7 +95,7 @@ class RunnerWithoutAppTest {
     @Test fun openClickScrollReadAndAskUserWithTheDefaultPolicies() = runBlocking {
         val policies = Policies(
             listOf(
-                SiteBlockPolicy(SensitiveUrls.builtIn(ctx), siteBlock, scope, engine, ctx),
+                SiteBlockPolicy(SensitiveUrls.builtIn(ctx), InMemorySiteBlockSettings(), scope, engine, ctx),
                 MoneyConfirmPolicy(ctx),
                 SecretValuePolicy(),
                 CookieMaskPolicy(),

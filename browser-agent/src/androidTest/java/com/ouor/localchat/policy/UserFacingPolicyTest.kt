@@ -28,14 +28,8 @@ class SiteBlockPolicyTest {
     private val ctx: Context = InstrumentationRegistry.getInstrumentation().targetContext
     private val builtIn = SensitiveUrls.builtIn(ctx)
 
-    private class Settings(s: SiteBlockState) : SiteBlockSettings {
-        override val state = MutableStateFlow(s)
-        override suspend fun setBuiltInOn(on: Boolean) { state.value = state.value.copy(builtInOn = on) }
-        override suspend fun setUserDomains(domains: List<String>) { state.value = state.value.copy(userDomains = domains) }
-    }
-
     private fun policy(scope: TestScope, settings: SiteBlockState = SiteBlockState(), facts: FakeFacts = FakeFacts()) =
-        SiteBlockPolicy(builtIn, Settings(settings), scope.backgroundScope, facts, ctx).also { scope.runCurrent() }
+        SiteBlockPolicy(builtIn, InMemorySiteBlockSettings(settings), scope.backgroundScope, facts, ctx).also { scope.runCurrent() }
 
     @Test fun aToolOnABlockedSitesTabIsRefusedOtherSitesAndAskUserAndTabsPass() = runTest(UnconfinedTestDispatcher()) {
         val p = policy(this)
@@ -91,7 +85,7 @@ class SiteBlockPolicyTest {
     }
 
     @Test fun theSettingsRowsChangeTheSettings() = runTest(UnconfinedTestDispatcher()) {
-        val store = Settings(SiteBlockState())
+        val store = InMemorySiteBlockSettings()
         val p = SiteBlockPolicy(builtIn, store, backgroundScope, FakeFacts(), ctx)
         runCurrent()
         (p.settings()[0] as SettingItem.Switch).set(false)

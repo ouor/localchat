@@ -6,11 +6,13 @@ import com.ouor.localchat.browser.BrowserFacts
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.ToolOutcome
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -125,6 +127,13 @@ interface SiteBlockSettings {
     val state: StateFlow<SiteBlockState>
     suspend fun setBuiltInOn(on: Boolean)
     suspend fun setUserDomains(domains: List<String>)
+}
+
+/** [SiteBlockSettings] kept in memory: back to [initial] at every process start. Store them for settings that last. */
+class InMemorySiteBlockSettings(initial: SiteBlockState = SiteBlockState()) : SiteBlockSettings {
+    override val state = MutableStateFlow(initial)
+    override suspend fun setBuiltInOn(on: Boolean) = state.update { it.copy(builtInOn = on) }
+    override suspend fun setUserDomains(domains: List<String>) = state.update { it.copy(userDomains = domains) }
 }
 
 /** [builtInOn]: the built-in list (sensitive_domains.txt) counts; [userDomains]: the user's own list. */
