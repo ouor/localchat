@@ -1,13 +1,11 @@
-package com.ouor.localchat.chat.context
+package com.ouor.localchat.tools
 
 import com.ouor.localchat.browser.Front
 import com.ouor.localchat.browser.TabInfo
-import com.ouor.localchat.tools.Untrusted
-import com.ouor.localchat.tools.ChatTabs
 
 /**
- * browser-layers 5-1: the tabs when a turn starts, at most three lines, put after the last user message. The user's
- * tab and this chat's current tab only (titles are page text, inside the boundary); the rest is for tabs().
+ * The tabs when a turn starts, at most three lines, for the host to put after the last user message: the user's tab
+ * and this chat's current tab only (titles are page text, inside the boundary); the rest is for tabs().
  */
 object TabNote {
     const val HEAD = "[App note: browser]"

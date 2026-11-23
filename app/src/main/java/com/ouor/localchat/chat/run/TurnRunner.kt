@@ -17,7 +17,7 @@ import com.ouor.localchat.tools.browser.Read
 import com.ouor.localchat.chat.context.AssemblyInput
 import com.ouor.localchat.chat.context.ContextAssembler
 import com.ouor.localchat.chat.context.SystemPrompt
-import com.ouor.localchat.chat.context.TabNote
+import com.ouor.localchat.tools.TabNote
 import com.ouor.localchat.chat.context.TokenEstimate
 import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
