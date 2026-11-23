@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="policy_money_title">결제·주문 버튼을 누를까요?</string>
-    <string name="policy_account_title">계정 삭제 버튼을 누를까요?</string>
-    <string name="ui_sensitive_sites">민감 사이트 차단</string>
-    <string name="ui_sensitive_builtin">기본 목록</string>
-    <string name="ui_add_domain">도메인 추가</string>
-    <string name="ui_sensitive_site">민감 사이트예요. AI는 이 페이지를 읽거나 조작할 수 없어요.</string>
+    <string name="agent_money_title">결제·주문 버튼을 누를까요?</string>
+    <string name="agent_account_title">계정 삭제 버튼을 누를까요?</string>
+    <string name="agent_sensitive_sites">민감 사이트 차단</string>
+    <string name="agent_sensitive_builtin">기본 목록</string>
+    <string name="agent_add_domain">도메인 추가</string>
+    <string name="agent_sensitive_site">민감 사이트예요. AI는 이 페이지를 읽거나 조작할 수 없어요.</string>
 </resources>

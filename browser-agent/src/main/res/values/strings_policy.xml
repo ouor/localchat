@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="policy_money_title">Press the payment or order button?</string>
-    <string name="policy_account_title">Press the account deletion button?</string>
-    <string name="ui_sensitive_sites">Sensitive sites</string>
-    <string name="ui_sensitive_builtin">Built-in list</string>
-    <string name="ui_add_domain">Add domain</string>
-    <string name="ui_sensitive_site">Sensitive site. The AI cannot read or operate this page.</string>
+    <string name="agent_money_title">Press the payment or order button?</string>
+    <string name="agent_account_title">Press the account deletion button?</string>
+    <string name="agent_sensitive_sites">Sensitive sites</string>
+    <string name="agent_sensitive_builtin">Built-in list</string>
+    <string name="agent_add_domain">Add domain</string>
+    <string name="agent_sensitive_site">Sensitive site. The AI cannot read or operate this page.</string>
 </resources>

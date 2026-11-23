@@ -24,7 +24,7 @@ class MoneyConfirmPolicy(private val context: Context) : ToolPolicy {
             }
             else -> null
         } ?: return Verdict.Allow
-        val title = context.getString(if (kind == Kind.ACCOUNT) R.string.policy_account_title else R.string.policy_money_title)
+        val title = context.getString(if (kind == Kind.ACCOUNT) R.string.agent_account_title else R.string.agent_money_title)
         return Verdict.Confirm(ApprovalRequest(title, label, call.captureElement(ref), call.tab?.url))
     }
 

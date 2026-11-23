@@ -10,6 +10,8 @@ plugins {
 android {
     namespace = "com.ouor.localchat.agent"
     compileSdk = 37
+    // The host app's own strings keep their names: every resource here starts with agent_.
+    resourcePrefix = "agent_"
 
     defaultConfig {
         minSdk = 31

@@ -78,7 +78,7 @@ class SiteBlockPolicyTest {
         assertEquals(1, p.promptLines().size)
         val items = p.settings()
         assertTrue(items[0] is SettingItem.Switch && items[1] is SettingItem.TextList)
-        assertEquals(ctx.resources.getQuantityString(R.plurals.fb2_s_builtin_on, builtIn.size, builtIn.size), items[0].description.value)
+        assertEquals(ctx.resources.getQuantityString(R.plurals.agent_builtin_on, builtIn.size, builtIn.size), items[0].description.value)
         assertTrue(builtIn.size > 100)
         assertTrue(p.notices.value.isEmpty())
         f.shown.value = 1
@@ -127,7 +127,7 @@ class MoneyConfirmPolicyTest {
         listOf("결제하기", "구매하기", "주문하기", "Pay now", "Place order", "Checkout", "Buy now", "충전", "송금 보내기", "결제하기 " + "x".repeat(80)).forEach {
             val v = click(located("button", "button", it))
             assertTrue(it, v is Verdict.Confirm)
-            assertEquals(ctx.getString(R.string.policy_money_title), (v as Verdict.Confirm).request.title)
+            assertEquals(ctx.getString(R.string.agent_money_title), (v as Verdict.Confirm).request.title)
         }
         assertTrue(click(located("input", "button", "Purchase", type = "submit")) is Verdict.Confirm)
     }
@@ -136,7 +136,7 @@ class MoneyConfirmPolicyTest {
         listOf("회원 탈퇴", "탈퇴하기", "계정 삭제", "Delete account", "Delete my account", "Close account", "Deactivate account").forEach {
             val v = click(located("button", "button", it))
             assertTrue(it, v is Verdict.Confirm)
-            assertEquals(ctx.getString(R.string.policy_account_title), (v as Verdict.Confirm).request.title)
+            assertEquals(ctx.getString(R.string.agent_account_title), (v as Verdict.Confirm).request.title)
         }
         assertTrue(click(located("a", "link", "회원 탈퇴")) is Verdict.Confirm)
     }

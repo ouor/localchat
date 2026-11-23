@@ -35,7 +35,7 @@ dependencies {
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)
-    testFixturesImplementation(libs.androidx.junit)
+    testFixturesApi(libs.androidx.junit) // ScreenOnRule and DownloadsRule are ExternalResource
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core) // brings the AndroidJUnitRunner
     androidTestImplementation(libs.okhttp.mockwebserver)

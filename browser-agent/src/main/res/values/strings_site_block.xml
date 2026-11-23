@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="agent_builtin_on">
+        <item quantity="one">Banks, payments, government and more · %1$d site</item>
+        <item quantity="other">Banks, payments, government and more · %1$d sites</item>
+    </plurals>
+    <string name="agent_builtin_off">Off · AI can access these sites</string>
+    <string name="agent_builtin_off_title">Turn off the built-in block list?</string>
+    <string name="agent_builtin_off_body">AI will be able to read and operate pages on bank, payment and government sites too. It still asks before paying or deleting an account.</string>
+    <string name="agent_builtin_off_confirm">Turn off</string>
+</resources>

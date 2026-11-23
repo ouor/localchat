@@ -67,7 +67,7 @@ class SiteBlockPolicy(
 
     override val notices: StateFlow<List<Notice>> = combine(browser.shown, browser.tabs, rule) { shown, tabs, r ->
         val tab = tabs.firstOrNull { it.id == shown }
-        if (tab != null && r.isSensitive(tab.url)) listOf(Notice(KEY, context.getString(R.string.ui_sensitive_site), tab.id, Notice.Style.BANNER))
+        if (tab != null && r.isSensitive(tab.url)) listOf(Notice(KEY, context.getString(R.string.agent_sensitive_site), tab.id, Notice.Style.BANNER))
         else emptyList()
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
@@ -77,24 +77,24 @@ class SiteBlockPolicy(
     private val userDomains = settings.state.map { it.userDomains }.stateIn(scope, SharingStarted.Eagerly, settings.state.value.userDomains)
 
     private fun builtInDescription(on: Boolean) =
-        if (on) context.resources.getQuantityString(R.plurals.fb2_s_builtin_on, builtIn.size, builtIn.size) else context.getString(R.string.fb2_s_builtin_off)
+        if (on) context.resources.getQuantityString(R.plurals.agent_builtin_on, builtIn.size, builtIn.size) else context.getString(R.string.agent_builtin_off)
 
     override fun settings(): List<SettingItem> = listOf(
         SettingItem.Switch(
             key = "$KEY.builtIn",
-            title = context.getString(R.string.ui_sensitive_builtin),
+            title = context.getString(R.string.agent_sensitive_builtin),
             description = builtInText,
             value = builtInOn,
             set = { on -> scope.launch { settings.setBuiltInOn(on) } },
-            offConfirm = SettingItem.Confirm(context.getString(R.string.fb2_s_off_title), context.getString(R.string.fb2_s_off_body), context.getString(R.string.fb2_s_off_confirm)),
+            offConfirm = SettingItem.Confirm(context.getString(R.string.agent_builtin_off_title), context.getString(R.string.agent_builtin_off_body), context.getString(R.string.agent_builtin_off_confirm)),
         ),
         SettingItem.TextList(
             key = "$KEY.user",
-            title = context.getString(R.string.ui_sensitive_sites),
+            title = context.getString(R.string.agent_sensitive_sites),
             description = NO_TEXT,
             values = userDomains,
             set = { list -> scope.launch { settings.setUserDomains(list.distinct()) } },
-            addLabel = context.getString(R.string.ui_add_domain),
+            addLabel = context.getString(R.string.agent_add_domain),
             placeholder = "bank.example.com",
             normalize = ::domain,
         ),

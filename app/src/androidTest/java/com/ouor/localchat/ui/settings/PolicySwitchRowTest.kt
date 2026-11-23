@@ -39,7 +39,7 @@ class PolicySwitchRowTest {
     private var enabled by mutableStateOf(true)
 
     private fun switch() = rule.onNode(isToggleable())
-    private fun title() = rule.onNodeWithText(ctx.getString(PolicyR.string.fb2_s_off_title))
+    private fun title() = rule.onNodeWithText(ctx.getString(PolicyR.string.agent_builtin_off_title))
 
     @Test fun offAsksCancelKeepsOnConfirmTurnsOff() {
         rule.setContent {
@@ -47,15 +47,15 @@ class PolicySwitchRowTest {
                 Column(Modifier.fillMaxSize().background(LcTheme.colors.surface).statusBarsPadding().padding(top = 16.dp)) {
                     SettingsGroup {
                         // A policy's switch drawn by shape (browser-layers 4-1): here the built-in sensitive list's.
-                        val description = if (enabled) ctx.resources.getQuantityString(PolicyR.plurals.fb2_s_builtin_on, 156, 156) else ctx.getString(PolicyR.string.fb2_s_builtin_off)
-                        val confirm = SettingItem.Confirm(ctx.getString(PolicyR.string.fb2_s_off_title), ctx.getString(PolicyR.string.fb2_s_off_body), ctx.getString(PolicyR.string.fb2_s_off_confirm))
-                        SwitchSettingRow(ctx.getString(PolicyR.string.ui_sensitive_builtin), description, enabled, confirm) { enabled = it }
+                        val description = if (enabled) ctx.resources.getQuantityString(PolicyR.plurals.agent_builtin_on, 156, 156) else ctx.getString(PolicyR.string.agent_builtin_off)
+                        val confirm = SettingItem.Confirm(ctx.getString(PolicyR.string.agent_builtin_off_title), ctx.getString(PolicyR.string.agent_builtin_off_body), ctx.getString(PolicyR.string.agent_builtin_off_confirm))
+                        SwitchSettingRow(ctx.getString(PolicyR.string.agent_sensitive_builtin), description, enabled, confirm) { enabled = it }
                     }
                 }
             }
         }
         switch().assertIsOn()
-        rule.onNodeWithText(ctx.resources.getQuantityString(PolicyR.plurals.fb2_s_builtin_on, 156, 156)).assertExists()
+        rule.onNodeWithText(ctx.resources.getQuantityString(PolicyR.plurals.agent_builtin_on, 156, 156)).assertExists()
         Shots.save("fb2-s-on")
 
         switch().performClick()
@@ -66,10 +66,10 @@ class PolicySwitchRowTest {
         switch().assertIsOn()
 
         switch().performClick()
-        rule.onNodeWithText(ctx.getString(PolicyR.string.fb2_s_off_confirm)).performClick()
+        rule.onNodeWithText(ctx.getString(PolicyR.string.agent_builtin_off_confirm)).performClick()
         title().assertDoesNotExist()
         switch().assertIsOff()
-        rule.onNodeWithText(ctx.getString(PolicyR.string.fb2_s_builtin_off)).assertExists()
+        rule.onNodeWithText(ctx.getString(PolicyR.string.agent_builtin_off)).assertExists()
         Shots.save("fb2-s-off")
 
         switch().performClick() // turning on asks nothing
