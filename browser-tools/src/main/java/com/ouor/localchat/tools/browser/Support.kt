@@ -384,7 +384,7 @@ internal fun netCause(desc: String): String {
 // ---------- read sizes (tools-redesign 3-2, 5-3)
 
 /** Characters per read part for a model of [contextWindow] tokens (null = unknown). */
-fun readChunk(contextWindow: Int?): Int = contextWindow?.let { (it / 4).coerceIn(4_000, 20_000) } ?: 12_000
+internal fun readChunk(contextWindow: Int?): Int = contextWindow?.let { (it / 4).coerceIn(4_000, 20_000) } ?: 12_000
 
 /** Characters of read results the trimmer sends whole, newest first. */
 fun readKeep(contextWindow: Int?): Int =
