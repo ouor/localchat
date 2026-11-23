@@ -635,20 +635,26 @@ class BrowserTab internal constructor(
      */
     private fun writeDownload(name: String, mime: String, write: (java.io.OutputStream) -> Unit): Pair<String, Long> {
         val resolver = contextWrapper.applicationContext.contentResolver
-        fun insert(asName: String) = runCatching {
-            resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, asName)
-                // A generic type makes Downloads put " (1)" after the extension of a taken name: use the name's type.
-                val byName = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(asName.substringAfterLast('.', "").lowercase())
-                put(MediaStore.Downloads.MIME_TYPE, if (mime == "application/octet-stream" && byName != null) byName else mime)
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            })
-        }.getOrNull()
-        // MediaStore numbers only about 32 copies of one name, then refuses the insert: retry once under a unique name.
-        val uri = insert(name) ?: insert(uniqueName(name, System.currentTimeMillis())) ?: error("Downloads refused the file")
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            // A generic type makes Downloads put " (1)" after the extension of a taken name (QA R-B11): use the name's type.
+            val byName = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
+            put(MediaStore.Downloads.MIME_TYPE, if (mime == "application/octet-stream" && byName != null) byName else mime)
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Downloads refused the file")
         try {
             resolver.openOutputStream(uri)?.use(write) ?: error("Downloads could not be written")
-            resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            // Publishing gives the file its final name, and MediaStore numbers only about 32 copies of one name ("Failed
+            // to build unique file"): then publish under a unique one. The bytes stay written (a stream reads once).
+            val published = runCatching { resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null) > 0 }
+            if (published.getOrNull() != true) {
+                val unique = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, uniqueName(name, System.currentTimeMillis()))
+                    put(MediaStore.Downloads.IS_PENDING, 0)
+                }
+                if (resolver.update(uri, unique, null, null) == 0) error("Downloads could not save the file")
+            }
             resolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE), null, null, null)?.use { c ->
                 if (c.moveToFirst()) return (c.getString(0) ?: name) to c.getLong(1)
             }
