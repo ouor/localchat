@@ -6,6 +6,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.testing.TestHostActivity
+import com.ouor.localchat.testing.DownloadsRule
 import com.ouor.localchat.testing.ScreenOnRule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -35,6 +36,7 @@ import java.util.Collections
 @RunWith(AndroidJUnit4::class)
 class TabModelTest {
     @get:Rule val screen = ScreenOnRule()
+    @get:Rule val downloads = DownloadsRule()
 
     private lateinit var pages: MockWebServer
     private lateinit var scenario: ActivityScenario<TestHostActivity>
@@ -258,7 +260,7 @@ class TabModelTest {
         tapOn(tab, "data")
         val done = { n: DownloadNote -> n.state == DownloadNote.State.SAVED || n.state == DownloadNote.State.FAILED }
         val data = eventually("data: saved") { tab.downloadsSince(since).firstOrNull { it.url.startsWith("data:") && done(it) } }
-        assertEquals(DownloadNote.State.SAVED, data.state)
+        assertEquals("${data.reason}", DownloadNote.State.SAVED, data.state)
         assertEquals(5L, data.size)
         tapOn(tab, "blob")
         val blob = eventually("blob: saved", 15_000) { tab.downloadsSince(since).firstOrNull { it.url.startsWith("blob:") && done(it) } }

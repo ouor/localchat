@@ -13,6 +13,13 @@ import org.junit.Test
 class TabRulesTest {
 
     @Test
+    fun `a refused download name gets the time before its extension`() {
+        assertEquals("invoice-42.pdf", BrowserTab.uniqueName("invoice.pdf", 42))
+        assertEquals("download-42", BrowserTab.uniqueName("download", 42))
+        assertEquals(".env-42", BrowserTab.uniqueName(".env", 42))
+    }
+
+    @Test
     fun `a parked WebView takes the window size before the display size (FB3 eng m6)`() {
         assertEquals(800 to 600, TabRules.fallbackSize(800, 600, 1000, 900, 1080, 2400))
         assertEquals(1000 to 900, TabRules.fallbackSize(0, 0, 1000, 900, 1080, 2400)) // split screen: the window, not the display

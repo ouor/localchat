@@ -638,14 +638,17 @@ class BrowserTab internal constructor(
      */
     private fun writeDownload(name: String, mime: String, write: (java.io.OutputStream) -> Unit): Pair<String, Long> {
         val resolver = contextWrapper.applicationContext.contentResolver
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, name)
-            // A generic type makes Downloads put " (1)" after the extension of a taken name (QA R-B11): use the name's type.
-            val byName = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
-            put(MediaStore.Downloads.MIME_TYPE, if (mime == "application/octet-stream" && byName != null) byName else mime)
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Downloads refused the file")
+        fun insert(asName: String) = runCatching {
+            resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, asName)
+                // A generic type makes Downloads put " (1)" after the extension of a taken name: use the name's type.
+                val byName = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(asName.substringAfterLast('.', "").lowercase())
+                put(MediaStore.Downloads.MIME_TYPE, if (mime == "application/octet-stream" && byName != null) byName else mime)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            })
+        }.getOrNull()
+        // MediaStore numbers only about 32 copies of one name, then refuses the insert: retry once under a unique name.
+        val uri = insert(name) ?: insert(uniqueName(name, System.currentTimeMillis())) ?: error("Downloads refused the file")
         try {
             resolver.openOutputStream(uri)?.use(write) ?: error("Downloads could not be written")
             resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
@@ -812,6 +815,12 @@ class BrowserTab internal constructor(
         private val http by lazy { OkHttpClient() }
         private val downloads = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         internal fun nextEventId() = eventIds.incrementAndGet()
+
+        /** invoice.pdf at [at] -> invoice-<at>.pdf: the extension stays, so the file still opens. */
+        internal fun uniqueName(name: String, at: Long): String {
+            val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: return "$name-$at"
+            return "${name.substring(0, dot)}-$at${name.substring(dot)}"
+        }
 
         fun dialogNote(d: BrowserEvent.Dialog): String =
             "A JavaScript ${d.kind.name.lowercase()} dialog is open: \"${d.message.take(300)}\". The page is waiting for the user to answer it."
