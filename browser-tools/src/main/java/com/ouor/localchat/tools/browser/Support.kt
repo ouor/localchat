@@ -53,7 +53,7 @@ internal suspend fun <T> onMain(block: suspend CoroutineScope.() -> T): T = with
 
 internal fun now() = SystemClock.uptimeMillis()
 
-/** The call's tab, which the executor resolved, locked and woke. */
+/** The call's tab, which the runner resolved, locked and woke. */
 internal fun ToolContext.tab(): BrowserTab = target ?: throw ToolError(Targets.NO_TAB)
 
 /** [bitmap] as JPEG bytes; the bitmap is recycled. */

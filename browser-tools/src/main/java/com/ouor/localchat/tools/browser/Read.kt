@@ -20,7 +20,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * browser-layers 3-5: a page's main text in parts, fresh from the page each call. With url, a tab already showing it
- * is read (Targets rule 4), else the executor opened a new one. Where the last read ended is kept per chat and tab
+ * is read (Targets rule 4), else the runner opened a new one. Where the last read ended is kept per chat and tab
  * ([ReadRules]); LinkPrefetcher reads links in a question through the same chain.
  */
 object Read : Tool {

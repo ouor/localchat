@@ -8,7 +8,7 @@ import com.ouor.localchat.tools.ToolFacts
 import com.ouor.localchat.tools.ToolOutcome
 import kotlinx.serialization.json.JsonObject
 
-/** A link of the tool call chain (browser-layers 4-1): ToolExecutor asks every one in [Policies] order. */
+/** A link of the tool call chain (browser-layers 4-1): BrowserToolRunner asks every one in [Policies] order. */
 interface ToolPolicy : Policy {
     fun onTurnStart(sessionId: String) {}
     fun onTurnEnd(sessionId: String) {}

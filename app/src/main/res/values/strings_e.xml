@@ -278,9 +278,6 @@
     <string name="ui_instructions_hint">How the AI should answer you</string>
     <string name="ui_search_engine">Search engine</string>
     <string name="ui_clear_browser_data">Clear browser data</string>
-    <string name="ui_sensitive_sites">Sensitive sites</string>
-    <string name="ui_sensitive_builtin">Built-in list</string>
-    <string name="ui_add_domain">Add domain</string>
     <string name="ui_safety_summary">The AI does not read sensitive sites, hides password and card values, and asks before paying or deleting an account.</string>
     <string name="ui_cookies">Cookies</string>
     <string name="ui_cache">Cache</string>
@@ -295,7 +292,6 @@
     <string name="ui_key_host_title">Send the existing key to the new address (host)?</string>
     <string name="ui_key_host_send">Send</string>
     <string name="ui_key_host_reenter">Re-enter key</string>
-    <string name="ui_sensitive_site">Sensitive site. The AI cannot read or operate this page.</string>
     <string name="ui_download_title">Download this file?</string>
     <string name="ui_download_body">%1$s (%2$s) is saved to Downloads.</string>
     <string name="ui_permission_title">Allow site access?</string>

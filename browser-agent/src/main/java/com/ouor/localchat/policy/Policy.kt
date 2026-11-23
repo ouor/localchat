@@ -1,7 +1,5 @@
 package com.ouor.localchat.policy
 
-import androidx.annotation.PluralsRes
-import androidx.annotation.StringRes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -58,10 +56,4 @@ sealed interface SettingItem {
     ) : SettingItem
 
     data class Confirm(val title: String, val body: String, val action: String)
-}
-
-/** The app's strings in the user's language: Context resources in the app, a fake in JVM tests. */
-interface Texts {
-    fun get(@StringRes id: Int, vararg args: Any): String
-    fun plural(@PluralsRes id: Int, count: Int, vararg args: Any): String
 }

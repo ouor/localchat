@@ -37,7 +37,7 @@ class ChatTabs {
     }
 }
 
-/** The default-tab rules (browser-layers 3-2), pure: the executor locks, the policies see and the tool uses this tab. */
+/** The default-tab rules (browser-layers 3-2), pure: the runner locks, the policies see and the tool uses this tab. */
 object Targets {
     sealed interface Target {
         data object None : Target

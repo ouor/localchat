@@ -3,7 +3,7 @@ package com.ouor.localchat.chat.run
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.chat.AttachmentPayload
 import com.ouor.localchat.chat.AttachmentPort
-import com.ouor.localchat.chat.BrowserPort
+import com.ouor.localchat.agent.BrowserPort
 import com.ouor.localchat.chat.ChatStore
 import com.ouor.localchat.chat.CompactionFailed
 import com.ouor.localchat.chat.Compactor

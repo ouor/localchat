@@ -1,6 +1,7 @@
 package com.ouor.localchat.policy
 
-import com.ouor.localchat.R
+import android.content.Context
+import com.ouor.localchat.agent.R
 import com.ouor.localchat.browser.script.Located
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -11,7 +12,7 @@ import kotlinx.serialization.json.contentOrNull
  * links whose whole label is the action, Enter into a form whose submit button says it, and payment-provider frames.
  * The word lists live only here.
  */
-class MoneyConfirmPolicy(private val texts: Texts) : ToolPolicy {
+class MoneyConfirmPolicy(private val context: Context) : ToolPolicy {
 
     override suspend fun before(call: PolicyCall): Verdict {
         val ref = (call.args["ref"] as? JsonPrimitive)?.contentOrNull ?: return Verdict.Allow
@@ -23,7 +24,7 @@ class MoneyConfirmPolicy(private val texts: Texts) : ToolPolicy {
             }
             else -> null
         } ?: return Verdict.Allow
-        val title = texts.get(if (kind == Kind.ACCOUNT) R.string.policy_account_title else R.string.policy_money_title)
+        val title = context.getString(if (kind == Kind.ACCOUNT) R.string.policy_account_title else R.string.policy_money_title)
         return Verdict.Confirm(ApprovalRequest(title, label, call.captureElement(ref), call.tab?.url))
     }
 

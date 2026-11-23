@@ -17,7 +17,7 @@ interface Tool {
     val name: String
     val groups: Set<ToolGroup>
 
-    /** Facts the executor and policies read instead of the name. */
+    /** Facts the runner and policies read instead of the name. */
     val facts: ToolFacts
 
     /** English description for the model. */
@@ -49,14 +49,14 @@ data class ToolFacts(val target: TargetRule, val browser: Boolean, val changesPa
  */
 class ToolError(message: String, val page: ToolOutcome? = null) : Exception(message)
 
-/** Implemented by chat.run.ToolExecutor; this is how tools reach the loop without importing chat. */
+/** Implemented by agent.BrowserToolRunner; this is how tools reach the loop without knowing it. */
 interface ToolContext {
     val sessionId: String
 
     /** The same API the drawer uses. */
     val browser: BrowserEngine
 
-    /** The tab [Targets.resolve] chose and the executor locked and woke; null for NONE tools. */
+    /** The tab [Targets.resolve] chose and the runner locked and woke; null for NONE tools. */
     val target: BrowserTab?
 
     /** This chat's memory of tabs (current tab, tabs it opened, its search tab). */
@@ -106,7 +106,7 @@ data class ToolOutcome(
     val userStep: UserStep? = null,
     /** The user said no to a confirmation; the call is shown as DENIED. */
     val denied: Boolean = false,
-    /** A policy refused the call before it ran (set by the executor); shown as blocked by the app. */
+    /** A policy refused the call before it ran (set by the runner); shown as blocked by the app. */
     val refused: Boolean = false,
 ) {
     companion object {

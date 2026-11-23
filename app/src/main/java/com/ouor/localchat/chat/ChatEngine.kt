@@ -7,7 +7,7 @@ import com.ouor.localchat.chat.run.RunPhase
 import com.ouor.localchat.chat.run.RunRegistry
 import com.ouor.localchat.chat.run.RunState
 import com.ouor.localchat.chat.run.StartupRecovery
-import com.ouor.localchat.chat.run.ToolExecutor
+import com.ouor.localchat.agent.BrowserToolRunner
 import com.ouor.localchat.chat.run.TurnRunner
 import com.ouor.localchat.core.AppJson
 import com.ouor.localchat.core.Clock
@@ -215,7 +215,7 @@ class ChatEngine @Inject constructor(
             result?.refused == true -> R.string.chat_step_fail_blocked
             lead == SystemPrompt.INTERRUPTED || lead == SystemPrompt.ABORTED -> R.string.chat_step_fail_interrupted
             // FB3 QA m2: the user's own switch, not an error (ui shows it neutral).
-            lead == ToolExecutor.TOOL_OFF -> R.string.chat_step_turned_off
+            lead == BrowserToolRunner.TOOL_OFF -> R.string.chat_step_turned_off
             else -> R.string.chat_step_fail_error
         }
     }

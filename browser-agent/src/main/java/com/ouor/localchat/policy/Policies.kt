@@ -8,18 +8,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
- * The two policy lists of di/PolicyModule, in order (browser-layers 4-1), and what they contribute. ToolExecutor runs
- * the call chain through here, App attaches the browser policies, the prompt, tool list, drawer and settings read the
+ * The two policy lists, in order (browser-layers 4-1), and what they contribute. BrowserToolRunner runs the call chain
+ * through here, the app attaches the browser policies, its prompt, tool list, drawer and settings read the
  * contributions. With both lists empty every answer is the tool's or layer 1's own.
  */
-@Singleton
-class Policies @Inject constructor(
-    private val tools: List<@JvmSuppressWildcards ToolPolicy>,
-    private val browser: List<@JvmSuppressWildcards BrowserPolicy>,
+class Policies(
+    private val tools: List<ToolPolicy>,
+    private val browser: List<BrowserPolicy>,
 ) {
     private val all: List<Policy> = tools + browser
 

@@ -16,7 +16,7 @@ import com.ouor.localchat.tools.string
 import kotlinx.serialization.json.JsonObject
 
 /**
- * browser-layers 3-5: a URL, a path or search words in a new tab (the executor opened it; the front stays) or in the
+ * browser-layers 3-5: a URL, a path or search words in a new tab (the runner opened it; the front stays) or in the
  * given tab, then the page's elements with refs. A word with a dot that is no address is searched for, as the
  * address bar does (G-m6).
  */

@@ -1,9 +1,8 @@
 package com.ouor.localchat.policy
 
-import com.ouor.localchat.R
+import android.content.Context
+import com.ouor.localchat.agent.R
 import com.ouor.localchat.browser.BrowserFacts
-import com.ouor.localchat.core.model.AppSettings
-import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.ToolOutcome
 import kotlinx.coroutines.CoroutineScope
@@ -23,19 +22,16 @@ import kotlinx.serialization.json.contentOrNull
  */
 class SiteBlockPolicy(
     builtInDomains: List<String>,
-    private val store: SettingsStore,
+    private val settings: SiteBlockSettings,
     private val scope: CoroutineScope,
     browser: BrowserFacts,
-    private val texts: Texts,
+    private val context: Context,
 ) : ToolPolicy {
 
     private val builtIn = builtInDomains
 
-    private val settings: StateFlow<AppSettings?> = store.settings.stateIn(scope, SharingStarted.Eagerly, null)
-
-    // Before settings load: the full built-in list (fail safe).
-    private val rule: StateFlow<SensitiveUrls> = settings.map { s -> rule(builtIn, s) }
-        .stateIn(scope, SharingStarted.Eagerly, SensitiveUrls(builtIn, emptyList()))
+    private val rule: StateFlow<SensitiveUrls> = settings.state.map { s -> rule(builtIn, s) }
+        .stateIn(scope, SharingStarted.Eagerly, rule(builtIn, settings.state.value))
 
     private fun blocked(url: String?): Boolean = url != null && rule.value.isSensitive(url)
 
@@ -71,34 +67,34 @@ class SiteBlockPolicy(
 
     override val notices: StateFlow<List<Notice>> = combine(browser.shown, browser.tabs, rule) { shown, tabs, r ->
         val tab = tabs.firstOrNull { it.id == shown }
-        if (tab != null && r.isSensitive(tab.url)) listOf(Notice(KEY, texts.get(R.string.ui_sensitive_site), tab.id, Notice.Style.BANNER))
+        if (tab != null && r.isSensitive(tab.url)) listOf(Notice(KEY, context.getString(R.string.ui_sensitive_site), tab.id, Notice.Style.BANNER))
         else emptyList()
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // Built once: each stateIn keeps a collector in [scope]. Titles are read again at every settings() (app language).
-    private val builtInOn = settings.map { it?.builtInSensitiveEnabled != false }.stateIn(scope, SharingStarted.Eagerly, true)
+    private val builtInOn = settings.state.map { it.builtInOn }.stateIn(scope, SharingStarted.Eagerly, settings.state.value.builtInOn)
     private val builtInText = builtInOn.map(::builtInDescription).stateIn(scope, SharingStarted.Eagerly, builtInDescription(true))
-    private val userDomains = settings.map { it?.userSensitiveDomains.orEmpty() }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    private val userDomains = settings.state.map { it.userDomains }.stateIn(scope, SharingStarted.Eagerly, settings.state.value.userDomains)
 
     private fun builtInDescription(on: Boolean) =
-        if (on) texts.plural(R.plurals.fb2_s_builtin_on, builtIn.size, builtIn.size) else texts.get(R.string.fb2_s_builtin_off)
+        if (on) context.resources.getQuantityString(R.plurals.fb2_s_builtin_on, builtIn.size, builtIn.size) else context.getString(R.string.fb2_s_builtin_off)
 
     override fun settings(): List<SettingItem> = listOf(
         SettingItem.Switch(
             key = "$KEY.builtIn",
-            title = texts.get(R.string.ui_sensitive_builtin),
+            title = context.getString(R.string.ui_sensitive_builtin),
             description = builtInText,
             value = builtInOn,
-            set = { on -> scope.launch { store.update { copy(builtInSensitiveEnabled = on) } } },
-            offConfirm = SettingItem.Confirm(texts.get(R.string.fb2_s_off_title), texts.get(R.string.fb2_s_off_body), texts.get(R.string.fb2_s_off_confirm)),
+            set = { on -> scope.launch { settings.setBuiltInOn(on) } },
+            offConfirm = SettingItem.Confirm(context.getString(R.string.fb2_s_off_title), context.getString(R.string.fb2_s_off_body), context.getString(R.string.fb2_s_off_confirm)),
         ),
         SettingItem.TextList(
             key = "$KEY.user",
-            title = texts.get(R.string.ui_sensitive_sites),
+            title = context.getString(R.string.ui_sensitive_sites),
             description = NO_TEXT,
             values = userDomains,
-            set = { list -> scope.launch { store.update { copy(userSensitiveDomains = list.distinct()) } } },
-            addLabel = texts.get(R.string.ui_add_domain),
+            set = { list -> scope.launch { settings.setUserDomains(list.distinct()) } },
+            addLabel = context.getString(R.string.ui_add_domain),
             placeholder = "bank.example.com",
             normalize = ::domain,
         ),
@@ -114,8 +110,7 @@ class SiteBlockPolicy(
         private val NO_TEXT: StateFlow<String> = kotlinx.coroutines.flow.MutableStateFlow("")
 
         /** FB2-2: the built-in list only while its switch is on; the user's domains always. */
-        fun rule(builtIn: List<String>, s: AppSettings?) =
-            SensitiveUrls(if (s?.builtInSensitiveEnabled != false) builtIn else emptyList(), s?.userSensitiveDomains.orEmpty())
+        fun rule(builtIn: List<String>, s: SiteBlockState) = SensitiveUrls(if (s.builtInOn) builtIn else emptyList(), s.userDomains)
 
         /** What the user typed as a domain: `https://bank.com/x` -> `bank.com`; null when it is no domain. */
         fun domain(typed: String): String? =
@@ -123,3 +118,14 @@ class SiteBlockPolicy(
                 .takeIf { '.' in it && ' ' !in it }
     }
 }
+
+/** The policy's two settings ([SiteBlockState]); the app stores them. */
+interface SiteBlockSettings {
+    /** Until the stored values load: the built-in list on, no user domains (fail safe). */
+    val state: StateFlow<SiteBlockState>
+    suspend fun setBuiltInOn(on: Boolean)
+    suspend fun setUserDomains(domains: List<String>)
+}
+
+/** [builtInOn]: the built-in list (sensitive_domains.txt) counts; [userDomains]: the user's own list. */
+data class SiteBlockState(val builtInOn: Boolean = true, val userDomains: List<String> = emptyList())

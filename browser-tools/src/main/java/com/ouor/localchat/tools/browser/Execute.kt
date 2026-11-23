@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * browser-layers 3-5: model-written JS, run once on a ready page, then the wait for what it did. A new page (or its
- * failure) is reported like a click's. The executor caps the result at 50 KB inside the boundary.
+ * failure) is reported like a click's. ToolResultFormat caps the result at 50 KB inside the boundary.
  */
 object Execute : Tool {
     override val name = "execute"

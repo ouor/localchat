@@ -1,11 +1,12 @@
 package com.ouor.localchat.policy
 
+import android.content.Context
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.net.URI
 
 /**
- * B-S3: sites the AI may not read or operate. [builtIn] comes from assets/browser/sensitive_domains.txt and
- * can be switched off as a whole (FB2-2); [user] is AppSettings.userSensitiveDomains. A domain matches itself and
+ * B-S3: sites the AI may not read or operate. [builtIn] comes from assets/browser/sensitive_domains.txt ([builtIn])
+ * and can be switched off as a whole (FB2-2); [user] is the user's own list (SiteBlockSettings). A domain matches itself and
  * every subdomain.
  */
 class SensitiveUrls(builtIn: Collection<String>, user: Collection<String>) {
@@ -22,6 +23,10 @@ class SensitiveUrls(builtIn: Collection<String>, user: Collection<String>) {
     companion object {
         /** In every refusal for a sensitive site; chat's step reason looks for it (BUG-10). */
         const val REFUSAL = "is a sensitive site"
+
+        /** The built-in list this module ships (assets/browser/sensitive_domains.txt). */
+        fun builtIn(context: Context): List<String> =
+            parseList(context.assets.open("browser/sensitive_domains.txt").bufferedReader().use { it.readText() })
 
         /** Lines of sensitive_domains.txt; `#` starts a comment. */
         fun parseList(text: String): List<String> =

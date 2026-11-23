@@ -34,7 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * what happens in them. The user and the AI use the same calls; no tab has an owner. Threads (F-10): methods without a
  * result and suspend functions may be called from any thread; methods that return a tab, id or WebView are
  * [MainThread]. StateFlows may be read anywhere. WebViews outlive Activities: they live in the host container at the
- * Activity root ([attachHost]) and ui.browser.BrowserSurface borrows them ([webView], [show] / [park]). Never calls
+ * Activity root ([attachHost]; [BrowserTabHost] is the simplest one) and a screen borrows them ([webView], [show] / [park]). Never calls
  * pauseTimers()/onPause().
  */
 class BrowserEngine(
@@ -63,7 +63,7 @@ class BrowserEngine(
 
     private val _activity = MutableStateFlow<Map<Int, ToolActivity>>(emptyMap())
 
-    /** Coordination only: layer 1 never branches on it. The executor sets it inside the tab's lock. */
+    /** Coordination only: layer 1 never branches on it. The runner sets it inside the tab's lock. */
     override val activity: StateFlow<Map<Int, ToolActivity>> = _activity.asStateFlow()
 
     private val _events = MutableSharedFlow<Handled>(extraBufferCapacity = 64)
@@ -275,7 +275,7 @@ class BrowserEngine(
     // ---------- host container (Activity root, below the Compose content)
 
     /**
-     * Called by MainActivity.onCreate with a full-size container placed under the Compose content. Every tab
+     * Called by the Activity (onCreate) with a full-size container placed under the Compose content. Every tab
      * WebView stays attached there at real size so timers, trusted taps and page pictures work while the drawer
      * is closed (Phase 0 spike (b)).
      */
@@ -289,7 +289,7 @@ class BrowserEngine(
         }
     }
 
-    /** MainActivity.onDestroy: keep the WebViews, drop the Activity. */
+    /** The Activity's onDestroy: keep the WebViews, drop the Activity. */
     @MainThread
     fun detachHost(activity: Activity) {
         if (hostActivity !== activity) return
