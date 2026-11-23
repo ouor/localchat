@@ -1,7 +1,6 @@
 package com.ouor.localchat.tools.browser
 
 import android.view.KeyEvent
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.script.ElementInfo
 import com.ouor.localchat.browser.script.PageScript
@@ -30,7 +29,6 @@ object Type : Tool {
     override val name = "type"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.REF, browser = true, changesPage = true)
-    override val labelRes = R.string.tool_type
     override val description =
         "Fill a text field, or choose an option of a select, by its ref. Replaces the field's value; empty text clears it. " +
             "Fields listed as searchbox are submitted by themselves unless suggestions open. To press Enter in another one-line " +

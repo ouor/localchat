@@ -52,7 +52,6 @@ class AnswerLanguageRealApiTest {
             putJsonObject("properties") { putJsonObject("url") { put("type", "string") } }
             putJsonArray("required") { add(JsonPrimitive("url")) }
         }
-        override val labelRes = 0
         override val facts = com.ouor.localchat.tools.ToolFacts(com.ouor.localchat.tools.TargetRule.NONE, browser = false, changesPage = false)
         override fun argSummary(args: JsonObject) = ""
         override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome {

@@ -1,4 +1,4 @@
-package com.ouor.localchat.core.model
+package com.ouor.localchat.tools
 
 import kotlinx.serialization.Serializable
 

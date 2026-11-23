@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.ScrollResult
@@ -29,7 +28,6 @@ object Scroll : Tool {
 
     /** PAGE: with ref, the ref's tab wins (Targets rule 1). */
     override val facts = ToolFacts(TargetRule.PAGE, browser = true, changesPage = true)
-    override val labelRes = R.string.tool_scroll
     override val description =
         "Scroll a page one screen down (default) or up; with ref, scroll inside that element (lines marked [scrollable], " +
             "such as a chat pane or a map's result list). Waits for anything the page loads, then lists what is now on screen, " +

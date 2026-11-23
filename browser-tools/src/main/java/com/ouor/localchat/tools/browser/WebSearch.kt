@@ -1,8 +1,7 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.SearchEngines
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
@@ -24,7 +23,6 @@ object WebSearch : Tool {
     override val name = "web_search"
     override val groups = setOf(ToolGroup.SEARCH)
     override val facts = ToolFacts(TargetRule.SEARCH, browser = true, changesPage = false)
-    override val labelRes = R.string.tool_web_search
     override val description =
         "Search the web. Returns up to 8 numbered results [n] with title, URL and snippet; cite them as [n]. The app picks " +
             "the engine and switches engines by itself when one is blocked or returns nothing, so never repeat the same query. " +

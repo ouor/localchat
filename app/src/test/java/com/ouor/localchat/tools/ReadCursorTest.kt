@@ -1,6 +1,6 @@
 package com.ouor.localchat.tools
 
-import com.ouor.localchat.core.Untrusted
+import com.ouor.localchat.tools.Untrusted
 import com.ouor.localchat.tools.browser.ReadRules
 import com.ouor.localchat.tools.browser.listBudget
 import org.junit.Assert.assertEquals

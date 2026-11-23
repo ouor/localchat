@@ -1,12 +1,11 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.NavError
 import com.ouor.localchat.browser.Readiness
 import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.ReadText
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.tools.ReadCursor
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
@@ -28,7 +27,6 @@ object Read : Tool {
     override val name = "read"
     override val groups = setOf(ToolGroup.SEARCH, ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.READ, browser = true, changesPage = false)
-    override val labelRes = R.string.tool_read
     override val description =
         "Read the main text of a page to quote it, in parts for long pages. With url, reads it in a tab that already shows " +
             "it, or else opens a new tab. Without url, reads your tab. Starts with a citation number [n]; the end says how to " +

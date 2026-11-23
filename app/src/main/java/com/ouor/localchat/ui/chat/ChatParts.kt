@@ -29,7 +29,7 @@ import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.ReplyStatus
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.core.model.TextBlock
 import com.ouor.localchat.core.model.ThinkingBlock as ThinkingData
 import com.ouor.localchat.core.model.ToolCallBlock

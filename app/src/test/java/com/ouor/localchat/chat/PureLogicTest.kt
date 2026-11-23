@@ -70,7 +70,7 @@ class PureLogicTest {
     private fun listPage(tab: Int, title: String, list: String) = "Page: $title — https://$title.test/ (tab $tab)\n\n$list"
 
     private fun headOf(lead: String, tab: Int, title: String) =
-        com.ouor.localchat.core.Untrusted.result(lead, "Page: $title — https://$title.test/ (tab $tab)\n${ToolResultTrimmer.STALE}", "")
+        com.ouor.localchat.tools.Untrusted.result(lead, "Page: $title — https://$title.test/ (tab $tab)\n${ToolResultTrimmer.STALE}", "")
 
     @Test
     fun `stream reducer groups deltas into blocks`() {

@@ -2,7 +2,6 @@ package com.ouor.localchat.tools
 
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserTab
-import com.ouor.localchat.core.model.Source
 import com.ouor.localchat.browser.ToolStatus
 import kotlinx.serialization.json.JsonObject
 
@@ -26,9 +25,6 @@ interface Tool {
 
     /** JSON schema of the arguments. */
     val parameters: JsonObject
-
-    /** Step label string resource. */
-    val labelRes: Int
 
     /** Short argument summary for the step line (URL, ref, query). */
     fun argSummary(args: JsonObject): String

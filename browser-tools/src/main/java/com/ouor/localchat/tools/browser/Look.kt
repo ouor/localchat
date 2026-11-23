@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
@@ -16,7 +15,6 @@ object Look : Tool {
     override val name = "look"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.PAGE, browser = true, changesPage = false)
-    override val labelRes = R.string.tool_look
     override val description =
         "List the elements of a tab's page with refs, the part on screen first. Use it for a page you have not acted on yet, " +
             "such as a tab the user opened, or after the user did something."

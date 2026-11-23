@@ -39,7 +39,7 @@ import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.tools.ChatTabs
 import com.ouor.localchat.tools.Tool
-import com.ouor.localchat.tools.ToolExposure
+import com.ouor.localchat.chat.ToolExposure
 import com.ouor.localchat.tools.ToolGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

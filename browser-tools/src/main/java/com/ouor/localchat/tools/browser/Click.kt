@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.TapCheck
@@ -28,7 +27,6 @@ object Click : Tool {
     override val name = "click"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.REF, browser = true, changesPage = true)
-    override val labelRes = R.string.tool_click
     override val description =
         "Click an element by its ref from the latest list: links, buttons, checkboxes, radio buttons, tabs, menus, options. " +
             "Returns the page after the click."

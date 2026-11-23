@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Readiness
 import com.ouor.localchat.browser.TabRules
@@ -25,7 +24,6 @@ object Open : Tool {
     override val name = "open"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.OPEN, browser = true, changesPage = true)
-    override val labelRes = R.string.tool_open
     override val description =
         "Open a URL or search words and list the page's elements with refs. Without tab it opens a new tab, so the page you " +
             "were on stays as it is: open a link this way to look at it without losing your place. With tab it goes there in " +

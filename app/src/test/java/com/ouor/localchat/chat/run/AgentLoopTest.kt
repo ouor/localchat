@@ -30,7 +30,7 @@ import com.ouor.localchat.llm.ToolCallRequest
 import com.ouor.localchat.tools.UserStep
 import com.ouor.localchat.tools.ToolGroup
 import com.ouor.localchat.tools.ToolOutcome
-import com.ouor.localchat.tools.ToolExposure
+import com.ouor.localchat.chat.ToolExposure
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation

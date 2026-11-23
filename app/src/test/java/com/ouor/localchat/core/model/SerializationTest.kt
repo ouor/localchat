@@ -1,6 +1,7 @@
 package com.ouor.localchat.core.model
 
 import com.ouor.localchat.core.AppJson
+import com.ouor.localchat.tools.Source
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals

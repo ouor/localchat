@@ -7,7 +7,7 @@ import com.ouor.localchat.browser.TabInfo
 import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.provider.KnownModels
 import com.ouor.localchat.tools.ToolCatalog
-import com.ouor.localchat.tools.ToolExposure
+
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.llm.ChatCompletionsClient

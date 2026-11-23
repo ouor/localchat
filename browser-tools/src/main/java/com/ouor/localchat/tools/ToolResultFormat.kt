@@ -1,6 +1,6 @@
 package com.ouor.localchat.tools
 
-import com.ouor.localchat.core.Untrusted
+import com.ouor.localchat.tools.Untrusted
 
 /**
  * What the model reads of a result (browser-layers 3-3): the app's lead, the page text inside the boundary, capped at

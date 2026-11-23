@@ -42,7 +42,7 @@ interface ModelPort {
     suspend fun markUsed(ref: ModelRef)
 }
 
-/** tools.ToolExposure over ToolCatalog (track C, architecture 6.3). */
+/** ToolExposure over ToolCatalog (track C, architecture 6.3). */
 interface ToolPort {
     fun exposed(caps: ModelCapabilities, search: Boolean, browser: Boolean): List<Tool>
 

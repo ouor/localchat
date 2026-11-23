@@ -8,6 +8,7 @@ import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.Sourced
 import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.tools.browser.TypeRules
+import com.ouor.localchat.chat.ToolExposure
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject

@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
@@ -18,7 +17,6 @@ object Navigate : Tool {
     override val name = "navigate"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.PAGE, browser = true, changesPage = true)
-    override val labelRes = R.string.tool_navigate
     override val description =
         "Go back, go forward or reload in a tab, like the browser's toolbar. Lists the page's elements once it is ready."
     private val TO = listOf("back", "forward", "reload")

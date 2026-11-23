@@ -1,6 +1,9 @@
-package com.ouor.localchat.tools
+package com.ouor.localchat.chat
 
 import com.ouor.localchat.core.model.ModelCapabilities
+import com.ouor.localchat.tools.Tool
+import com.ouor.localchat.tools.ToolCatalog
+import com.ouor.localchat.tools.ToolGroup
 
 /**
  * Which tools the model sees (architecture 6.3, plan 3.8.1). Pure; ChatEngine.exposurePreview uses the same

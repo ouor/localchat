@@ -17,7 +17,7 @@ import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.chat.AttachmentPort
 import com.ouor.localchat.chat.BrowserPort
 import com.ouor.localchat.core.Ids
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock

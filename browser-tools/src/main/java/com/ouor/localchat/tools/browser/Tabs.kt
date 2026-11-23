@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.BrowserFacts
 import com.ouor.localchat.tools.ChatTabs
 import com.ouor.localchat.tools.TargetRule
@@ -18,7 +17,6 @@ object Tabs : Tool {
     override val name = "tabs"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.NONE, browser = true, changesPage = false)
-    override val labelRes = R.string.tool_tabs
     override val description =
         "List the open tabs: number, title and URL, which one is on the user's screen, which one is your current tab, and " +
             "which ones you opened."
@@ -41,7 +39,7 @@ object Tabs : Tool {
     private fun count(n: Int) = if (n == 1) "1 tab" else "$n tabs"
 
     /** One line per tab: `[2] Home / X — https://x.com/home (on the user's screen)`. */
-    internal fun lines(b: BrowserFacts, chat: ChatTabs, sessionId: String): String {
+    fun lines(b: BrowserFacts, chat: ChatTabs, sessionId: String): String {
         val shown = b.shown.value
         val front = b.front.value?.tabId
         val activity = b.activity.value

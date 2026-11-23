@@ -1,7 +1,7 @@
 package com.ouor.localchat.chat.context
 
 import com.ouor.localchat.browser.TabRules
-import com.ouor.localchat.core.Untrusted
+import com.ouor.localchat.tools.Untrusted
 import com.ouor.localchat.core.model.ToolResultBlock
 
 /**

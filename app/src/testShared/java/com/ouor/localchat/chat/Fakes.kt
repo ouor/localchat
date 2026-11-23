@@ -200,7 +200,6 @@ class FakeTool(
     var calls = 0
     override val description = "fake $name"
     override val parameters = JsonObject(emptyMap())
-    override val labelRes = 0
     override fun argSummary(args: JsonObject) = ""
     override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome {
         calls++

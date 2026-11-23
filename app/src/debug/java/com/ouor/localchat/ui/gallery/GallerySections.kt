@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.ouor.localchat.core.model.CapSource
 import com.ouor.localchat.core.model.ChatError
 import com.ouor.localchat.core.model.ChatErrorKind
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.ui.components.*
 import com.ouor.localchat.ui.markdown.MarkdownMessage
 import com.ouor.localchat.ui.theme.LcColors

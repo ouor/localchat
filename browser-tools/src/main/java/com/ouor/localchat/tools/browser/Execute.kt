@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
@@ -21,7 +20,6 @@ object Execute : Tool {
     override val name = "execute"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.PAGE, browser = true, changesPage = true)
-    override val labelRes = R.string.tool_execute
     override val description =
         "Run JavaScript in a tab and return its JSON result (a returned Promise is awaited, up to 15 s). Pass an expression, " +
             "or statements with return. Use it when the other tools cannot do the job: key events for widgets, drag and drop, " +

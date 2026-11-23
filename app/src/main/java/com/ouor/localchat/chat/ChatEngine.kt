@@ -194,12 +194,13 @@ class ChatEngine @Inject constructor(
     /** A-04 step row for a stored tool call: the tool's label and short argument summary; null for an unknown tool. */
     fun toolStep(block: ToolCallBlock, result: ToolResultBlock? = null): ToolStep? {
         val tool = tools.byName(block.name) ?: return null
+        val label = ToolLabels.of(tool.name) ?: return null
         val args = runCatching { AppJson.parseToJsonElement(block.argumentsJson).jsonObject }.getOrNull()
         val count = result?.summary?.let(COUNT::matchEntire)?.groupValues?.get(1)?.toIntOrNull()
         val countRes = COUNT_RES[block.name]?.takeIf { count != null }
         val failureRes = failure(block, result)
         return ToolStep(
-            tool.labelRes,
+            label,
             result?.summary?.takeIf { block.name in NAMED_BY_RESULT } ?: args?.let { runCatching { tool.argSummary(it) }.getOrNull() }.orEmpty(),
             countRes, count ?: 0, failureRes, turnedOff = failureRes == R.string.chat_step_turned_off,
         )

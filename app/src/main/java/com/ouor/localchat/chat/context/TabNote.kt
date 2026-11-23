@@ -2,7 +2,7 @@ package com.ouor.localchat.chat.context
 
 import com.ouor.localchat.browser.Front
 import com.ouor.localchat.browser.TabInfo
-import com.ouor.localchat.core.Untrusted
+import com.ouor.localchat.tools.Untrusted
 import com.ouor.localchat.tools.ChatTabs
 
 /**

@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Targets
 import com.ouor.localchat.tools.Tool
@@ -19,7 +18,6 @@ object CloseTab : Tool {
     override val name = "close_tab"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.NONE, browser = true, changesPage = false)
-    override val labelRes = R.string.tool_close_tab
     override val description = "Close a tab. Close tabs you opened once you no longer need them; leave the others open unless asked."
     override val parameters = params { string("tab", "Number of the tab to close.", required = true) }
 

@@ -1,6 +1,5 @@
 package com.ouor.localchat.tools.browser
 
-import com.ouor.localchat.R
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolContext
@@ -21,7 +20,6 @@ object AskUser : Tool {
     override val name = "ask_user"
     override val groups = setOf(ToolGroup.BROWSER)
     override val facts = ToolFacts(TargetRule.PAGE, browser = true, changesPage = false)
-    override val labelRes = R.string.tool_ask_user
     override val description =
         "Ask the user to do a step themselves in a tab and wait until they tap Done: signing in, a CAPTCHA, entering card " +
             "details, or a choice only they can make. Returns the page as they left it. For questions, ask in your reply instead."
@@ -41,5 +39,5 @@ object AskUser : Tool {
     const val DONE = "The user tapped Done; check the page below."
 
     /** The result once the user tapped Done: the tab's page, as look lists it. */
-    internal suspend fun done(ctx: ToolContext): ToolOutcome = onMain { Look.list(ctx) }.let { it.copy(lead = DONE, isError = false) }
+    suspend fun done(ctx: ToolContext): ToolOutcome = onMain { Look.list(ctx) }.let { it.copy(lead = DONE, isError = false) }
 }

@@ -18,7 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ouor.localchat.R
 import com.ouor.localchat.core.model.Session
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.core.model.TitleSource
 import com.ouor.localchat.ui.sessions.SessionDrawer
 import com.ouor.localchat.ui.sessions.SessionGroup

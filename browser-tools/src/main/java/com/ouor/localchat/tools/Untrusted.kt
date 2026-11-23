@@ -1,8 +1,8 @@
-package com.ouor.localchat.core
+package com.ouor.localchat.tools
 
 /**
- * The page-content boundary tag (browser-layers 3-3). In core so tools.ToolResultFormat and chat.context (wrap page
- * text) and llm.AnswerFilter (strips it from answers; llm may depend on core only) share one literal.
+ * The page-content boundary tag (browser-layers 3-3). One literal for ToolResultFormat and the app (chat.context wraps
+ * page text in it, llm.AnswerFilter strips it from answers).
  */
 const val UNTRUSTED_TAG = "untrusted_page_content"
 
