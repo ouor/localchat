@@ -38,6 +38,11 @@ object AskUser : Tool {
 
     const val DONE = "The user tapped Done; check the page below."
 
+    /** ask_user's second half: run it (same name and facts, the step's tab) when the user is done, for the page as they left it. */
+    val Done: Tool = object : Tool by this@AskUser {
+        override suspend fun run(args: JsonObject, ctx: ToolContext) = done(ctx)
+    }
+
     /** The result once the user tapped Done: the tab's page, as look lists it. */
-    suspend fun done(ctx: ToolContext): ToolOutcome = onMain { Look.list(ctx) }.let { it.copy(lead = DONE, isError = false) }
+    internal suspend fun done(ctx: ToolContext): ToolOutcome = onMain { Look.list(ctx) }.let { it.copy(lead = DONE, isError = false) }
 }

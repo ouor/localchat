@@ -43,10 +43,10 @@ interface RunnerHost {
     /** A policy wants the user's yes ([Verdict.Confirm]); true = go on. The call's tab is unlocked while this waits. */
     suspend fun confirm(callId: String, request: ApprovalRequest): Boolean
 
-    /**
-     * The running call: what it waits for ([status], [engine]) and its tab. [BrowserToolRunner.run] reports once with
-     * all three null when the call starts (after the unknown-tool and argument checks).
-     */
+    /** [BrowserToolRunner.run] accepted the call (a known tool, valid arguments) and starts it. */
+    fun started(callId: String) {}
+
+    /** The running call: what it waits for ([status], [engine]) and its tab; all null = nothing to wait for. */
     fun status(callId: String, status: ToolStatus?, engine: String?, tabId: Int?)
 
     /** Stores a tool artifact (a page picture) and returns its id. */
@@ -115,7 +115,7 @@ class BrowserToolRunner(
         } catch (_: Exception) {
             return ToolOutcome(lead = "Invalid arguments: not a JSON object", isError = true)
         }
-        host.status(callId, null, null, null)
+        host.started(callId)
         return runChain(tool, args)
     }
 
@@ -130,10 +130,7 @@ class BrowserToolRunner(
     suspend fun afterUserStep(callId: String, step: UserStep): ToolOutcome {
         this.callId = callId
         tabId = null
-        val done = object : Tool by AskUser {
-            override suspend fun run(args: JsonObject, ctx: ToolContext) = AskUser.done(ctx)
-        }
-        return runChain(done, buildJsonObject { put("tab", JsonPrimitive(step.tabId.toString())) })
+        return runChain(AskUser.Done, buildJsonObject { put("tab", JsonPrimitive(step.tabId.toString())) })
     }
 
     /** 4-1 steps 2–8 for one call. */

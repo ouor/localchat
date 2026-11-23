@@ -64,16 +64,9 @@ class ToolExecutor(
     private var current: ToolCallBlock? = null
 
     /** The runner has not yet reported the current call's start. */
-    private var starting = false
-
     suspend fun execute(call: ToolCallBlock): Result {
         current = call
-        starting = true
-        return try {
-            block(call, runner.run(call.key, call.name, call.argumentsJson))
-        } finally {
-            starting = false
-        }
+        return block(call, runner.run(call.key, call.name, call.argumentsJson))
     }
 
     /** LinkPrefetcher (A-m10): a link in a question read through the same chain as a read call; null when it failed. */
@@ -116,13 +109,13 @@ class ToolExecutor(
         return answer.allow
     }
 
+    override fun started(callId: String) {
+        val call = current?.takeIf { it.key == callId } ?: return
+        handle.update { it.copy(phase = RunPhase.RunningTool(call.callId, call.name, null)) }
+    }
+
     override fun status(callId: String, status: ToolStatus?, engine: String?, tabId: Int?) {
         val call = current?.takeIf { it.key == callId } ?: return
-        if (starting) {
-            starting = false
-            handle.update { it.copy(phase = RunPhase.RunningTool(call.callId, call.name, null)) }
-            return
-        }
         handle.update { s ->
             (s.phase as? RunPhase.RunningTool)?.takeIf { it.callId == call.callId }
                 ?.let { s.copy(phase = it.copy(tabId = tabId, status = status, engine = engine)) } ?: s
