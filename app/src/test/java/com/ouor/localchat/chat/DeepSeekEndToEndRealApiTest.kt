@@ -1,5 +1,6 @@
 package com.ouor.localchat.chat
 
+import com.ouor.localchat.agent.FakeBrowserPort
 import com.ouor.localchat.attach.Validation
 import com.ouor.localchat.attach.ValidationIssue
 import com.ouor.localchat.chat.context.SystemPrompt
@@ -102,7 +103,6 @@ class DeepSeekEndToEndRealApiTest {
             putJsonObject("properties") { putJsonObject("city") { put("type", "string") } }
             putJsonArray("required") { add(JsonPrimitive("city")) }
         }
-        override val labelRes = 0
         override val facts = com.ouor.localchat.tools.ToolFacts(com.ouor.localchat.tools.TargetRule.NONE, browser = false, changesPage = false)
         override fun argSummary(args: JsonObject) = ""
         override suspend fun run(args: JsonObject, ctx: ToolContext): ToolOutcome {

@@ -311,7 +311,7 @@ class ChatScreenTest {
     }
 
     @Test fun citationBadgeOpensPreviewFirst() { // BUG-15
-        val src = com.ouor.localchat.core.model.Source(1, "https://kotlinlang.org", "Kotlin releases", "Kotlin 2.x is the latest.")
+        val src = com.ouor.localchat.tools.Source(1, "https://kotlinlang.org", "Kotlin releases", "Kotlin 2.x is the latest.")
         val result = com.ouor.localchat.core.model.ToolResultBlock("c1", 0, "", false, sources = listOf(src))
         val body = MessageBody.Assistant(listOf(result, TextBlock("Kotlin [1]: latest.", 1)), ReplyStatus.DONE, model = null, options = GenOptions())
         show(ChatUiState(loading = false, turns = listOf(turn("kotlin?", body))))

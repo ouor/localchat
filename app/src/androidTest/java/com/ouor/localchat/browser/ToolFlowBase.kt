@@ -5,7 +5,7 @@ import com.ouor.localchat.MainActivity
 import com.ouor.localchat.chat.CatalogToolPort
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.ClientLlmPort
-import com.ouor.localchat.chat.EngineBrowserPort
+import com.ouor.localchat.agent.EngineBrowserPort
 import com.ouor.localchat.chat.FakeAttachments
 import com.ouor.localchat.chat.FakeChatStore
 import com.ouor.localchat.chat.MemoryDataStore
@@ -34,6 +34,7 @@ import com.ouor.localchat.llm.LlmTarget
 import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.testing.FakeOpenAiServer
+import com.ouor.localchat.testing.DownloadsRule
 import com.ouor.localchat.testing.ScreenOnRule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,7 @@ import java.util.Collections
 abstract class ToolFlowBase {
 
     @get:Rule val screen = ScreenOnRule()
+    @get:Rule val downloads = DownloadsRule()
 
     protected lateinit var pages: MockWebServer
     protected val pageHits: MutableList<String> = Collections.synchronizedList(mutableListOf())

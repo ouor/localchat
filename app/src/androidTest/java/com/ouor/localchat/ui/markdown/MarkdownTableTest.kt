@@ -11,7 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import androidx.compose.runtime.getValue

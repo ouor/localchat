@@ -47,7 +47,7 @@ import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.markdownPadding
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.ui.components.CitationBadge
 import com.ouor.localchat.ui.theme.LcMotion
 import com.ouor.localchat.ui.theme.LcTheme

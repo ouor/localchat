@@ -89,6 +89,9 @@ room {
 }
 
 dependencies {
+    implementation(project(":browser"))
+    implementation(project(":browser-tools"))
+    implementation(project(":browser-agent"))
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -129,9 +132,12 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    testImplementation(testFixtures(project(":browser-agent")))
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation(testFixtures(project(":browser")))
+    androidTestImplementation(testFixtures(project(":browser-agent")))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.compose.bom))

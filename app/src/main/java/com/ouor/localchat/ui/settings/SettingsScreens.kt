@@ -45,7 +45,7 @@ import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.core.model.AppLanguage
 import com.ouor.localchat.core.model.AppSettings
 import com.ouor.localchat.core.model.ModelInfo
-import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.browser.SearchEngine
 import com.ouor.localchat.core.model.ThemeMode
 import com.ouor.localchat.provider.ProviderRepository
 import com.ouor.localchat.speech.ReadAloud

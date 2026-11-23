@@ -89,6 +89,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInRoot
 import com.ouor.localchat.R
+import com.ouor.localchat.chat.ToolLabels
 import com.ouor.localchat.browser.Answer
 import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.browser.DialogKind
@@ -482,7 +483,7 @@ fun BrowserSurface(tabId: Int, highlight: Highlight?, actions: BrowserActions) {
         val scale = h?.let { constraints.maxWidth / it.cssViewportWidth } ?: 1f
         ElementHighlightLayer(
             h?.let { Rect(it.left * scale, it.top * scale, (it.left + it.width) * scale, (it.top + it.height) * scale) },
-            h?.let { stringResource(it.labelRes) }.orEmpty(), null, h,
+            h?.let { stringResource(ToolLabels.highlight(it.action)) }.orEmpty(), null, h,
         )
     }
 }

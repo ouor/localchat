@@ -1,13 +1,7 @@
 package com.ouor.localchat.chat
 
-import com.ouor.localchat.browser.BrowserEngine
-import com.ouor.localchat.browser.BrowserTab
-import com.ouor.localchat.browser.Front
-import com.ouor.localchat.browser.TabInfo
-import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.provider.KnownModels
 import com.ouor.localchat.tools.ToolCatalog
-import com.ouor.localchat.tools.ToolExposure
 import com.ouor.localchat.core.model.ModelCapabilities
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.llm.ChatCompletionsClient
@@ -17,8 +11,6 @@ import com.ouor.localchat.provider.ProviderRepository
 import com.ouor.localchat.provider.reasoningWire
 import com.ouor.localchat.storage.SecretStore
 import com.ouor.localchat.attach.StoredAttachments
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.ouor.localchat.tools.Tool
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -62,16 +54,4 @@ class StoredAttachmentPort @Inject constructor(private val stored: StoredAttachm
     override suspend fun payload(id: String) = stored.payload(id)
     override suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray) = stored.saveArtifact(name, mime, bytes)
     override suspend fun saveText(name: String, text: String) = stored.saveText(name, text)
-}
-
-class EngineBrowserPort @Inject constructor(private val engine: BrowserEngine) : BrowserPort {
-    override fun tabs(): List<TabInfo> = engine.tabs.value
-    override fun front(): Front? = engine.front.value
-    override fun shown(): Int? = engine.shown.value
-    override suspend fun open(): Int = withContext(Dispatchers.Main.immediate) { engine.open() }
-    override suspend fun close(tabId: Int) = withContext(Dispatchers.Main.immediate) { engine.close(tabId) }
-    override fun setActivity(tabId: Int, activity: ToolActivity?) = engine.setActivity(tabId, activity)
-    override fun tab(tabId: Int): BrowserTab = engine.tab(tabId)
-    override fun cookieHeader(url: String): String? = engine.cookieHeader(url)
-    override fun now(): Long = android.os.SystemClock.uptimeMillis()
 }

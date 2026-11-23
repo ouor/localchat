@@ -1,6 +1,6 @@
 package com.ouor.localchat.llm
 
-import com.ouor.localchat.core.UNTRUSTED_TAG
+import com.ouor.localchat.tools.UNTRUSTED_TAG
 import java.util.logging.Logger
 
 /**

@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.chat.run.Pause
-import com.ouor.localchat.core.model.SearchEngine
+import com.ouor.localchat.browser.SearchEngine
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.testing.Scenario
 import kotlinx.coroutines.Dispatchers
@@ -145,7 +145,7 @@ class PageReadyTest : ToolFlowBase() {
     fun aPageThatNeverStopsChangingIsReadWithinTheCap() {
         val (r, ms) = measure("/clock")
         assertEquals(Readiness.CHANGING, r)
-        assertTrue("$ms ms", ms <= TabRules.SETTLE_CAP + 2_000)
+        assertTrue("$ms ms", ms <= SETTLE_CAP + 2_000)
         val (text, _) = run("read", """{"url":"${url("/clock")}"}""")
         assertTrue(text, "(page still changing; text may be incomplete)" in text && "Ticker page" in text)
     }
@@ -227,7 +227,7 @@ class PageReadyTest : ToolFlowBase() {
         Log.i(TAG, "anchor/download/204 clicks: $ms ms")
         assertEquals(results.joinToString(), List(3) { ToolCallState.DONE }, calls.map { it.state })
         results.forEach { assertFalse(it, "ERR_ABORTED" in it || "failed" in it) }
-        assertTrue("$ms", ms.all { it < TabRules.LOAD_CAP / 3 })
+        assertTrue("$ms", ms.all { it < BrowserTab.LOAD_CAP / 3 })
         assertTrue(browser.tabs.value.single().url.endsWith("/jump#end"))
     }
 
@@ -267,5 +267,8 @@ class PageReadyTest : ToolFlowBase() {
 
     private companion object {
         const val TAG = "PageReady"
+
+        /** The engine's settle phase cap (internal to :browser). */
+        const val SETTLE_CAP = 5_000L
     }
 }

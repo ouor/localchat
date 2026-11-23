@@ -29,13 +29,13 @@ import com.ouor.localchat.core.model.MessageBody
 import com.ouor.localchat.core.model.ModelInfo
 import com.ouor.localchat.core.model.ModelRef
 import com.ouor.localchat.core.model.ReplyStatus
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.core.model.TextBlock
 import com.ouor.localchat.core.model.ThinkingBlock as ThinkingData
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
 import com.ouor.localchat.core.model.ToolResultBlock
-import com.ouor.localchat.core.model.ToolStatus
+import com.ouor.localchat.browser.ToolStatus
 import com.ouor.localchat.speech.VoiceState
 import com.ouor.localchat.ui.components.AssistantMessage
 import com.ouor.localchat.ui.components.BranchSwitcher

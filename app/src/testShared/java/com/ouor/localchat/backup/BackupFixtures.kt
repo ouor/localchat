@@ -20,7 +20,7 @@ import com.ouor.localchat.core.model.PresetId
 import com.ouor.localchat.core.model.ReplyStatus
 import com.ouor.localchat.core.model.Role
 import com.ouor.localchat.core.model.Session
-import com.ouor.localchat.core.model.Source
+import com.ouor.localchat.tools.Source
 import com.ouor.localchat.core.model.Summary
 import com.ouor.localchat.core.model.TextBlock
 import com.ouor.localchat.core.model.ThinkingBlock

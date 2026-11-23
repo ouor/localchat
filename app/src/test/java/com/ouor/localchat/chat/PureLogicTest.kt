@@ -58,6 +58,9 @@ class PureLogicTest {
         assertTrue(prompt(setOf("read"), lines = listOf(line)).endsWith(line + "\n"))
         assertFalse(prompt(emptySet(), lines = listOf(line)).contains(line))
         assertEquals(prompt(setOf("read")), prompt(setOf("read"), lines = listOf(line)).replace(line + "\n", ""))
+        // Policies.promptLines() starts with the boundary's line, which the prompt already has for every model: once.
+        val boundary = com.ouor.localchat.tools.Untrusted.PROMPT_LINE
+        assertEquals(1, prompt(setOf("read"), lines = listOf(boundary, line)).split(boundary).size - 1)
     }
 
     private val ToolCatalogNames = com.ouor.localchat.tools.ToolCatalog.ALL.map { it.name }.toSet()
@@ -70,7 +73,7 @@ class PureLogicTest {
     private fun listPage(tab: Int, title: String, list: String) = "Page: $title — https://$title.test/ (tab $tab)\n\n$list"
 
     private fun headOf(lead: String, tab: Int, title: String) =
-        com.ouor.localchat.core.Untrusted.result(lead, "Page: $title — https://$title.test/ (tab $tab)\n${ToolResultTrimmer.STALE}", "")
+        com.ouor.localchat.tools.Untrusted.result(lead, "Page: $title — https://$title.test/ (tab $tab)\n${ToolResultTrimmer.STALE}", "")
 
     @Test
     fun `stream reducer groups deltas into blocks`() {

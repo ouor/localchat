@@ -248,7 +248,7 @@ class ContextAssemblerTest {
         val blocks = (0..1).flatMap { listOf(ToolCallBlock("c$it", "click", "{}", it, ToolCallState.DONE, 0), result(it)) }
         val msgs = ContextAssembler.build(input(listOf(user("u", "q")), empty().copy(blocks = blocks))).messages.filter { it.role == "tool" }
         val sent = msgs.map { it.content!!.jsonPrimitive.content }
-        assertEquals(com.ouor.localchat.core.Untrusted.result("Clicked 1e1 → new page.", "Page: A — https://a.test/ (tab 1)\n" + ToolResultTrimmer.STALE, ""), sent[0])
+        assertEquals(com.ouor.localchat.tools.Untrusted.result("Clicked 1e1 → new page.", "Page: A — https://a.test/ (tab 1)\n" + ToolResultTrimmer.STALE, ""), sent[0])
         assertEquals(result(1).modelText, sent[1])
     }
 

@@ -3,7 +3,7 @@ package com.ouor.localchat.chat.run
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.chat.AttachmentPayload
 import com.ouor.localchat.chat.AttachmentPort
-import com.ouor.localchat.chat.BrowserPort
+import com.ouor.localchat.agent.BrowserPort
 import com.ouor.localchat.chat.ChatStore
 import com.ouor.localchat.chat.CompactionFailed
 import com.ouor.localchat.chat.Compactor
@@ -17,7 +17,7 @@ import com.ouor.localchat.tools.browser.Read
 import com.ouor.localchat.chat.context.AssemblyInput
 import com.ouor.localchat.chat.context.ContextAssembler
 import com.ouor.localchat.chat.context.SystemPrompt
-import com.ouor.localchat.chat.context.TabNote
+import com.ouor.localchat.tools.TabNote
 import com.ouor.localchat.chat.context.TokenEstimate
 import com.ouor.localchat.core.ApplicationScope
 import com.ouor.localchat.core.Clock
@@ -39,7 +39,7 @@ import com.ouor.localchat.policy.Policies
 import com.ouor.localchat.storage.SettingsStore
 import com.ouor.localchat.tools.ChatTabs
 import com.ouor.localchat.tools.Tool
-import com.ouor.localchat.tools.ToolExposure
+import com.ouor.localchat.chat.ToolExposure
 import com.ouor.localchat.tools.ToolGroup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

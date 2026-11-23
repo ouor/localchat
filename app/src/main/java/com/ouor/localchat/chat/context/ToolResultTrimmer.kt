@@ -1,7 +1,7 @@
 package com.ouor.localchat.chat.context
 
-import com.ouor.localchat.browser.TabRules
-import com.ouor.localchat.core.Untrusted
+import com.ouor.localchat.tools.browser.readKeep
+import com.ouor.localchat.tools.Untrusted
 import com.ouor.localchat.core.model.ToolResultBlock
 
 /**
@@ -9,7 +9,7 @@ import com.ouor.localchat.core.model.ToolResultBlock
  * - Element lists ([LIST], and execute when it holds one): per open tab only the newest result that holds a list is
  *   sent whole; an error or a refusal after it does not count (G-M2). Older ones, and every list of a closed tab, keep
  *   their head (the page text up to the first blank line), since their refs are stale.
- * - read: whole while the newest-first total stays within [TabRules.readKeep] (the newest always), else cut.
+ * - read: whole while the newest-first total stays within [readKeep] (the newest always), else cut.
  * - execute: the newest [KEEP] whole, older ones cut.
  */
 object ToolResultTrimmer {
@@ -45,7 +45,7 @@ object ToolResultTrimmer {
         val wholeExec = results.filter { it.second == EXECUTE }.takeLast(KEEP).map { it.first }.toSet()
         val wholeRead = HashSet<String>()
         var used = 0
-        val keep = TabRules.readKeep(contextWindow)
+        val keep = readKeep(contextWindow)
         for ((id, _, block) in results.filter { it.second == READ }.asReversed()) {
             val len = block?.modelText?.length ?: 0
             if (wholeRead.isNotEmpty() && used + len > keep) break

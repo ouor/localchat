@@ -1,5 +1,6 @@
 package com.ouor.localchat.core.model
 
+import com.ouor.localchat.tools.Source
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -80,7 +81,7 @@ data class ToolResultBlock(
     val refused: Boolean = false,
 ) : Block {
     /** What the model reads: [lead], [page] inside the boundary, [note]. */
-    val modelText: String get() = com.ouor.localchat.core.Untrusted.result(lead, page, note)
+    val modelText: String get() = com.ouor.localchat.tools.Untrusted.result(lead, page, note)
 
     val key: String get() = toolKey(step, callId)
 }

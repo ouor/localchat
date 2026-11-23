@@ -1,0 +1,159 @@
+package com.ouor.localchat.browser
+
+import com.ouor.localchat.browser.script.CssRect
+import com.ouor.localchat.browser.script.PageMark
+
+/** Pure rules behind BrowserEngine/BrowserTab, kept apart so JVM tests can run them. */
+internal object TabRules {
+
+    /** CSS px around the element in an approval preview. */
+    private const val CROP_PAD = 24f
+
+    /** Size for a parked WebView: the host's once laid out, else the window's, else the display's. */
+    fun fallbackSize(hostW: Int, hostH: Int, windowW: Int?, windowH: Int?, displayW: Int, displayH: Int): Pair<Int, Int> =
+        if (hostW > 0 && hostH > 0) hostW to hostH
+        else if (windowW != null && windowH != null && windowW > 0 && windowH > 0) windowW to windowH
+        else displayW to displayH
+
+    /** [x, y, w, h] in view px of [rect] scaled by [scale] plus padding, clipped to the view; null if nothing is left. */
+    fun cropBox(rect: CssRect, scale: Float, viewW: Int, viewH: Int): IntArray? {
+        val l = ((rect.left - CROP_PAD) * scale).toInt().coerceIn(0, viewW)
+        val t = ((rect.top - CROP_PAD) * scale).toInt().coerceIn(0, viewH)
+        val r = ((rect.left + rect.width + CROP_PAD) * scale).toInt().coerceIn(0, viewW)
+        val b = ((rect.top + rect.height + CROP_PAD) * scale).toInt().coerceIn(0, viewH)
+        return if (r - l < 1 || b - t < 1) null else intArrayOf(l, t, r - l, b - t)
+    }
+
+    // ---------- page readiness (tools-redesign 2-1)
+
+    /** Load phase cap: a mobile network's slow first response. */
+    const val LOAD_CAP = 15_000L
+
+    /** Quiet window: no DOM change or request for this long (Playwright/Puppeteer networkidle). */
+    const val QUIET = 500L
+
+    /** Settle phase cap after the document is in: pages that never stop changing (clocks, tickers). */
+    const val SETTLE_CAP = 5_000L
+
+    /** Below this much text a page may still be drawing itself (E7): the wait goes on until it changes or the cap. */
+    const val SPARSE_TEXT = 200
+
+    const val POLL_MIN = 100L
+    const val LOAD_POLL = 250L
+
+    /** One mark() evaluate; a page busier than this is read as it is. */
+    const val MARK_EVAL = 2_000L
+
+    /** What one look at the tab found; times are uptime ms. */
+    data class ReadyInput(
+        val now: Long,
+        /** Start of the action this wait follows. */
+        val since: Long,
+        /** Start of the current load phase (since, or the time of a restart). */
+        val docStart: Long,
+        /** Start of the settle phase, null while loading. */
+        val settleStart: Long?,
+        val loading: Boolean,
+        /** Null when the page did not answer (busy, document swapping). */
+        val mark: PageMark?,
+        /** mark.n when the settle phase started. */
+        val settleN: Int?,
+        val mainRequestAt: Long,
+        /** A new document started loading. */
+        val pageStartedAt: Long,
+        /** The navigation was answered without a new document (anchor, history push, cancelled scheme), or finished. */
+        val committedAt: Long,
+        val lastRequestAt: Long,
+        /** Latest main-frame failure. */
+        val errorAt: Long?,
+        /** Latest download the page started: the load ends there. */
+        val downloadAt: Long?,
+    )
+
+    sealed interface ReadyStep {
+        data class Done(val readiness: Readiness) : ReadyStep
+        /** The document is in: the settle phase starts now. */
+        data object Settle : ReadyStep
+        /** A new document was requested during the settle phase (JS redirect, form): load phase again. */
+        data object Restart : ReadyStep
+        data class Wait(val ms: Long) : ReadyStep
+    }
+
+    fun readyStep(i: ReadyInput): ReadyStep {
+        if (i.errorAt != null && i.errorAt >= i.since) return ReadyStep.Done(Readiness.FAILED)
+        if (i.downloadAt != null && i.downloadAt >= i.since) return ReadyStep.Done(Readiness.READY)
+        val settle = i.settleStart
+        if (settle == null) {
+            if (i.now - i.docStart >= LOAD_CAP || i.now - i.since >= LOAD_CAP + SETTLE_CAP) return ReadyStep.Done(Readiness.LOADING)
+            // Requested but no response yet (slow first byte, E2): the old document still answers mark().
+            val awaitingResponse = i.mainRequestAt >= i.docStart && maxOf(i.pageStartedAt, i.committedAt) < i.mainRequestAt
+            val docIn = !i.loading || (i.mark != null && i.mark.readyState != "loading")
+            return if (!awaitingResponse && docIn) ReadyStep.Settle else ReadyStep.Wait(LOAD_POLL)
+        }
+        if (i.mainRequestAt > settle) return ReadyStep.Restart
+        val quiet = minOf(i.mark?.quietMs ?: 0L, i.now - i.lastRequestAt, i.now - i.since)
+        val textLen = i.mark?.textLen ?: 0
+        val changed = i.mark != null && i.settleN != null && i.mark.n != i.settleN
+        // Only a document that came in during this wait may still be drawing itself (E7, B-m4): a type or a re-list
+        // on a short page does not wait for it.
+        val newDoc = i.pageStartedAt >= i.since
+        if (quiet >= QUIET && (textLen >= SPARSE_TEXT || changed || !newDoc)) return ReadyStep.Done(Readiness.READY)
+        if (i.now - settle >= SETTLE_CAP) {
+            // Short and unchanged while we waited: a short page, not an unfinished one.
+            return ReadyStep.Done(if (quiet >= QUIET && !changed) Readiness.READY else Readiness.CHANGING)
+        }
+        return ReadyStep.Wait(maxOf(POLL_MIN, QUIET - quiet))
+    }
+
+    // ---------- tabs and downloads (browser-layers 2-1, 2-5)
+
+    /** "4e7" → 4; anything else (an old "e7", text) → null. */
+    fun tabOfRef(ref: String): Int? = REF.matchEntire(ref.trim())?.groupValues?.get(1)?.toIntOrNull()
+
+    private val REF = Regex("""\[?\s*(?:ref\s*=\s*)?[@#]?(\d+)e\d+\s*]?""", RegexOption.IGNORE_CASE)
+
+    /**
+     * The download's file name: Content-Disposition `filename*=UTF-8''…` first, then `filename=`, then the URL's last
+     * path part; [URLUtil.guessFileName] turns Korean names into downloadfile.bin.
+     */
+    fun fileName(url: String, disposition: String?, mime: String?): String {
+        val d = disposition.orEmpty()
+        val star = Regex("""filename\*\s*=\s*([^']*)'[^']*'([^;]+)""", RegexOption.IGNORE_CASE).find(d)?.let { m ->
+            runCatching { java.net.URLDecoder.decode(m.groupValues[2].trim().trim('"').replace("+", "%2B"), m.groupValues[1].ifBlank { "UTF-8" }) }.getOrNull()
+        }
+        val plain = Regex("""filename\s*=\s*("([^"]*)"|[^;]+)""", RegexOption.IGNORE_CASE).find(d)?.let { m ->
+            m.groupValues[2].ifEmpty { m.groupValues[1] }.trim()
+        }
+        val fromUrl = url.takeIf { it.startsWith("http", ignoreCase = true) }?.substringBefore('?')?.substringBefore('#')?.substringAfterLast('/')
+            ?.let { runCatching { java.net.URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }.getOrDefault(it) }
+        val name = listOfNotNull(star, plain, fromUrl).map { it.replace(Regex("""[\\/:*?"<>|\x00-\x1f]"""), "_").trim() }
+            .firstOrNull { it.isNotEmpty() && it != "." && it != ".." } ?: "download"
+        if ('.' in name || mime == null) return name
+        return name + (EXT[mime.substringBefore(';').trim().lowercase()]?.let { ".$it" } ?: "")
+    }
+
+    private val EXT = mapOf(
+        "application/pdf" to "pdf", "text/plain" to "txt", "text/csv" to "csv", "text/html" to "html", "application/json" to "json",
+        "image/png" to "png", "image/jpeg" to "jpg", "image/gif" to "gif", "image/webp" to "webp", "application/zip" to "zip",
+    )
+
+    /** A `data:` URL's bytes and MIME, null when it is not one this app can decode. */
+    fun dataUrl(url: String): Pair<ByteArray, String>? {
+        if (!url.startsWith("data:", ignoreCase = true)) return null
+        val comma = url.indexOf(',').takeIf { it > 0 } ?: return null
+        val meta = url.substring(5, comma)
+        val mime = meta.substringBefore(';').ifBlank { "text/plain" }
+        val body = url.substring(comma + 1)
+        val bytes = if (meta.endsWith(";base64", ignoreCase = true)) runCatching { java.util.Base64.getDecoder().decode(body) }.getOrNull() ?: return null
+        else java.net.URLDecoder.decode(body.replace("+", "%2B"), "UTF-8").toByteArray()
+        return bytes to mime
+    }
+
+    /** The same file asked again this soon is not saved again (Chrome-like; an estimate, browser-layers 2-5). */
+    const val SAME_DOWNLOAD_MS = 30_000L
+}
+
+enum class Readiness { READY, LOADING, CHANGING, FAILED }
+
+/** A main-frame load failure: a network error ([http] false, [desc] like net::ERR_NAME_NOT_RESOLVED) or HTTP >= 400. */
+data class NavError(val at: Long, val url: String, val http: Boolean, val code: Int, val desc: String)
