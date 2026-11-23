@@ -4,6 +4,8 @@
 
 <h1 align="center">localchat</h1>
 
+<p align="center"><b>English</b> · <a href="README.ko.md">한국어</a></p>
+
 <p align="center">An Android chat app whose AI browses the web in a real browser on your own phone.<br>You sign in where a page needs it; the AI does the reading and the legwork.</p>
 
 <table>
