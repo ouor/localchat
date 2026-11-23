@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 
 /**
  * The two policy lists, in order (browser-layers 4-1), and what they contribute. BrowserToolRunner runs the call chain
- * through here, the app attaches the browser policies, its prompt, tool list, drawer and settings read the
+ * through here, the app attaches the browser policies, its prompt, tool list, browser UI and settings read the
  * contributions. With both lists empty every answer is the tool's or layer 1's own.
  */
 class Policies(

@@ -8,7 +8,7 @@ import android.widget.FrameLayout
 import androidx.annotation.MainThread
 
 /**
- * The least an app needs to show a tab without a drawer of its own (for ask_user, say): put this view full size in
+ * The least an app needs to show a tab without a browser UI of its own (for ask_user, say): put this view full size in
  * an Activity and [bind] it. It becomes the engine's host container ([BrowserEngine.attachHost]), so every tab's
  * WebView lives in it at real size, and the bound tab is drawn on top ([BrowserEngine.show]); the others stay parked.
  * Taken off the window, it parks the tab and lets the WebViews go ([BrowserEngine.detachHost]).

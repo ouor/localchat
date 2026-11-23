@@ -92,7 +92,7 @@ class BrowserTab internal constructor(
 
     private val _webView = MutableStateFlow<WebView?>(null)
 
-    /** null while asleep. The drawer borrows the current one and borrows again when it changes (wake). */
+    /** null while asleep. The host UI borrows the current one and borrows again when it changes (wake). */
     val webView: StateFlow<WebView?> = _webView.asStateFlow()
 
     /** The current WebView; a sleeping tab has none ([wake] first). */

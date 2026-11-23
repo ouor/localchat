@@ -295,7 +295,7 @@ internal suspend fun ToolContext.actionResult(
 }
 
 /**
- * A vision model gets a picture of the visible part with every result that lists the page (G-m10); ContextAssembler
+ * A vision model gets a picture of the visible part with every result that lists the page (G-m10); the host
  * sends only the newest. [keep] also shows it in the chat (open, look).
  */
 internal suspend fun ToolContext.withPicture(tab: BrowserTab, o: ToolOutcome, keep: Boolean): ToolOutcome {

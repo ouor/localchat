@@ -9,7 +9,7 @@ import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * One chat's memory of tabs (browser-layers 3-2), kept by TurnRunner across turns in this process. Not ownership: the
+ * One chat's memory of tabs (browser-layers 3-2), kept by the host across turns in this process. Not ownership: the
  * same tab may be several chats' current tab, and the user's tabs are as usable as these.
  */
 class ChatTabs {

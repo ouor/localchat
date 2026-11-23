@@ -46,10 +46,16 @@ interface RunnerHost {
     /** [BrowserToolRunner.run] accepted the call (a known tool, valid arguments) and starts it. */
     fun started(callId: String) {}
 
-    /** The running call: what it waits for ([status], [engine]) and its tab; all null = nothing to wait for. */
+    /**
+     * The running call: what it waits for ([status], [engine]) and its tab; all null = nothing to wait for. Any thread,
+     * the main thread included: return at once.
+     */
     fun status(callId: String, status: ToolStatus?, engine: String?, tabId: Int?)
 
-    /** Stores a tool artifact (a page picture) and returns its id. */
+    /**
+     * Stores a tool artifact (a page picture) and returns its id, which the outcome carries in
+     * [ToolOutcome.artifactIds] and [ToolOutcome.imageForModelId] (attach the newest to a vision model's next request).
+     */
     suspend fun saveArtifact(name: String, mime: String, bytes: ByteArray): String
 
     /** Citation number for [url], stable within the current message. */

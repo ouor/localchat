@@ -30,7 +30,7 @@ import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * A plain browser (browser-layers 2-2): every tab, which one the user has in front, which one the drawer shows, and
+ * A plain browser (browser-layers 2-2): every tab, which one the user has in front, which one the host UI shows, and
  * what happens in them. The user and the AI use the same calls; no tab has an owner. Threads (F-10): methods without a
  * result and suspend functions may be called from any thread; methods that return a tab, id or WebView are
  * [MainThread]. StateFlows may be read anywhere. WebViews outlive Activities: they live in the host container at the
@@ -273,7 +273,7 @@ class BrowserEngine(
 
     /**
      * Called by the Activity (onCreate) with a full-size container placed under the Compose content. Every tab
-     * WebView stays attached there at real size so timers, trusted taps and page pictures work while the drawer
+     * WebView stays attached there at real size so timers, trusted taps and page pictures work while the host UI
      * is closed (Phase 0 spike (b)).
      */
     @MainThread
@@ -390,7 +390,7 @@ class BrowserEngine(
         const val HIGHLIGHT_MS = 1_000L
         const val BLANK = "about:blank"
 
-        /** What a browser does when no listener answers (browser-layers 2-4); [shown] = the drawer shows the tab. */
+        /** What a browser does when no listener answers (browser-layers 2-4); [shown] = the host UI shows the tab. */
         fun defaultAnswer(e: BrowserEvent, shown: Boolean): Answer = when (e) {
             is BrowserEvent.Dialog -> if (shown) Answer.ToUser else Answer.Dismiss
             is BrowserEvent.ExternalLink -> if (e.userInput) Answer.Accept() else Answer.Dismiss

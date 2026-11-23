@@ -10,14 +10,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The engine as [BrowserToolRunner] uses it (browser-layers 8): the same API the drawer uses, narrowed so the runner
+ * The engine as [BrowserToolRunner] uses it (browser-layers 8): the same API the host UI uses, narrowed so the runner
  * runs in JVM tests with a fake. [tab] is only reached by browser tools.
  */
 interface BrowserPort {
     fun tabs(): List<TabInfo>
     fun front(): Front?
 
-    /** The tab the drawer shows now, null when none. */
+    /** The tab the host UI shows now, null when none. */
     fun shown(): Int?
 
     /** A new tab with nothing loaded yet; the front stays. Returns its id. */

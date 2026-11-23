@@ -53,7 +53,7 @@ class ToolError(message: String, val page: ToolOutcome? = null) : Exception(mess
 interface ToolContext {
     val sessionId: String
 
-    /** The same API the drawer uses. */
+    /** The same API the host UI uses. */
     val browser: BrowserEngine
 
     /** The tab [Targets.resolve] chose and the runner locked and woke; null for NONE tools. */

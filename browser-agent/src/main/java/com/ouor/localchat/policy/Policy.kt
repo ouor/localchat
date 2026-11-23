@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * What any policy may contribute besides its decisions (browser-layers 4-1). The prompt, the tool list, the drawer
+ * What any policy may contribute besides its decisions (browser-layers 4-1). The prompt, the tool list, the browser UI
  * and the settings screen take only these generic shapes; none of them knows a policy by name.
  */
 interface Policy {
@@ -14,7 +14,7 @@ interface Policy {
     /** Tool names left out of what the model can call. */
     fun hiddenTools(): Set<String> = emptySet()
 
-    /** Badges and banners for the drawer. */
+    /** Badges and banners for the browser UI. */
     val notices: StateFlow<List<Notice>> get() = NO_NOTICES
 
     /** Rows for the settings screen's browser section. */
@@ -23,7 +23,7 @@ interface Policy {
 
 val NO_NOTICES: StateFlow<List<Notice>> = MutableStateFlow(emptyList())
 
-/** [tabId] null = about the browser as a whole. A BADGE goes on the tab's card, a BANNER over the drawer when the tab shows. */
+/** [tabId] null = about the browser as a whole. A BADGE goes on the tab's card, a BANNER over the browser UI when the tab shows. */
 data class Notice(val key: String, val text: String, val tabId: Int?, val style: Style) {
     enum class Style { BADGE, BANNER }
 }
