@@ -9,6 +9,7 @@ import com.ouor.localchat.browser.ToolActivity
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.ToolFacts
 import com.ouor.localchat.tools.ToolOutcome
+import com.ouor.localchat.tools.Untrusted
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -138,7 +139,8 @@ class PolicyChainTest {
 class PoliciesTest {
     @Test fun `no policies, no contributions, one policy, only its own`() = runTest(UnconfinedTestDispatcher()) {
         val empty = Policies(emptyList(), emptyList())
-        assertTrue(empty.promptLines().isEmpty() && empty.hiddenTools().isEmpty() && empty.settings().isEmpty())
+        assertEquals(listOf(Untrusted.PROMPT_LINE), empty.promptLines()) // the boundary's line, policies or not
+        assertTrue(empty.hiddenTools().isEmpty() && empty.settings().isEmpty())
         assertEquals(emptyList<Notice>(), empty.notices.first())
         val hides = object : ToolPolicy {
             override fun hiddenTools() = setOf("execute")
@@ -146,7 +148,7 @@ class PoliciesTest {
         }
         val one = Policies(listOf(hides), emptyList())
         assertEquals(setOf("execute"), one.hiddenTools())
-        assertEquals(listOf("- line"), one.promptLines())
+        assertEquals(listOf(Untrusted.PROMPT_LINE, "- line"), one.promptLines())
         assertTrue(one.settings().isEmpty())
         assertEquals(emptyList<Notice>(), one.notices.first())
     }

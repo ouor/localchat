@@ -4,6 +4,7 @@ import com.ouor.localchat.browser.Answer
 import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.BrowserEvent
 import com.ouor.localchat.tools.ToolOutcome
+import com.ouor.localchat.tools.Untrusted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -20,7 +21,8 @@ class Policies(
 ) {
     private val all: List<Policy> = tools + browser
 
-    fun promptLines(): List<String> = all.flatMap { it.promptLines() }
+    /** The system prompt lines: the page boundary's ([Untrusted.PROMPT_LINE]) first, then each policy's. */
+    fun promptLines(): List<String> = listOf(Untrusted.PROMPT_LINE) + all.flatMap { it.promptLines() }
 
     fun hiddenTools(): Set<String> = all.flatMapTo(mutableSetOf()) { it.hiddenTools() }
 
