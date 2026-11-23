@@ -1,9 +1,9 @@
 package com.ouor.localchat.tools
 
+import com.ouor.localchat.browser.BrowserEngine
 import com.ouor.localchat.browser.Front
 import com.ouor.localchat.browser.SearchEngines
 import com.ouor.localchat.browser.TabInfo
-import com.ouor.localchat.browser.TabRules
 import kotlinx.serialization.json.JsonObject
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
@@ -53,7 +53,7 @@ object Targets {
         val open = tabs.associateBy { it.id }
         // 1. A ref names its tab.
         args.optString("ref")?.trim()?.takeIf { it.isNotEmpty() }?.let { ref ->
-            val id = TabRules.tabOfRef(ref)
+            val id = BrowserEngine.tabOfRef(ref)
                 ?: return Target.Error("$ref is not a ref of an open tab; refs look like 4e7. Use look() for fresh refs." + listed(tabs))
             return if (id in open) Target.Tab(id) else Target.Error("Ref $ref is from tab $id, which is closed." + listed(tabs))
         }

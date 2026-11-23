@@ -2,7 +2,6 @@ package com.ouor.localchat.tools.browser
 
 import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.Readiness
-import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Targets
 import com.ouor.localchat.tools.Tool
@@ -54,7 +53,7 @@ object Open : Tool {
             if (o.readiness == Readiness.FAILED) {
                 val err = tab.navError(o.since)
                 if ("://" !in raw && !Targets.isPath(raw) && err?.desc?.contains("ERR_NAME_NOT_RESOLVED") == true) return@onMain searched(ctx, tab, raw)
-                return@onMain ToolOutcome(lead = err?.let { TabRules.navErrorText(it, o.retried) } ?: "Could not open $url.", isError = true)
+                return@onMain ToolOutcome(lead = err?.let { navErrorText(it, o.retried) } ?: "Could not open $url.", isError = true)
             }
             ctx.withPicture(tab, ctx.pageResult(tab, o.readiness, o.since), keep = true)
         }

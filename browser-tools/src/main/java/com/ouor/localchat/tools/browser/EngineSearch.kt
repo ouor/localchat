@@ -7,7 +7,6 @@ import com.ouor.localchat.browser.Readiness
 import com.ouor.localchat.browser.SearchEngines
 import com.ouor.localchat.browser.SearchEngines.Next
 import com.ouor.localchat.browser.SearchEngines.Outcome
-import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.SearchResult
 import com.ouor.localchat.browser.SearchEngine
@@ -52,7 +51,7 @@ internal class EngineSearch(
         }
         Next.NET_FAILED -> {
             val desc = lastNet?.desc.orEmpty()
-            "Search failed: ${TabRules.netCause(desc)} ($desc). The app already retried; try again in a moment."
+            "Search failed: ${netCause(desc)} ($desc). The app already retried; try again in a moment."
         }
         Next.TIMED_OUT -> {
             val names = tries.map { SearchEngines.displayName(it.first) }.distinct().joinToString(", ")

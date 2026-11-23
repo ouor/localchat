@@ -1,8 +1,8 @@
 package com.ouor.localchat.tools.browser
 
+import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.NavError
 import com.ouor.localchat.browser.Readiness
-import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.ReadText
 import com.ouor.localchat.tools.Source
@@ -58,7 +58,7 @@ object Read : Tool {
                 tab.downloadsSince(o.since).lastOrNull()?.let { d -> return@onMain ctx.fileResult(tab, d, isError = true) }
                 if (readiness == Readiness.FAILED) {
                     val err = tab.navError(o.since)
-                    return@onMain ToolOutcome(lead = err?.let { TabRules.navErrorText(it, retried) } ?: "Could not open $url.", isError = true)
+                    return@onMain ToolOutcome(lead = err?.let { navErrorText(it, retried) } ?: "Could not open $url.", isError = true)
                 }
             } else {
                 readiness = ctx.ready(tab, since)
@@ -66,7 +66,7 @@ object Read : Tool {
             val err = tab.navError(since)
             val t = PageScript.call<ReadText>(tab, "readText")
             val doc = mark(tab)?.doc
-            val plan = ReadRules.plan(t.text, TabRules.readChunk(ctx.contextWindow), doc, ctx.readCursors[tab.id], part, ctx.chat.turn, t.screenAt)
+            val plan = ReadRules.plan(t.text, readChunk(ctx.contextWindow), doc, ctx.readCursors[tab.id], part, ctx.chat.turn, t.screenAt)
             plan.nothingAfter?.let { end ->
                 return@onMain ToolOutcome(lead = "No text after where your last read ended (…$end). On a feed, scroll() shows more; part=1 reads from the start.")
             }
@@ -110,7 +110,7 @@ object Read : Tool {
                     (if (t.text.isBlank()) "" else ", yet ${t.text.length} characters of text were read") + ")"
             },
             "(page still changing; text may be incomplete)".takeIf { r == Readiness.CHANGING },
-            "(still loading after ${TabRules.LOAD_CAP / 1000} s)".takeIf { r == Readiness.LOADING },
+            "(still loading after ${BrowserTab.LOAD_CAP / 1000} s)".takeIf { r == Readiness.LOADING },
         )
         val blocked = "login" in t.flags || "bot" in t.flags || (err?.http == true && t.text.isBlank())
         return marks.joinToString(" ") + if (blocked) " To get past it, ask_user can let the user do it, or pick another source." else ""
@@ -141,7 +141,7 @@ object ReadRules {
         val nothingAfter: String? = null,
     )
 
-    /** [text] cut like [TabRules.parts], as start..end offsets (end exclusive). */
+    /** [text] cut like [parts], as start..end offsets (end exclusive). */
     fun bounds(text: String, size: Int): List<Pair<Int, Int>> {
         val out = ArrayList<Pair<Int, Int>>()
         var start = 0

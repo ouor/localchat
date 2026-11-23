@@ -152,9 +152,6 @@ class BrowserEngine(
     @MainThread
     fun tab(tabId: Int): BrowserTab = byId[tabId] ?: throw TabClosed(tabId)
 
-    /** "4e7" -> 4 (whether or not tab 4 is still open). */
-    fun tabOfRef(ref: String): Int? = TabRules.tabOfRef(ref)
-
     fun setActivity(tabId: Int, a: ToolActivity?) {
         _activity.value = if (a == null) _activity.value - tabId else _activity.value + (tabId to a)
         onMain {
@@ -387,6 +384,9 @@ class BrowserEngine(
     }
 
     companion object {
+        /** "4e7" -> 4 (whether or not tab 4 is still open). */
+        fun tabOfRef(ref: String): Int? = TabRules.tabOfRef(ref)
+
         const val HIGHLIGHT_MS = 1_000L
         const val BLANK = "about:blank"
 

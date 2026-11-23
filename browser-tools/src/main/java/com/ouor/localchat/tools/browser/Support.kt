@@ -12,7 +12,6 @@ import com.ouor.localchat.browser.NavError
 import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.Readiness
 import com.ouor.localchat.browser.StaleRef
-import com.ouor.localchat.browser.TabRules
 import com.ouor.localchat.browser.script.ElementInfo
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
@@ -92,7 +91,7 @@ internal suspend fun ToolContext.highlight(tab: BrowserTab, at: Located, action:
 
 /** The page answered mark(), or null (busy, swapping documents, a dialog open). */
 internal suspend fun mark(tab: BrowserTab): PageMark? =
-    try { PageScript.call<PageMark>(tab, "mark", timeoutMs = TabRules.MARK_EVAL, retry = false) } catch (_: PageError) { null }
+    try { PageScript.call<PageMark>(tab, "mark", timeoutMs = BrowserTab.MARK_EVAL, retry = false) } catch (_: PageError) { null }
 
 /** [BrowserTab.awaitReady] with the step line showing what it waits for. */
 internal suspend fun ToolContext.ready(tab: BrowserTab, since: Long): Readiness =
@@ -227,7 +226,7 @@ internal fun ToolContext.pageHeader(tab: BrowserTab, readiness: Readiness, error
     val marks = listOfNotNull(
         "tab ${tab.id}",
         "on the user's screen".takeIf { browser.shown.value == tab.id },
-        "still loading after ${TabRules.LOAD_CAP / 1000} s".takeIf { readiness == Readiness.LOADING },
+        "still loading after ${BrowserTab.LOAD_CAP / 1000} s".takeIf { readiness == Readiness.LOADING },
         // G-m13: the second time on the same document, waiting longer will not help.
         (if (again) "this page keeps changing; this is as complete as it gets" else "page still changing; content may be incomplete")
             .takeIf { readiness == Readiness.CHANGING },
@@ -282,7 +281,7 @@ internal suspend fun ToolContext.actionResult(
     val waiting = acted.events.mapNotNull { it.waitingForUser() }.distinct()
     val notes = { more: String -> (listOf(note) + waiting + more).filter { it.isNotEmpty() }.joinToString("\n") }
     if (acted.change == Change.FAILED) {
-        val why = tab.navError(acted.since)?.let { TabRules.navErrorText(it, retried = false) } ?: "The page did not load."
+        val why = tab.navError(acted.since)?.let { navErrorText(it, retried = false) } ?: "The page did not load."
         return ToolOutcome(lead = "$first, then the new page failed to open.", page = listOf(inside, why).filter { it.isNotEmpty() }.joinToString("\n"),
             isError = true, summary = summary, note = notes(""))
     }
@@ -313,7 +312,7 @@ internal suspend fun ToolContext.open(tab: BrowserTab, url: String): Opened {
     var since = now().also { tab.load(url) }
     var r = ready(tab, since)
     val err = tab.navError(since)
-    val delayMs = err?.let(TabRules::netRetry)
+    val delayMs = err?.let(::netRetry)
     if (delayMs != null && (r == Readiness.FAILED || err.http)) {
         status(ToolStatus.RETRYING)
         delay(delayMs)
@@ -330,3 +329,75 @@ internal class Opened(val readiness: Readiness, val since: Long, val retried: Bo
 /** A URL argument as a web URL on [tab]'s site, or a model-facing error. */
 internal fun webUrlOrThrow(raw: String, base: String?): String =
     Targets.webUrl(raw, base) ?: throw ToolError(Targets.notWebUrl(raw))
+
+// ---------- navigation errors (tools-redesign 2-2)
+
+private val NET_RETRY = setOf(
+    "ERR_INTERNET_DISCONNECTED", "ERR_NETWORK_CHANGED", "ERR_NAME_NOT_RESOLVED", "ERR_CONNECTION_TIMED_OUT",
+    "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_REFUSED", "ERR_CONNECTION_FAILED",
+    "ERR_TIMED_OUT", "ERR_ADDRESS_UNREACHABLE",
+)
+
+private fun netCode(desc: String) = Regex("ERR_[A-Z_]+").find(desc)?.value.orEmpty()
+
+/** Delay before the one automatic retry of an app-opened load; null when it is not retried. */
+internal fun netRetry(e: NavError): Long? = when {
+    e.http -> if (e.code in RETRY_HTTP) 2_000L else null
+    netCode(e.desc) in NET_RETRY -> 1_500L
+    else -> null
+}
+
+private val RETRY_HTTP = setOf(429, 502, 503, 504)
+
+/** A failed load for the model; [retried] = the automatic retry was used. */
+internal fun navErrorText(e: NavError, retried: Boolean): String {
+    val url = e.url
+    if (e.http) {
+        return when (e.code) {
+            404, 410 -> "$url answered HTTP ${e.code} (not found). Do not retry this URL."
+            401, 403 -> "$url answered HTTP ${e.code} (the site may need sign-in or blocks automated visits)."
+            else -> "$url answered HTTP ${e.code} (${e.desc.ifBlank { "error" }})" + if (retried) "; already retried once." else "."
+        }
+    }
+    val code = netCode(e.desc)
+    if (code.startsWith("ERR_CERT_") || code.startsWith("ERR_SSL_")) {
+        return "Could not open $url: the site's security certificate is not valid. Do not retry."
+    }
+    return "Could not open $url: ${netCause(e.desc)} (${e.desc})." +
+        if (retried) " Already retried once; try again later or use another source." else ""
+}
+
+internal fun netCause(desc: String): String {
+    val c = netCode(desc)
+    return when {
+        c == "ERR_NAME_NOT_RESOLVED" -> "the site's address was not found"
+        c == "ERR_INTERNET_DISCONNECTED" -> "no network connection"
+        "TIMED_OUT" in c -> "the connection timed out"
+        else -> "the connection failed"
+    }
+}
+
+// ---------- read sizes (tools-redesign 3-2, 5-3)
+
+/** Characters per read part for a model of [contextWindow] tokens (null = unknown). */
+fun readChunk(contextWindow: Int?): Int = contextWindow?.let { (it / 4).coerceIn(4_000, 20_000) } ?: 12_000
+
+/** Characters of read results the trimmer sends whole, newest first. */
+fun readKeep(contextWindow: Int?): Int =
+    contextWindow?.let { (it * 0.6).toInt().coerceIn(readChunk(it), 40_000) } ?: 40_000
+
+/** [text] in parts of at most [size], each cut after its last blank line when it has one. */
+internal fun parts(text: String, size: Int): List<String> {
+    val out = ArrayList<String>()
+    var start = 0
+    while (start < text.length) {
+        var end = minOf(start + size, text.length)
+        if (end < text.length) {
+            val blank = text.lastIndexOf("\n\n", end - 2)
+            if (blank > start) end = blank + 2
+        }
+        out += text.substring(start, end).trim('\n')
+        start = end
+    }
+    return out.ifEmpty { listOf("") }
+}

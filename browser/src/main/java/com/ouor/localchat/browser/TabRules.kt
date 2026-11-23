@@ -4,7 +4,7 @@ import com.ouor.localchat.browser.script.CssRect
 import com.ouor.localchat.browser.script.PageMark
 
 /** Pure rules behind BrowserEngine/BrowserTab, kept apart so JVM tests can run them. */
-object TabRules {
+internal object TabRules {
 
     /** CSS px around the element in an approval preview. */
     private const val CROP_PAD = 24f
@@ -105,53 +105,6 @@ object TabRules {
         return ReadyStep.Wait(maxOf(POLL_MIN, QUIET - quiet))
     }
 
-    // ---------- navigation errors (tools-redesign 2-2)
-
-    private val NET_RETRY = setOf(
-        "ERR_INTERNET_DISCONNECTED", "ERR_NETWORK_CHANGED", "ERR_NAME_NOT_RESOLVED", "ERR_CONNECTION_TIMED_OUT",
-        "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_REFUSED", "ERR_CONNECTION_FAILED",
-        "ERR_TIMED_OUT", "ERR_ADDRESS_UNREACHABLE",
-    )
-
-    private fun netCode(desc: String) = Regex("ERR_[A-Z_]+").find(desc)?.value.orEmpty()
-
-    /** Delay before the one automatic retry of an app-opened load; null when it is not retried. */
-    fun netRetry(e: NavError): Long? = when {
-        e.http -> if (e.code in RETRY_HTTP) 2_000L else null
-        netCode(e.desc) in NET_RETRY -> 1_500L
-        else -> null
-    }
-
-    private val RETRY_HTTP = setOf(429, 502, 503, 504)
-
-    /** A failed load for the model; [retried] = the automatic retry was used. */
-    fun navErrorText(e: NavError, retried: Boolean): String {
-        val url = e.url
-        if (e.http) {
-            return when (e.code) {
-                404, 410 -> "$url answered HTTP ${e.code} (not found). Do not retry this URL."
-                401, 403 -> "$url answered HTTP ${e.code} (the site may need sign-in or blocks automated visits)."
-                else -> "$url answered HTTP ${e.code} (${e.desc.ifBlank { "error" }})" + if (retried) "; already retried once." else "."
-            }
-        }
-        val code = netCode(e.desc)
-        if (code.startsWith("ERR_CERT_") || code.startsWith("ERR_SSL_")) {
-            return "Could not open $url: the site's security certificate is not valid. Do not retry."
-        }
-        return "Could not open $url: ${netCause(e.desc)} (${e.desc})." +
-            if (retried) " Already retried once; try again later or use another source." else ""
-    }
-
-    fun netCause(desc: String): String {
-        val c = netCode(desc)
-        return when {
-            c == "ERR_NAME_NOT_RESOLVED" -> "the site's address was not found"
-            c == "ERR_INTERNET_DISCONNECTED" -> "no network connection"
-            "TIMED_OUT" in c -> "the connection timed out"
-            else -> "the connection failed"
-        }
-    }
-
     // ---------- tabs and downloads (browser-layers 2-1, 2-5)
 
     /** "4e7" → 4; anything else (an old "e7", text) → null. */
@@ -198,31 +151,6 @@ object TabRules {
 
     /** The same file asked again this soon is not saved again (Chrome-like; an estimate, browser-layers 2-5). */
     const val SAME_DOWNLOAD_MS = 30_000L
-
-    // ---------- read sizes (tools-redesign 3-2, 5-3)
-
-    /** Characters per read part for a model of [contextWindow] tokens (null = unknown). */
-    fun readChunk(contextWindow: Int?): Int = contextWindow?.let { (it / 4).coerceIn(4_000, 20_000) } ?: 12_000
-
-    /** Characters of read results the trimmer sends whole, newest first. */
-    fun readKeep(contextWindow: Int?): Int =
-        contextWindow?.let { (it * 0.6).toInt().coerceIn(readChunk(it), 40_000) } ?: 40_000
-
-    /** [text] in parts of at most [size], each cut after its last blank line when it has one. */
-    fun parts(text: String, size: Int): List<String> {
-        val out = ArrayList<String>()
-        var start = 0
-        while (start < text.length) {
-            var end = minOf(start + size, text.length)
-            if (end < text.length) {
-                val blank = text.lastIndexOf("\n\n", end - 2)
-                if (blank > start) end = blank + 2
-            }
-            out += text.substring(start, end).trim('\n')
-            start = end
-        }
-        return out.ifEmpty { listOf("") }
-    }
 }
 
 enum class Readiness { READY, LOADING, CHANGING, FAILED }

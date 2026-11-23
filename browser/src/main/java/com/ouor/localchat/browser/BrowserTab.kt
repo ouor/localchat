@@ -802,6 +802,12 @@ class BrowserTab internal constructor(
         /** The settle phase shows "waiting for the page to finish" only after this long (no flicker on quick pages). */
         private const val SETTLING_SHOWN_MS = 1_000L
 
+        /** [awaitReady]'s load phase cap: a mobile network's slow first response. */
+        const val LOAD_CAP = TabRules.LOAD_CAP
+
+        /** One page mark() evaluate; a page busier than this is read as it is. */
+        const val MARK_EVAL = TabRules.MARK_EVAL
+
         /** Start of [evaluate]'s timeout message. */
         const val NOT_ANSWERED = "The page did not answer within"
 
