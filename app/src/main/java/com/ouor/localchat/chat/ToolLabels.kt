@@ -1,6 +1,7 @@
 package com.ouor.localchat.chat
 
 import com.ouor.localchat.R
+import com.ouor.localchat.browser.Highlight
 
 /** The app's words for what the browser tools do; the layers carry names, not string resources (browser-modules 3-5). */
 object ToolLabels {
@@ -22,9 +23,9 @@ object ToolLabels {
     }
 
     /** The drawer's label on a Highlight, by its action. */
-    fun highlight(action: String): Int = when (action) {
-        "type" -> R.string.browser_highlight_type
-        "select" -> R.string.browser_highlight_select
-        else -> R.string.browser_highlight_click
+    fun highlight(action: Highlight.Action): Int = when (action) {
+        Highlight.Action.CLICK -> R.string.browser_highlight_click
+        Highlight.Action.TYPE -> R.string.browser_highlight_type
+        Highlight.Action.SELECT -> R.string.browser_highlight_select
     }
 }

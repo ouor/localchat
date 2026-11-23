@@ -120,6 +120,10 @@ class RunnerWithoutAppTest {
         val ref = Regex("""link "Next" \[ref=(\d*e\d+)]""").find(open.page)?.groupValues?.get(1)
         assertNotNull(open.page, ref)
 
+        val tabs = runner.run("t", "tabs", "{}")
+        assertEquals("1 tab open; your current tab is $tabId.", tabs.lead)
+        assertTrue(tabs.page, tabs.page.startsWith("[$tabId] Start — ") && tabs.page.endsWith("(your current tab) (you opened it)"))
+
         val click = runner.run("2", "click", json("ref" to ref!!))
         assertFalse(click.lead, click.isError)
         assertTrue(engine.tabs.value.single().url.endsWith("/next"))

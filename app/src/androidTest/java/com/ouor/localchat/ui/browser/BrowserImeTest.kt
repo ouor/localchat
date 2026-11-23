@@ -20,7 +20,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.TextField
 import androidx.test.platform.app.InstrumentationRegistry
-import com.ouor.localchat.browser.WebViewFactory
+import com.ouor.localchat.browser.BrowserEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.platform.testTag
@@ -40,6 +43,8 @@ import com.ouor.localchat.ui.Shots
 import com.ouor.localchat.ui.theme.LocalchatTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,7 +59,11 @@ class BrowserImeTest {
     @get:Rule val screen = ScreenOnRule()
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
-    private var web: WebView? = null
+    /** The page lives in a real engine tab, made with the engine's WebView settings (wide viewport, zoom). */
+    private val engine = BrowserEngine(InstrumentationRegistry.getInstrumentation().targetContext, CoroutineScope(SupervisorJob() + Dispatchers.Default))
+    private lateinit var host: android.widget.FrameLayout
+    private var tab = 0
+    private val web: WebView? get() = engine.tab(tab).webView.value
     private var s by mutableStateOf(BrowserUiState())
 
     private val actions = object : BrowserActions {
@@ -75,9 +84,20 @@ class BrowserImeTest {
         override fun userStepDone() {}
         override fun answer(e: BrowserEvent, answer: Answer) {}
         override fun savePdf(id: Int, uri: android.net.Uri, done: (Boolean) -> Unit) {}
-        override fun webView(id: Int): kotlinx.coroutines.flow.StateFlow<WebView?>? = web?.let { kotlinx.coroutines.flow.MutableStateFlow(it) }
-        override fun show(id: Int) {}
-        override fun park(id: Int) {}
+        override fun webView(id: Int): kotlinx.coroutines.flow.StateFlow<WebView?>? = engine.webView(id)
+        override fun show(id: Int) = engine.show(id)
+        override fun park(id: Int) = engine.park(id)
+    }
+
+    @Before fun setUp() = rule.runOnUiThread {
+        host = android.widget.FrameLayout(rule.activity)
+        engine.attachHost(rule.activity, host)
+        tab = engine.open()
+    }
+
+    @After fun tearDown() = rule.runOnUiThread {
+        engine.close(tab)
+        engine.detachHost(rule.activity)
     }
 
     /** The field sits at the bottom of the viewport, where the keyboard comes up. */
@@ -97,22 +117,21 @@ class BrowserImeTest {
     private fun pageBounds(): Rect = rule.onNodeWithTag(PAGE_TAG).fetchSemanticsNode().boundsInRoot
 
     /** The run waits for the user in tab 1 (ask_user). */
-    private fun userStep(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(1, "Login", "https://login.example/", loading = false)),
-        front = 1, sessionId = "A", running = true, userStep = Pause.UserStep(1, "로그인"))
+    private fun userStep(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(tab, "Login", "https://login.example/", loading = false)),
+        front = tab, sessionId = "A", running = true, userStep = Pause.UserStep(tab, "로그인"))
 
     /** A tab with no run waiting, as in the s25 feedback (FB5 B1). */
-    private fun mine(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(1, "Google", "https://www.google.com/", loading = false)), front = 1, sessionId = "A")
+    private fun mine(panel: PanelState) = BrowserUiState(panel, listOf(TabInfo(tab, "Google", "https://www.google.com/", loading = false)), front = tab, sessionId = "A")
 
     private fun open(panel: PanelState, html: String, state: BrowserUiState = userStep(panel), outside: @Composable () -> Unit = {}) {
         rule.runOnUiThread {
             rule.activity.enableEdgeToEdge()
             @Suppress("DEPRECATION") rule.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            web = WebViewFactory.create(rule.activity) // the app's settings (wide viewport, zoom)
         }
         s = state
         rule.setContent { LocalchatTheme(false) { WebViewHoleRoot { outside(); BrowserOverlay(s, actions) } } }
         // Like MainActivity's host: under the Compose content (index 0), where BrowserSurface shows it (FB5 B4).
-        rule.runOnUiThread { rule.activity.findViewById<android.widget.FrameLayout>(android.R.id.content).addView(web, 0) }
+        rule.runOnUiThread { rule.activity.findViewById<android.widget.FrameLayout>(android.R.id.content).addView(host, 0) }
         rule.waitForIdle()
         rule.runOnUiThread { web!!.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) } // loaded once on screen
         rule.waitUntil(10_000) { rule.runOnUiThread<Boolean> { web?.progress == 100 } }
@@ -244,7 +263,7 @@ class BrowserImeTest {
         rule.onNodeWithTag(PAGE_TAG).performTouchInput { click(Offset(centerX, bottom - 20f)) }
         rule.waitUntil(10_000) { imeBottom() > 0 }
         rule.waitUntil(5_000) { s.panel == PanelState.Full }
-        rule.runOnIdle { s = s.copy(userStep = Pause.UserStep(1, "로그인")).withPanel(PanelState.Full) } // what the ViewModel does on a user step
+        rule.runOnIdle { s = s.copy(userStep = Pause.UserStep(tab, "로그인")).withPanel(PanelState.Full) } // what the ViewModel does on a user step
         closeKeyboard()
         Thread.sleep(500)
         rule.waitForIdle()

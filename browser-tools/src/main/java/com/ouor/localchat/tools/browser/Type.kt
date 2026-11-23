@@ -1,6 +1,7 @@
 package com.ouor.localchat.tools.browser
 
 import android.view.KeyEvent
+import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.script.ElementInfo
 import com.ouor.localchat.browser.script.PageScript
@@ -50,7 +51,7 @@ object Type : Tool {
             val select = at.info.tag == "select"
             if (!select && !at.editable) throw ToolError("$ref is not a text field or select; use click.")
             val plan = if (select) TypeRules.Plan(text, enter = false) else TypeRules.plan(at.info, text)
-            ctx.highlight(tab, at, if (select) "select" else "type")
+            ctx.highlight(tab, at, if (select) Highlight.Action.SELECT else Highlight.Action.TYPE)
             var typed: TypeResult? = null
             var before: Suggestions? = null
             val typing = ctx.act(tab) {

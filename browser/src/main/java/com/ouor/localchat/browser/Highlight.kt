@@ -12,8 +12,10 @@ data class Highlight(
     val height: Float,
     /** window.innerWidth when the rect was measured. */
     val cssViewportWidth: Float,
-    /** What the AI does there: "click", "type" or "select"; the app picks the label. */
-    val action: String,
+    /** What the AI does there; the app picks the label. */
+    val action: Action,
     /** Epoch ms after which the highlight is gone. */
     val until: Long,
-)
+) {
+    enum class Action { CLICK, TYPE, SELECT }
+}

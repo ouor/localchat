@@ -365,7 +365,7 @@ class BrowserEngine(
     }
 
     /** B-09 ①: outline [target] for [HIGHLIGHT_MS], labelled by what [action] does ("click", "type", "select"). */
-    fun showHighlight(tabId: Int, target: Located, action: String) {
+    fun showHighlight(tabId: Int, target: Located, action: Highlight.Action) {
         val r = target.rect
         val h = Highlight(tabId, r.left, r.top, r.width, r.height, target.innerWidth, action, clock() + HIGHLIGHT_MS)
         _highlight.value = h

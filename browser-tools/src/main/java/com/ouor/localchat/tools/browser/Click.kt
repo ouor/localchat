@@ -1,6 +1,7 @@
 package com.ouor.localchat.tools.browser
 
 import com.ouor.localchat.browser.BrowserTab
+import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.script.TapCheck
 import com.ouor.localchat.tools.TargetRule
@@ -70,7 +71,7 @@ object Click : Tool {
             val first = ctx.locate(tab, ref)
             if (first.disabled) throw ToolError("$ref is disabled.")
             val label = first.info.label()
-            ctx.highlight(tab, first, "click")
+            ctx.highlight(tab, first, Highlight.Action.CLICK)
             var byScript = false
             val acted = ctx.act(tab) {
                 // The page may have moved while the outline showed; a fling gets one more look.

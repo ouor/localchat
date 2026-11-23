@@ -8,6 +8,7 @@ import com.ouor.localchat.browser.BrowserTab
 import com.ouor.localchat.browser.DialogKind
 import com.ouor.localchat.browser.DownloadNote
 import com.ouor.localchat.browser.Handled
+import com.ouor.localchat.browser.Highlight
 import com.ouor.localchat.browser.NavError
 import com.ouor.localchat.browser.PageError
 import com.ouor.localchat.browser.Readiness
@@ -84,7 +85,7 @@ private suspend fun ToolContext.staleRef(tab: BrowserTab, e: StaleRef): ToolErro
 internal fun refArgs(ref: String, extra: JsonObjectBuilder.() -> Unit = {}) = buildJsonObject { put("target", ref); extra() }
 
 /** Show the outline, then give the user a moment to see it before the page changes. */
-internal suspend fun ToolContext.highlight(tab: BrowserTab, at: Located, action: String) {
+internal suspend fun ToolContext.highlight(tab: BrowserTab, at: Located, action: Highlight.Action) {
     browser.showHighlight(tab.id, at, action)
     delay(HIGHLIGHT_LEAD_MS)
 }
@@ -235,6 +236,9 @@ internal fun ToolContext.pageHeader(tab: BrowserTab, readiness: Readiness, error
     return "Page: ${tab.title.ifBlank { "(untitled)" }} — ${tab.url} (${marks.joinToString(", ")})"
 }
 
+/** Per tab, the document the last list was marked "still changing" for; a closed tab's entry goes with it. */
+private val changingDocs: MutableMap<BrowserTab, String> = java.util.Collections.synchronizedMap(java.util.WeakHashMap())
+
 /**
  * The page as a result (look, open, navigate and the end of every action): inside the boundary [top] (page-derived
  * lines such as dialogs), the header, a blank line and the element list with refs within [listBudget]; after it the
@@ -243,7 +247,7 @@ internal fun ToolContext.pageHeader(tab: BrowserTab, readiness: Readiness, error
 internal suspend fun ToolContext.pageResult(tab: BrowserTab, readiness: Readiness, since: Long, top: String = "", screen: Boolean = false): ToolOutcome {
     val again = if (readiness == Readiness.CHANGING) {
         val doc = mark(tab)?.doc
-        (doc != null && doc == tab.changingDoc).also { tab.changingDoc = doc }
+        (doc != null && doc == changingDocs[tab]).also { if (doc != null) changingDocs[tab] = doc else changingDocs.remove(tab) }
     } else false
     val err = tab.navError(since)
     val r = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", listBudget(contextWindow)); put("screen", screen) })

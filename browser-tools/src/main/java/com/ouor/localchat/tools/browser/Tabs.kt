@@ -39,7 +39,7 @@ object Tabs : Tool {
     private fun count(n: Int) = if (n == 1) "1 tab" else "$n tabs"
 
     /** One line per tab: `[2] Home / X — https://x.com/home (on the user's screen)`. */
-    fun lines(b: BrowserFacts, chat: ChatTabs, sessionId: String): String {
+    internal fun lines(b: BrowserFacts, chat: ChatTabs, sessionId: String): String {
         val shown = b.shown.value
         val front = b.front.value?.tabId
         val activity = b.activity.value

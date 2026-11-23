@@ -159,9 +159,6 @@ class BrowserTab internal constructor(
      */
     @Volatile internal var refNext = 1
 
-    /** The document the last list was marked "still changing" for (G-m13). Main thread. */
-    var changingDoc: String? = null
-
     /** Events of the tab and their answers, newest last (at most [LOG]). */
     private val eventLog = ArrayDeque<Handled>()
     private val downloadLog = ArrayDeque<DownloadNote>()
