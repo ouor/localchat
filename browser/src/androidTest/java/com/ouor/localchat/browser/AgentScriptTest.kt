@@ -6,9 +6,8 @@ import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.ouor.localchat.MainActivity
+import com.ouor.localchat.testing.TestHostActivity
 import com.ouor.localchat.testing.ScreenOnRule
-import com.ouor.localchat.tools.browser.listBudget
 import com.ouor.localchat.browser.script.Located
 import com.ouor.localchat.browser.script.PageList
 import com.ouor.localchat.browser.script.PageScript
@@ -42,7 +41,7 @@ import kotlin.math.abs
 
 /**
  * agent.js on a real WebView (architecture 11): pages from androidTest/assets/pages served by MockWebServer,
- * the tab attached at full size to MainActivity like the engine's host container.
+ * the tab attached at full size to a test Activity like the engine's host container.
  */
 @RunWith(AndroidJUnit4::class)
 class AgentScriptTest {
@@ -50,7 +49,7 @@ class AgentScriptTest {
     @get:Rule val screen = ScreenOnRule()
 
     private lateinit var server: MockWebServer
-    private lateinit var scenario: ActivityScenario<MainActivity>
+    private lateinit var scenario: ActivityScenario<TestHostActivity>
     private lateinit var tab: BrowserTab
 
     @Before
@@ -66,7 +65,7 @@ class AgentScriptTest {
             }
         }
         server.start()
-        scenario = ActivityScenario.launch(MainActivity::class.java)
+        scenario = ActivityScenario.launch(TestHostActivity::class.java)
         scenario.onActivity { a ->
             val host = FrameLayout(a)
             a.addContentView(host, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -376,7 +375,7 @@ class AgentScriptTest {
     fun theScreenIsListedWholeAtThePageEnd() = runBlocking<Unit> {
         load("hn.html")
         js("window.scrollTo(0, document.documentElement.scrollHeight)")
-        val l = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", listBudget(64_000)); put("screen", true) })
+        val l = PageScript.call<PageList>(tab, "pageList", buildJsonObject { put("budget", 8_000); put("screen", true) })
         assertTrue(l.text, "link \"More\" [ref=" in l.text)
         assertEquals("$l", 0, l.screenLeft)
         // A budget too small for the screen: the on-screen bound (twice the budget) cuts and says how many.

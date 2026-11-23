@@ -1,5 +1,6 @@
 package com.ouor.localchat.chat
 
+import com.ouor.localchat.agent.FakeBrowserPort
 import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.chat.run.RunPhase

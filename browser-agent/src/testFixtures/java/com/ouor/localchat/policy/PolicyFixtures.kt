@@ -15,12 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Strings as "id(args)": tests check which string a policy picked, not its wording. */
-object FakeTexts : Texts {
-    override fun get(id: Int, vararg args: Any) = "$id${args.toList()}"
-    override fun plural(id: Int, count: Int, vararg args: Any) = "$id#$count"
-}
-
 /** The narrow browser view without a browser; [discarded] records discard calls. */
 class FakeFacts(tabs: List<TabInfo> = emptyList()) : BrowserFacts {
     override val tabs = MutableStateFlow(tabs)

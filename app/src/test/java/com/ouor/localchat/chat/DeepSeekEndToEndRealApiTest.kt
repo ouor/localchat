@@ -1,5 +1,6 @@
 package com.ouor.localchat.chat
 
+import com.ouor.localchat.agent.FakeBrowserPort
 import com.ouor.localchat.attach.Validation
 import com.ouor.localchat.attach.ValidationIssue
 import com.ouor.localchat.chat.context.SystemPrompt

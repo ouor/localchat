@@ -4,7 +4,8 @@ import com.ouor.localchat.R
 import com.ouor.localchat.chat.ChatRejected
 import com.ouor.localchat.chat.ToolStep
 import com.ouor.localchat.chat.FakeModelPort
-import com.ouor.localchat.chat.FakeTool
+import com.ouor.localchat.agent.BrowserToolRunner
+import com.ouor.localchat.agent.FakeTool
 import com.ouor.localchat.chat.Harness
 import com.ouor.localchat.chat.TEST_MODEL
 import com.ouor.localchat.chat.caps
@@ -399,7 +400,7 @@ class AgentLoopTest {
         assertEquals(ReplyStatus.DONE, reply.status)
         assertEquals("One tab was opened.", reply.blocks.filterIsInstance<TextBlock>().single().text)
         assertEquals(1, tool.calls)
-        assertEquals(ToolExecutor.TOOL_OFF, reply.blocks.filterIsInstance<ToolResultBlock>().last().modelText)
+        assertEquals(BrowserToolRunner.TOOL_OFF, reply.blocks.filterIsInstance<ToolResultBlock>().last().modelText)
         assertTrue(h.llm.requests.last().tools.isNullOrEmpty())
         assertEquals(SystemPrompt.STEP_LIMIT_NOTE, h.llm.requests.last().messages.last().content!!.jsonPrimitive.content)
     }
@@ -749,7 +750,7 @@ class AgentLoopTest {
         val sid = h.sendNew()
         advanceUntilIdle()
         val results = h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>()
-        assertEquals(ToolExecutor.TOOL_FAILED, results[0].modelText)
+        assertEquals(BrowserToolRunner.TOOL_FAILED, results[0].modelText)
         assertTrue(results[1].modelText, "Tab 3 does not exist." in results[1].modelText && results[1].modelText.startsWith("<untrusted_page_content>"))
     }
 
@@ -799,7 +800,7 @@ class AgentLoopTest {
         assertTrue(h.llm.requests.all { it.toolChoice == null })
         // Turned back on before step 2 ran: still off.
         assertEquals(1, browserTool.calls)
-        assertEquals(ToolExecutor.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().last().modelText)
+        assertEquals(BrowserToolRunner.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().last().modelText)
         assertEquals(ReplyStatus.DONE, h.lastReply(sid).status)
     }
 
@@ -837,7 +838,7 @@ class AgentLoopTest {
         advanceUntilIdle()
         assertEquals(0, second.calls)
         val results = h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>()
-        assertEquals(ToolExecutor.TOOL_OFF, results[1].modelText)
+        assertEquals(BrowserToolRunner.TOOL_OFF, results[1].modelText)
         fun systemOf(i: Int) = h.llm.requests[i].messages.first().content!!.jsonPrimitive.content
         assertEquals(systemOf(0), systemOf(1))
         assertEquals(listOf("click", "probe"), h.llm.requests[1].tools.orEmpty().map { it.function.name })
@@ -873,7 +874,7 @@ class AgentLoopTest {
         h.llm.text("a3")
         h.engine.send(sid, draft("q3"), GenOptions(), TEST_MODEL)
         advanceUntilIdle()
-        assertEquals(ToolExecutor.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().modelText)
+        assertEquals(BrowserToolRunner.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().modelText)
 
         assertEquals(1, search.calls)
         assertEquals(0, click.calls)
@@ -1050,7 +1051,7 @@ class AgentLoopTest {
         h.engine.send(sid, draft("q2"), GenOptions(search = true), TEST_MODEL)
         advanceUntilIdle()
         assertEquals(1, click.calls)
-        assertEquals(ToolExecutor.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().modelText)
+        assertEquals(BrowserToolRunner.TOOL_OFF, h.lastReply(sid).blocks.filterIsInstance<ToolResultBlock>().single().modelText)
         h.llm.requests.drop(2).forEach {
             assertEquals(listOf("web_search", "click"), it.tools.orEmpty().map { t -> t.function.name })
             assertNull(it.toolChoice)
@@ -1186,7 +1187,7 @@ class AgentLoopTest {
         assertEquals(R.string.chat_step_fail_error, h.engine.toolStep(block("open", ToolCallState.FAILED), result("boom", error = true))!!.failureRes)
         assertNull(h.engine.toolStep(block("open", ToolCallState.DENIED), result(ToolOutcome.DENIED_TEXT, error = true))!!.failureRes)
         // FB3 QA m2: a tool the user turned off is not "failed with an error".
-        val off = h.engine.toolStep(block("open", ToolCallState.FAILED), result(ToolExecutor.TOOL_OFF, error = true))!!
+        val off = h.engine.toolStep(block("open", ToolCallState.FAILED), result(BrowserToolRunner.TOOL_OFF, error = true))!!
         assertEquals(R.string.chat_step_turned_off to true, off.failureRes to off.turnedOff)
         assertFalse(h.engine.toolStep(block("open", ToolCallState.FAILED), result("boom", error = true))!!.turnedOff)
     }

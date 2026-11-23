@@ -7,7 +7,7 @@ import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.ouor.localchat.MainActivity
+import com.ouor.localchat.testing.TestHostActivity
 import com.ouor.localchat.testing.ScreenOnRule
 import com.ouor.localchat.browser.script.PageScript
 import com.ouor.localchat.browser.SearchEngine
@@ -32,13 +32,13 @@ class SearchEnginesLiveTest {
 
     @get:Rule val screen = ScreenOnRule()
 
-    private lateinit var scenario: ActivityScenario<MainActivity>
+    private lateinit var scenario: ActivityScenario<TestHostActivity>
     private lateinit var tab: BrowserTab
 
     @Before
     fun setUp() {
         assumeTrue("live web tests: pass liveWeb=true", InstrumentationRegistry.getArguments().getString("liveWeb") == "true")
-        scenario = ActivityScenario.launch(MainActivity::class.java)
+        scenario = ActivityScenario.launch(TestHostActivity::class.java)
         scenario.onActivity { a ->
             val host = FrameLayout(a)
             a.addContentView(host, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))

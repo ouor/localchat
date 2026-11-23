@@ -5,7 +5,7 @@ import com.ouor.localchat.MainActivity
 import com.ouor.localchat.chat.CatalogToolPort
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.ClientLlmPort
-import com.ouor.localchat.chat.EngineBrowserPort
+import com.ouor.localchat.agent.EngineBrowserPort
 import com.ouor.localchat.chat.FakeAttachments
 import com.ouor.localchat.chat.FakeChatStore
 import com.ouor.localchat.chat.MemoryDataStore

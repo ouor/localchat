@@ -6,7 +6,7 @@ import android.os.PowerManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.ouor.localchat.MainActivity
+import com.ouor.localchat.testing.TestHostActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -24,7 +24,7 @@ class ScreenOffTabTest {
     private val instr = InstrumentationRegistry.getInstrumentation()
     private val ctx = instr.targetContext
     private val power = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
-    private var scenario: ActivityScenario<MainActivity>? = null
+    private var scenario: ActivityScenario<TestHostActivity>? = null
 
     private fun key(code: String) = instr.uiAutomation.executeShellCommand("input keyevent $code").close()
 
@@ -48,8 +48,8 @@ class ScreenOffTabTest {
     @Test fun aiTabOpenedWithTheScreenOffHasRealSize() {
         wakeUp()
         check(!(ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) { "Unlock the device by hand first." }
-        lateinit var engine: BrowserEngine
-        scenario = ActivityScenario.launch(MainActivity::class.java).onActivity { engine = it.browserEngine }
+        val engine = TestHostActivity.engine
+        scenario = ActivityScenario.launch(TestHostActivity::class.java)
 
         key("KEYCODE_SLEEP")
         waitInteractive(false)

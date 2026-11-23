@@ -3,10 +3,10 @@ package com.ouor.localchat.chat.run
 import com.ouor.localchat.chat.ChatEngine
 import com.ouor.localchat.chat.ClientLlmPort
 import com.ouor.localchat.chat.FakeAttachments
-import com.ouor.localchat.chat.FakeBrowserPort
+import com.ouor.localchat.agent.FakeBrowserPort
 import com.ouor.localchat.chat.FakeChatStore
 import com.ouor.localchat.chat.FakeModelPort
-import com.ouor.localchat.chat.FakeTool
+import com.ouor.localchat.agent.FakeTool
 import com.ouor.localchat.chat.FakeToolPort
 import com.ouor.localchat.chat.MemoryDataStore
 import com.ouor.localchat.chat.TEST_MODEL

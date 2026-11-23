@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.ouor.localchat.MainActivity
+import com.ouor.localchat.testing.TestHostActivity
 import com.ouor.localchat.testing.ScreenOnRule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -37,7 +37,7 @@ class TabModelTest {
     @get:Rule val screen = ScreenOnRule()
 
     private lateinit var pages: MockWebServer
-    private lateinit var scenario: ActivityScenario<MainActivity>
+    private lateinit var scenario: ActivityScenario<TestHostActivity>
     private lateinit var engine: BrowserEngine
     private val hang = java.util.concurrent.CountDownLatch(1)
 
@@ -47,8 +47,8 @@ class TabModelTest {
             override fun dispatch(request: RecordedRequest): MockResponse = respond(request.url.encodedPath)
         }
         pages.start()
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        scenario.onActivity { engine = it.browserEngine }
+        scenario = ActivityScenario.launch(TestHostActivity::class.java)
+        engine = TestHostActivity.engine
         runBlocking(Dispatchers.Main) { engine.tabs.value.forEach { engine.close(it.id) } }
     }
 

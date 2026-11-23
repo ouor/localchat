@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Device tests of the browser modules: local MockWebServer pages over http, shown in TestHostActivity. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:usesCleartextTraffic="true">
+        <activity android:name="com.ouor.localchat.testing.TestHostActivity" android:exported="false" />
+    </application>
+</manifest>

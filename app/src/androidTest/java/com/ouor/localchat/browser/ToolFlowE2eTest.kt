@@ -6,7 +6,6 @@ import com.ouor.localchat.chat.run.Pause
 import com.ouor.localchat.chat.run.Resolution
 import com.ouor.localchat.core.model.ReplyStatus
 import com.ouor.localchat.core.model.ToolCallState
-import com.ouor.localchat.di.PolicyModule
 import com.ouor.localchat.policy.CookieMaskPolicy
 import com.ouor.localchat.policy.MoneyConfirmPolicy
 import com.ouor.localchat.policy.Policies
@@ -500,8 +499,7 @@ class ToolFlowE2eTest : ToolFlowBase() {
 @RunWith(AndroidJUnit4::class)
 class ToolFlowPolicyTest : ToolFlowBase() {
     override fun policies(): Policies {
-        val texts = PolicyModule.texts(InstrumentationRegistry.getInstrumentation().targetContext)
-        return Policies(listOf(MoneyConfirmPolicy(texts), CookieMaskPolicy()), emptyList())
+        return Policies(listOf(MoneyConfirmPolicy(InstrumentationRegistry.getInstrumentation().targetContext), CookieMaskPolicy()), emptyList())
     }
 
     override fun respond(path: String, request: RecordedRequest): MockResponse? {

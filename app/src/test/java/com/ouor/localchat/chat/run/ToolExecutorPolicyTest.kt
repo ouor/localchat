@@ -1,8 +1,9 @@
 package com.ouor.localchat.chat.run
 
 import com.ouor.localchat.chat.FakeAttachments
-import com.ouor.localchat.chat.FakeBrowserPort
-import com.ouor.localchat.chat.FakeTool
+import com.ouor.localchat.agent.BrowserToolRunner
+import com.ouor.localchat.agent.FakeBrowserPort
+import com.ouor.localchat.agent.FakeTool
 import com.ouor.localchat.core.model.GenOptions
 import com.ouor.localchat.core.model.ToolCallBlock
 import com.ouor.localchat.core.model.ToolCallState
@@ -15,13 +16,9 @@ import com.ouor.localchat.policy.SecretValuePolicy
 import com.ouor.localchat.policy.ToolPolicy
 import com.ouor.localchat.policy.Verdict
 import com.ouor.localchat.tools.ChatTabs
-import com.ouor.localchat.tools.TargetRule
 import com.ouor.localchat.tools.Tool
 import com.ouor.localchat.tools.ToolError
-import com.ouor.localchat.tools.ToolFacts
 import com.ouor.localchat.tools.ToolOutcome
-import com.ouor.localchat.tools.browser.CloseTab
-import com.ouor.localchat.tools.browser.Tabs
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -121,44 +118,9 @@ class ToolExecutorPolicyTest {
         }
         val boom = FakeTool("boom", body = { _, _ -> throw IllegalStateException("internal") })
         val r = executor(one(watch), listOf(boom, FakeTool("secret_tool"))).execute(call("boom"))
-        assertEquals(ToolExecutor.TOOL_FAILED, r.block.lead)
+        assertEquals(BrowserToolRunner.TOOL_FAILED, r.block.lead)
         assertEquals(1, seen.size)
         val hidden = executor(one(watch), listOf(boom, FakeTool("secret_tool"))).execute(call("secret_tool"))
         assertEquals("Unknown tool: secret_tool. Tools you can call now: boom.", hidden.block.lead)
-    }
-}
-
-/**
- * S21: with every policy list empty the tools still do their whole job. The browser part (open, click, scroll, read) runs
- * in ToolFlowE2eTest on a device; here the executor's own path with tab tools over a fake engine port.
- */
-class EmptyPolicyFlowTest {
-    @Test fun `tabs and close_tab work through an empty chain`() = runTest {
-        val browser = FakeBrowserPort()
-        browser.tabs.value = listOf(
-            com.ouor.localchat.browser.TabInfo(1, "Home", "https://a.test/"),
-            com.ouor.localchat.browser.TabInfo(2, "News", "https://b.test/"),
-        )
-        browser.shown = 1
-        val chat = ChatTabs().also { it.opened += 2; it.used(2, 1) }
-        val ex = executor(Policies(emptyList(), emptyList()), listOf(Tabs, CloseTab), browser = browser, chat = chat)
-        // tabs and close_tab read the engine through ToolContext.browser; on the JVM the port stands in for it.
-        val listed = Tabs.lines(FakeFacts(browser), chat, "s")
-        assertEquals("[1] Home — https://a.test/ (on the user's screen)\n[2] News — https://b.test/ (your current tab) (you opened it)", listed)
-        val unknown = ex.execute(call("look"))
-        assertEquals(ToolCallState.FAILED, unknown.state)
-        // A fake tool with page facts goes through Targets: no tab named, the chat's current one.
-        val page = FakeTool("page", facts = ToolFacts(TargetRule.NONE, browser = true, changesPage = false), body = { _, _ -> ToolOutcome(lead = "ok") })
-        assertEquals("ok", executor(Policies(emptyList(), emptyList()), listOf(page), browser = browser, chat = chat).execute(call("page")).block.lead)
-    }
-
-    private class FakeFacts(val port: FakeBrowserPort) : com.ouor.localchat.browser.BrowserFacts {
-        override val tabs = port.tabs
-        override val front = kotlinx.coroutines.flow.MutableStateFlow(port.front)
-        override val shown = kotlinx.coroutines.flow.MutableStateFlow(port.shown)
-        override val activity = kotlinx.coroutines.flow.MutableStateFlow(emptyMap<Int, com.ouor.localchat.browser.ToolActivity>())
-        override val events = kotlinx.coroutines.flow.MutableSharedFlow<com.ouor.localchat.browser.Handled>()
-        override fun discard(tabId: Int) = false
-        override fun cookieHeader(url: String): String? = null
     }
 }
