@@ -24,4 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "localchat"
 include(":app")
+include(":browser")
+include(":browser-tools")
+include(":browser-agent")
  
